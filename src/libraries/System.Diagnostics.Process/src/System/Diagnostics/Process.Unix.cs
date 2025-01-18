@@ -1,16 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security;
 using System.Text;
 using System.Threading;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Diagnostics
 {
@@ -65,9 +65,9 @@ namespace System.Diagnostics
 
             EnsureState(State.HaveId);
 
-            // Check if we know the process has exited. This avoids us targetting another
+            // Check if we know the process has exited. This avoids us targeting another
             // process that has a recycled PID. This only checks our internal state, the Kill call below
-            // activly checks if the process is still alive.
+            // actively checks if the process is still alive.
             if (GetHasExited(refresh: false))
             {
                 return;
@@ -121,7 +121,7 @@ namespace System.Diagnostics
                 return;
             }
 
-            IReadOnlyList<Process> children = GetChildProcesses();
+            List<Process> children = GetChildProcesses();
 
             int killResult = Interop.Sys.Kill(_processId, Interop.Sys.Signals.SIGKILL);
             if (killResult != 0)
@@ -142,10 +142,7 @@ namespace System.Diagnostics
         }
 
         /// <summary>Discards any information about the associated process.</summary>
-        private void RefreshCore()
-        {
-            // Nop.  No additional state to reset.
-        }
+        partial void RefreshCore();
 
         /// <summary>Additional logic invoked when the Process is closed.</summary>
         private void CloseCore()
@@ -249,7 +246,7 @@ namespace System.Diagnostics
         /// should be temporarily boosted by the operating system when the main window
         /// has focus.
         /// </summary>
-        private bool PriorityBoostEnabledCore
+        private static bool PriorityBoostEnabledCore
         {
             get { return false; } //Nop
             set { } // Nop
@@ -615,10 +612,16 @@ namespace System.Diagnostics
         {
             var envp = new string[psi.Environment.Count];
             int index = 0;
-            foreach (var pair in psi.Environment)
+            foreach (KeyValuePair<string, string?> pair in psi.Environment)
             {
-                envp[index++] = pair.Key + "=" + pair.Value;
+                // Ignore null values for consistency with Environment.SetEnvironmentVariable
+                if (pair.Value != null)
+                {
+                    envp[index++] = pair.Key + "=" + pair.Value;
+                }
             }
+            // Resize the array in case we skipped some entries
+            Array.Resize(ref envp, index);
             return envp;
         }
 
@@ -766,10 +769,12 @@ namespace System.Diagnostics
                 return false;
             }
 
-            Interop.Sys.Permissions permissions = ((Interop.Sys.Permissions)fileinfo.Mode) & Interop.Sys.Permissions.S_IXUGO;
+            const UnixFileMode AllExecute = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+
+            UnixFileMode permissions = ((UnixFileMode)fileinfo.Mode) & AllExecute;
 
             // Avoid checking user/group when permission.
-            if (permissions == Interop.Sys.Permissions.S_IXUGO)
+            if (permissions == AllExecute)
             {
                 return true;
             }
@@ -788,11 +793,11 @@ namespace System.Diagnostics
             if (euid == fileinfo.Uid)
             {
                 // We own the file.
-                return (permissions & Interop.Sys.Permissions.S_IXUSR) != 0;
+                return (permissions & UnixFileMode.UserExecute) != 0;
             }
 
-            bool groupCanExecute = (permissions & Interop.Sys.Permissions.S_IXGRP) != 0;
-            bool otherCanExecute = (permissions & Interop.Sys.Permissions.S_IXOTH) != 0;
+            bool groupCanExecute = (permissions & UnixFileMode.GroupExecute) != 0;
+            bool otherCanExecute = (permissions & UnixFileMode.OtherExecute) != 0;
 
             // Avoid group check when group and other have same permissions.
             if (groupCanExecute == otherCanExecute)
@@ -838,7 +843,7 @@ namespace System.Diagnostics
         /// <param name="fd">The file descriptor.</param>
         /// <param name="direction">The pipe direction.</param>
         /// <returns>The opened stream.</returns>
-        private static Stream OpenStream(int fd, PipeDirection direction)
+        private static AnonymousPipeClientStream OpenStream(int fd, PipeDirection direction)
         {
             Debug.Assert(fd >= 0);
             return new AnonymousPipeClientStream(direction, new SafePipeHandle((IntPtr)fd, ownsHandle: true));
@@ -1055,13 +1060,13 @@ namespace System.Diagnostics
 
         public IntPtr MainWindowHandle => IntPtr.Zero;
 
-        private bool CloseMainWindowCore() => false;
+        private static bool CloseMainWindowCore() => false;
 
         public string MainWindowTitle => string.Empty;
 
         public bool Responding => true;
 
-        private bool WaitForInputIdleCore(int milliseconds) => throw new InvalidOperationException(SR.InputIdleUnkownError);
+        private static bool WaitForInputIdleCore(int _ /*milliseconds*/) => throw new InvalidOperationException(SR.InputIdleUnknownError);
 
         private static unsafe void EnsureInitialized()
         {

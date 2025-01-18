@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -12,12 +13,13 @@ namespace System.Threading
     /// </summary>
     internal sealed partial class PortableThreadPool
     {
-        private const int ThreadPoolThreadTimeoutMs = 20 * 1000; // If you change this make sure to change the timeout times in the tests.
         private const int SmallStackSizeBytes = 256 * 1024;
 
         private const short MaxPossibleThreadCount = short.MaxValue;
 
-#if TARGET_64BIT
+#if TARGET_BROWSER
+        private const short DefaultMaxWorkerThreadCount = 10;
+#elif TARGET_64BIT
         private const short DefaultMaxWorkerThreadCount = MaxPossibleThreadCount;
 #elif TARGET_32BIT
         private const short DefaultMaxWorkerThreadCount = 1023;
@@ -29,9 +31,39 @@ namespace System.Threading
         private const int CpuUtilizationLow = 80;
 
         private static readonly short ForcedMinWorkerThreads =
-            AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MinThreads", 0, false);
+            AppContextConfigHelper.GetInt16ComPlusOrDotNetConfig("System.Threading.ThreadPool.MinThreads", "ThreadPool_ForceMinWorkerThreads", 0, false);
         private static readonly short ForcedMaxWorkerThreads =
-            AppContextConfigHelper.GetInt16Config("System.Threading.ThreadPool.MaxThreads", 0, false);
+            AppContextConfigHelper.GetInt16ComPlusOrDotNetConfig("System.Threading.ThreadPool.MaxThreads", "ThreadPool_ForceMaxWorkerThreads", 0, false);
+
+#if TARGET_WINDOWS
+        // Continuations of IO completions are dispatched to the ThreadPool from IO completion poller threads. This avoids
+        // continuations blocking/stalling the IO completion poller threads. Setting UnsafeInlineIOCompletionCallbacks allows
+        // continuations to run directly on the IO completion poller thread, but is inherently unsafe due to the potential for
+        // those threads to become stalled due to blocking. Sometimes, setting this config value may yield better latency. The
+        // config value is named for consistency with SocketAsyncEngine.Unix.cs.
+        private static readonly bool UnsafeInlineIOCompletionCallbacks =
+            Environment.GetEnvironmentVariable("DOTNET_SYSTEM_NET_SOCKETS_INLINE_COMPLETIONS") == "1";
+
+        private static readonly short IOCompletionPortCount = DetermineIOCompletionPortCount();
+        private static readonly int IOCompletionPollerCount = DetermineIOCompletionPollerCount();
+#endif
+
+        private static readonly int ThreadPoolThreadTimeoutMs = DetermineThreadPoolThreadTimeoutMs();
+
+        private static int DetermineThreadPoolThreadTimeoutMs()
+        {
+            const int DefaultThreadPoolThreadTimeoutMs = 20 * 1000; // If you change this make sure to change the timeout times in the tests.
+
+            // The amount of time in milliseconds a thread pool thread waits without having done any work before timing out and
+            // exiting. Set to -1 to disable the timeout. Applies to worker threads and wait threads. Also see the
+            // ThreadsToKeepAlive config value for relevant information.
+            int timeoutMs =
+                AppContextConfigHelper.GetInt32Config(
+                    "System.Threading.ThreadPool.ThreadTimeoutMs",
+                    "DOTNET_ThreadPool_ThreadTimeoutMs",
+                    DefaultThreadPoolThreadTimeoutMs);
+            return timeoutMs >= -1 ? timeoutMs : DefaultThreadPoolThreadTimeoutMs;
+        }
 
         [ThreadStatic]
         private static object? t_completionCountObject;
@@ -47,6 +79,7 @@ namespace System.Threading
         private short _maxThreads;
         private short _legacy_minIOCompletionThreads;
         private short _legacy_maxIOCompletionThreads;
+        private int _numThreadsBeingKeptAlive;
 
         [StructLayout(LayoutKind.Explicit, Size = Internal.PaddingHelpers.CACHE_LINE_SIZE * 6)]
         private struct CacheLineSeparated
@@ -81,11 +114,6 @@ namespace System.Threading
         private long _memoryUsageBytes;
         private long _memoryLimitBytes;
 
-#if TARGET_WINDOWS
-        private readonly nint _ioPort;
-        private IOCompletionPoller[]? _ioCompletionPollers;
-#endif
-
         private readonly LowLevelLock _threadAdjustmentLock = new LowLevelLock();
 
         private CacheLineSeparated _separated; // SOS's ThreadPool command depends on this name
@@ -111,10 +139,19 @@ namespace System.Threading
             _legacy_minIOCompletionThreads = 1;
             _legacy_maxIOCompletionThreads = 1000;
 
+            if (NativeRuntimeEventSource.Log.IsEnabled())
+            {
+                NativeRuntimeEventSource.Log.ThreadPoolMinMaxThreads(
+                    (ushort)_minThreads,
+                    (ushort)_maxThreads,
+                    (ushort)_legacy_minIOCompletionThreads,
+                    (ushort)_legacy_maxIOCompletionThreads);
+            }
+
             _separated.counts.NumThreadsGoal = _minThreads;
 
 #if TARGET_WINDOWS
-            _ioPort = CreateIOCompletionPort();
+            InitializeIOOnWindows();
 #endif
         }
 
@@ -141,9 +178,7 @@ namespace System.Threading
                     return false;
                 }
 
-                if (ThreadPool.UsePortableThreadPoolForIO
-                        ? ioCompletionThreads > _legacy_maxIOCompletionThreads
-                        : !ThreadPool.CanSetMinIOCompletionThreads(ioCompletionThreads))
+                if (ioCompletionThreads > _legacy_maxIOCompletionThreads)
                 {
                     return false;
                 }
@@ -153,14 +188,7 @@ namespace System.Threading
                     return false;
                 }
 
-                if (ThreadPool.UsePortableThreadPoolForIO)
-                {
-                    _legacy_minIOCompletionThreads = (short)Math.Max(1, ioCompletionThreads);
-                }
-                else
-                {
-                    ThreadPool.SetMinIOCompletionThreads(ioCompletionThreads);
-                }
+                _legacy_minIOCompletionThreads = (short)Math.Max(1, ioCompletionThreads);
 
                 short newMinThreads = (short)Math.Max(1, workerThreads);
                 if (newMinThreads == _minThreads)
@@ -185,6 +213,15 @@ namespace System.Threading
                     {
                         addWorker = true;
                     }
+                }
+
+                if (NativeRuntimeEventSource.Log.IsEnabled())
+                {
+                    NativeRuntimeEventSource.Log.ThreadPoolMinMaxThreads(
+                        (ushort)_minThreads,
+                        (ushort)_maxThreads,
+                        (ushort)_legacy_minIOCompletionThreads,
+                        (ushort)_legacy_maxIOCompletionThreads);
                 }
             }
             finally
@@ -224,9 +261,7 @@ namespace System.Threading
                     return false;
                 }
 
-                if (ThreadPool.UsePortableThreadPoolForIO
-                        ? ioCompletionThreads < _legacy_minIOCompletionThreads
-                        : !ThreadPool.CanSetMaxIOCompletionThreads(ioCompletionThreads))
+                if (ioCompletionThreads < _legacy_minIOCompletionThreads)
                 {
                     return false;
                 }
@@ -236,14 +271,7 @@ namespace System.Threading
                     return false;
                 }
 
-                if (ThreadPool.UsePortableThreadPoolForIO)
-                {
-                    _legacy_maxIOCompletionThreads = (short)Math.Min(ioCompletionThreads, MaxPossibleThreadCount);
-                }
-                else
-                {
-                    ThreadPool.SetMaxIOCompletionThreads(ioCompletionThreads);
-                }
+                _legacy_maxIOCompletionThreads = (short)Math.Min(ioCompletionThreads, MaxPossibleThreadCount);
 
                 short newMaxThreads = (short)Math.Min(workerThreads, MaxPossibleThreadCount);
                 if (newMaxThreads == _maxThreads)
@@ -255,6 +283,15 @@ namespace System.Threading
                 if (_separated.counts.NumThreadsGoal > newMaxThreads)
                 {
                     _separated.counts.InterlockedSetNumThreadsGoal(newMaxThreads);
+                }
+
+                if (NativeRuntimeEventSource.Log.IsEnabled())
+                {
+                    NativeRuntimeEventSource.Log.ThreadPoolMinMaxThreads(
+                        (ushort)_minThreads,
+                        (ushort)_maxThreads,
+                        (ushort)_legacy_minIOCompletionThreads,
+                        (ushort)_legacy_maxIOCompletionThreads);
                 }
                 return true;
             }
@@ -434,12 +471,34 @@ namespace System.Threading
         private bool OnGen2GCCallback()
         {
             // Gen 2 GCs may be very infrequent in some cases. If it becomes an issue, consider updating the memory usage more
-            // frequently. The memory usage is only used for fallback purposes in blocking adjustment, so an artifically higher
+            // frequently. The memory usage is only used for fallback purposes in blocking adjustment, so an artificially higher
             // memory usage may cause blocking adjustment to fall back to slower adjustments sooner than necessary.
             GCMemoryInfo gcMemoryInfo = GC.GetGCMemoryInfo();
             _memoryLimitBytes = gcMemoryInfo.HighMemoryLoadThresholdBytes;
             _memoryUsageBytes = Math.Min(gcMemoryInfo.MemoryLoadBytes, gcMemoryInfo.HighMemoryLoadThresholdBytes);
             return true; // continue receiving gen 2 GC callbacks
+        }
+
+        internal static RegisteredWaitHandle RegisterWaitForSingleObject(
+             WaitHandle waitObject,
+             WaitOrTimerCallback callBack,
+             object? state,
+             uint millisecondsTimeOutInterval,
+             bool executeOnlyOnce,
+             bool flowExecutionContext)
+        {
+            ArgumentNullException.ThrowIfNull(waitObject);
+            ArgumentNullException.ThrowIfNull(callBack);
+
+            RegisteredWaitHandle registeredWaitHandle = new RegisteredWaitHandle(
+                waitObject,
+                new _ThreadPoolWaitOrTimerCallback(callBack, state, flowExecutionContext),
+                (int)millisecondsTimeOutInterval,
+                !executeOnlyOnce);
+
+            PortableThreadPool.ThreadPoolInstance.RegisterWaitHandle(registeredWaitHandle);
+
+            return registeredWaitHandle;
         }
     }
 }

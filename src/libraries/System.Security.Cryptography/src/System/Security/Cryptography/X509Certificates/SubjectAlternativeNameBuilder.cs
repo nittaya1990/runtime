@@ -33,13 +33,17 @@ namespace System.Security.Cryptography.X509Certificates
             AddGeneralName(new GeneralNameAsn { DnsName = s_idnMapping.GetAscii(dnsName) });
         }
 
-        public void AddUri(Uri uri!!)
+        public void AddUri(Uri uri)
         {
+            ArgumentNullException.ThrowIfNull(uri);
+
             AddGeneralName(new GeneralNameAsn { Uri = uri.AbsoluteUri.ToString() });
         }
 
-        public void AddIpAddress(IPAddress ipAddress!!)
+        public void AddIpAddress(IPAddress ipAddress)
         {
+            ArgumentNullException.ThrowIfNull(ipAddress);
+
             AddGeneralName(new GeneralNameAsn { IPAddress = ipAddress.GetAddressBytes() });
         }
 
@@ -73,10 +77,10 @@ namespace System.Security.Cryptography.X509Certificates
                 }
             }
 
-            return new X509Extension(
-                Oids.SubjectAltName,
-                writer.Encode(),
-                critical);
+            return writer.Encode(critical, static (critical, encoded) =>
+            {
+                return new X509Extension(Oids.SubjectAltName, encoded, critical);
+            });
         }
 
         private void AddGeneralName(GeneralNameAsn generalName)

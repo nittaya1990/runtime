@@ -16,23 +16,25 @@ void emitBegFN(bool hasFramePtr
                ,
                bool checkAlign
 #endif
-               ,
-               unsigned maxTmpSize);
+);
 
 void emitEndFN();
 
 void emitComputeCodeSizes();
 
-unsigned emitEndCodeGen(Compiler* comp,
-                        bool      contTrkPtrLcls,
-                        bool      fullyInt,
-                        bool      fullPtrMap,
-                        unsigned  xcptnsCount,
-                        unsigned* prologSize,
-                        unsigned* epilogSize,
-                        void**    codeAddr,
-                        void**    coldCodeAddr,
-                        void** consAddr DEBUGARG(unsigned* instrCount));
+unsigned emitEndCodeGen(Compiler*         comp,
+                        bool              contTrkPtrLcls,
+                        bool              fullyInt,
+                        bool              fullPtrMap,
+                        unsigned          xcptnsCount,
+                        unsigned*         prologSize,
+                        unsigned*         epilogSize,
+                        void**            codeAddr,
+                        void**            codeAddrRW,
+                        void**            coldCodeAddr,
+                        void**            coldCodeAddrRW,
+                        void**            consAddr,
+                        void** consAddrRW DEBUGARG(unsigned* instrCount));
 
 /************************************************************************/
 /*                      Method prolog and epilog                        */
@@ -65,18 +67,13 @@ void emitFinishPrologEpilogGeneration();
 
 void*    emitCurBlock();
 unsigned emitCurOffset();
+unsigned emitSpecifiedOffset(unsigned insCount, unsigned igSize);
 
 UNATIVE_OFFSET emitCodeOffset(void* blockPtr, unsigned codeOffs);
 
 #ifdef DEBUG
 const char* emitOffsetToLabel(unsigned offs);
 #endif // DEBUG
-
-/************************************************************************/
-/*                   Output target-independent instructions             */
-/************************************************************************/
-
-void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
 
 /************************************************************************/
 /*                   Emit initialized data sections                     */
@@ -105,41 +102,19 @@ UNATIVE_OFFSET emitDataSize();
 /************************************************************************/
 
 #ifdef TARGET_XARCH
-static bool instrIs3opImul(instruction ins);
-static bool instrIsExtendedReg3opImul(instruction ins);
-static bool instrHasImplicitRegPairDest(instruction ins);
-static void      check3opImulValues();
-static regNumber inst3opImulReg(instruction ins);
+static bool        instrIs3opImul(instruction ins);
+static bool        instrIsExtendedReg3opImul(instruction ins);
+static bool        instrHasImplicitRegPairDest(instruction ins);
+static void        check3opImulValues();
+static regNumber   inst3opImulReg(instruction ins);
 static instruction inst3opImulForReg(regNumber reg);
-#endif
-
-/************************************************************************/
-/*                   Emit PDB offset translation information            */
-/************************************************************************/
-
-#ifdef TRANSLATE_PDB
-
-static void SetILBaseOfCode(BYTE* pTextBase);
-static void SetILMethodBase(BYTE* pMethodEntry);
-static void SetILMethodStart(BYTE* pMethodCode);
-static void SetImgBaseOfCode(BYTE* pTextBase);
-
-void SetIDBaseToProlog();
-void SetIDBaseToOffset(int methodOffset);
-
-static void DisablePDBTranslation();
-static bool IsPDBEnabled();
-
-static void InitTranslationMaps(int ilCodeSize);
-static void DeleteTranslationMaps();
-static void InitTranslator(PDBRewriter* pPDB, int* rgSecMap, IMAGE_SECTION_HEADER** rgpHeader, int numSections);
 #endif
 
 /************************************************************************/
 /*                   Interface for generating unwind information        */
 /************************************************************************/
 
-#ifdef TARGET_ARMARCH
+#if defined(TARGET_ARMARCH) || defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
 
 bool emitIsFuncEnd(emitLocation* emitLoc, emitLocation* emitLocNextFragment = NULL);
 
@@ -151,7 +126,7 @@ void emitSplit(emitLocation*         startLoc,
 
 void emitUnwindNopPadding(emitLocation* locFrom, Compiler* comp);
 
-#endif // TARGET_ARMARCH
+#endif // TARGET_ARMARCH || defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
 
 #if defined(TARGET_ARM)
 

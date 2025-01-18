@@ -14,16 +14,20 @@ namespace System.Text.Json.Serialization.Converters
     /// </summary>
     internal class LargeObjectWithParameterizedConstructorConverter<T> : ObjectWithParameterizedConstructorConverter<T> where T : notnull
     {
-        protected sealed override bool ReadAndCacheConstructorArgument(ref ReadStack state, ref Utf8JsonReader reader, JsonParameterInfo jsonParameterInfo)
+        protected sealed override bool ReadAndCacheConstructorArgument(scoped ref ReadStack state, ref Utf8JsonReader reader, JsonParameterInfo jsonParameterInfo)
         {
             Debug.Assert(jsonParameterInfo.ShouldDeserialize);
-            Debug.Assert(jsonParameterInfo.Options != null);
 
-            bool success = jsonParameterInfo.ConverterBase.TryReadAsObject(ref reader, jsonParameterInfo.Options!, ref state, out object? arg);
+            bool success = jsonParameterInfo.EffectiveConverter.TryReadAsObject(ref reader, jsonParameterInfo.ParameterType, jsonParameterInfo.Options, ref state, out object? arg);
 
-            if (success && !(arg == null && jsonParameterInfo.IgnoreDefaultValuesOnRead))
+            if (success && !(arg == null && jsonParameterInfo.IgnoreNullTokensOnRead))
             {
-                ((object[])state.Current.CtorArgumentState!.Arguments)[jsonParameterInfo.ClrInfo.Position] = arg!;
+                if (arg == null && !jsonParameterInfo.IsNullable && jsonParameterInfo.Options.RespectNullableAnnotations)
+                {
+                    ThrowHelper.ThrowJsonException_ConstructorParameterDisallowNull(jsonParameterInfo.Name, state.Current.JsonTypeInfo.Type);
+                }
+
+                ((object[])state.Current.CtorArgumentState!.Arguments)[jsonParameterInfo.Position] = arg!;
             }
 
             return success;
@@ -31,16 +35,13 @@ namespace System.Text.Json.Serialization.Converters
 
         protected sealed override object CreateObject(ref ReadStackFrame frame)
         {
-            object[] arguments = (object[])frame.CtorArgumentState!.Arguments;
+            Debug.Assert(frame.CtorArgumentState != null);
+            Debug.Assert(frame.JsonTypeInfo.CreateObjectWithArgs != null);
+
+            object[] arguments = (object[])frame.CtorArgumentState.Arguments;
             frame.CtorArgumentState.Arguments = null!;
 
-            var createObject = (Func<object[], T>?)frame.JsonTypeInfo.CreateObjectWithArgs;
-
-            if (createObject == null)
-            {
-                // This means this constructor has more than 64 parameters.
-                ThrowHelper.ThrowNotSupportedException_ConstructorMaxOf64Parameters(TypeToConvert);
-            }
+            Func<object[], T> createObject = (Func<object[], T>)frame.JsonTypeInfo.CreateObjectWithArgs;
 
             object obj = createObject(arguments);
 
@@ -52,22 +53,10 @@ namespace System.Text.Json.Serialization.Converters
         {
             JsonTypeInfo typeInfo = state.Current.JsonTypeInfo;
 
-            // Ensure property cache has been initialized.
-            Debug.Assert(typeInfo.PropertyCache != null);
-
-            if (typeInfo.ParameterCache == null)
+            object?[] arguments = ArrayPool<object>.Shared.Rent(typeInfo.ParameterCache.Length);
+            foreach (JsonParameterInfo parameterInfo in typeInfo.ParameterCache)
             {
-                typeInfo.InitializePropCache();
-            }
-
-            List<KeyValuePair<string, JsonParameterInfo?>> cache = typeInfo.ParameterCache!.List;
-            object?[] arguments = ArrayPool<object>.Shared.Rent(cache.Count);
-
-            for (int i = 0; i < typeInfo.ParameterCount; i++)
-            {
-                JsonParameterInfo? parameterInfo = cache[i].Value;
-                Debug.Assert(parameterInfo != null);
-                arguments[parameterInfo.ClrInfo.Position] = parameterInfo.DefaultValue;
+                arguments[parameterInfo.Position] = parameterInfo.EffectiveDefaultValue;
             }
 
             state.Current.CtorArgumentState!.Arguments = arguments;

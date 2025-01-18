@@ -9,27 +9,34 @@ namespace System.Security.Cryptography
 
         public DSASignatureDeformatter() { }
 
-        public DSASignatureDeformatter(AsymmetricAlgorithm key!!) : this()
+        public DSASignatureDeformatter(AsymmetricAlgorithm key) : this()
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             _dsaKey = (DSA)key;
         }
 
-        public override void SetKey(AsymmetricAlgorithm key!!)
+        public override void SetKey(AsymmetricAlgorithm key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             _dsaKey = (DSA)key;
         }
 
         public override void SetHashAlgorithm(string strName)
         {
-            if (strName.ToUpperInvariant() != HashAlgorithmNames.SHA1)
+            if (!strName.Equals(HashAlgorithmNames.SHA1, StringComparison.InvariantCultureIgnoreCase))
             {
                 // To match desktop, throw here
                 throw new CryptographicUnexpectedOperationException(SR.Cryptography_InvalidOperation);
             }
         }
 
-        public override bool VerifySignature(byte[] rgbHash!!, byte[] rgbSignature!!)
+        public override bool VerifySignature(byte[] rgbHash, byte[] rgbSignature)
         {
+            ArgumentNullException.ThrowIfNull(rgbHash);
+            ArgumentNullException.ThrowIfNull(rgbSignature);
+
             if (_dsaKey == null)
                 throw new CryptographicUnexpectedOperationException(SR.Cryptography_FormatterMissingKey);
 

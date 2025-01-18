@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 //
-// common.h - precompiled headers include for the COM+ Execution Engine
+// common.h - precompiled headers include for the CLR Execution Engine
 //
 
 //
@@ -27,7 +27,7 @@
     // These don't seem useful, so turning them off is no big deal
 #pragma warning(disable:4201)   // nameless struct/union
 #pragma warning(disable:4512)   // can't generate assignment constructor
-#pragma warning(disable:4211)   // nonstandard extention used (char name[0] in structs)
+#pragma warning(disable:4211)   // nonstandard extension used (char name[0] in structs)
 #pragma warning(disable:4268)   // 'const' static/global data initialized with compiler generated default constructor fills the object with zeros
 #pragma warning(disable:4238)   // nonstandard extension used : class rvalue used as lvalue
 #pragma warning(disable:4291)   // no matching operator delete found
@@ -58,7 +58,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <winwrap.h>
-
+#include <algorithm>
 
 #include <windef.h>
 #include <winnt.h>
@@ -66,12 +66,19 @@
 #include <wchar.h>
 #include <objbase.h>
 #include <float.h>
-#include <math.h>
+#include <cmath>
 #include <time.h>
 #include <limits.h>
 #include <assert.h>
 
 #include <olectl.h>
+
+#ifdef HOST_AMD64
+#include <xmmintrin.h>
+#endif
+
+using std::max;
+using std::min;
 
 #ifdef _MSC_VER
 //non inline intrinsics are faster
@@ -97,17 +104,17 @@
 #include <daccess.h>
 
 typedef VPTR(class LoaderAllocator)     PTR_LoaderAllocator;
-typedef VPTR(class AppDomain)           PTR_AppDomain;
+typedef DPTR(PTR_LoaderAllocator)       PTR_PTR_LoaderAllocator;
+typedef DPTR(class AppDomain)           PTR_AppDomain;
 typedef DPTR(class ArrayBase)           PTR_ArrayBase;
 typedef DPTR(class Assembly)            PTR_Assembly;
 typedef DPTR(class AssemblyBaseObject)  PTR_AssemblyBaseObject;
 typedef DPTR(class AssemblyLoadContextBaseObject) PTR_AssemblyLoadContextBaseObject;
 typedef DPTR(class AssemblyBinder)      PTR_AssemblyBinder;
 typedef DPTR(class AssemblyNameBaseObject) PTR_AssemblyNameBaseObject;
-typedef VPTR(class BaseDomain)          PTR_BaseDomain;
 typedef DPTR(class ClassLoader)         PTR_ClassLoader;
 typedef DPTR(class ComCallMethodDesc)   PTR_ComCallMethodDesc;
-typedef DPTR(class ComPlusCallMethodDesc) PTR_ComPlusCallMethodDesc;
+typedef DPTR(class CLRToCOMCallMethodDesc) PTR_CLRToCOMCallMethodDesc;
 typedef VPTR(class DebugInterface)      PTR_DebugInterface;
 typedef DPTR(class Dictionary)          PTR_Dictionary;
 typedef DPTR(class DomainAssembly)      PTR_DomainAssembly;
@@ -115,8 +122,8 @@ typedef DPTR(struct FailedAssembly)     PTR_FailedAssembly;
 typedef VPTR(class EditAndContinueModule) PTR_EditAndContinueModule;
 typedef DPTR(class EEClass)             PTR_EEClass;
 typedef DPTR(class DelegateEEClass)     PTR_DelegateEEClass;
-typedef DPTR(struct DomainLocalModule)  PTR_DomainLocalModule;
 typedef VPTR(class EECodeManager)       PTR_EECodeManager;
+typedef DPTR(class RangeSectionMap)     PTR_RangeSectionMap;
 typedef DPTR(class EEConfig)            PTR_EEConfig;
 typedef VPTR(class EEDbgInterfaceImpl)  PTR_EEDbgInterfaceImpl;
 typedef VPTR(class DebugInfoManager)    PTR_DebugInfoManager;
@@ -154,6 +161,7 @@ typedef DPTR(class TypeHandle)          PTR_TypeHandle;
 typedef VPTR(class VirtualCallStubManager) PTR_VirtualCallStubManager;
 typedef VPTR(class VirtualCallStubManagerManager) PTR_VirtualCallStubManagerManager;
 typedef VPTR(class IGCHeap)             PTR_IGCHeap;
+typedef VPTR(class ModuleBase)          PTR_ModuleBase;
 
 //
 // _UNCHECKED_OBJECTREF is for code that can't deal with DEBUG OBJECTREFs
@@ -196,15 +204,6 @@ Thread * const CURRENT_THREAD = NULL;
 EXTERN_C AppDomain* STDCALL GetAppDomain();
 #endif //!DACCESS_COMPILE
 
-inline void RetailBreak()
-{
-#ifdef TARGET_X86
-    __asm int 3
-#else
-    DebugBreak();
-#endif
-}
-
 extern BOOL isMemoryReadable(const TADDR start, unsigned len);
 
 #ifndef memcpyUnsafe_f
@@ -219,45 +218,18 @@ FORCEINLINE void* memcpyUnsafe(void *dest, const void *src, size_t len)
 
 #endif // !memcpyUnsafe_f
 
-//
-// By default logging, and debug GC are enabled under debug
-//
-// These can be enabled in non-debug by removing the #ifdef _DEBUG
-// allowing one to log/check_gc a free build.
-//
+FORCEINLINE void* memcpyNoGCRefs(void * dest, const void * src, size_t len)
+{
+    WRAPPER_NO_CONTRACT;
+    return memcpy(dest, src, len);
+}
+
 #if defined(_DEBUG) && !defined(DACCESS_COMPILE)
-
-    //If memcpy has been defined to PAL_memcpy, we undefine it so that this case
-    //can be covered by the if !defined(memcpy) block below
-    #ifdef HOST_UNIX
-    #if IS_REDEFINED_IN_PAL(memcpy)
-    #undef memcpy
-    #endif //IS_REDEFINED_IN_PAL
-    #endif //HOST_UNIX
-
-        // You should be using CopyValueClass if you are doing an memcpy
-        // in the CG heap.
-    #if !defined(memcpy)
-    FORCEINLINE void* memcpyNoGCRefs(void * dest, const void * src, size_t len) {
-            WRAPPER_NO_CONTRACT;
-
-            #ifdef HOST_UNIX
-                return PAL_memcpy(dest, src, len);
-            #else //HOST_UNIX
-                return memcpy(dest, src, len);
-            #endif //HOST_UNIX
-
-        }
+    // You should be using CopyValueClass if you are doing an memcpy
+    // in the GC heap.
     extern "C" void *  __cdecl GCSafeMemCpy(void *, const void *, size_t);
-    #define memcpy(dest, src, len) GCSafeMemCpy(dest, src, len)
-    #endif // !defined(memcpy)
-#else // !_DEBUG && !DACCESS_COMPILE
-    FORCEINLINE void* memcpyNoGCRefs(void * dest, const void * src, size_t len) {
-            WRAPPER_NO_CONTRACT;
-
-            return memcpy(dest, src, len);
-        }
-#endif // !_DEBUG && !DACCESS_COMPILE
+#define memcpy(dest, src, len) GCSafeMemCpy(dest, src, len)
+#endif // _DEBUG && !DACCESS_COMPILE
 
 namespace Loader
 {
@@ -268,18 +240,6 @@ namespace Loader
         SafeLookup  //take no locks, no allocations
     } LoadFlag;
 }
-
-#if !defined(DACCESS_COMPILE)
-#if defined(TARGET_WINDOWS) && defined(TARGET_AMD64)
-EXTERN_C void STDCALL ClrRestoreNonvolatileContext(PCONTEXT ContextRecord);
-#elif !(defined(TARGET_WINDOWS) && defined(TARGET_X86)) // !(TARGET_WINDOWS && TARGET_AMD64) && !(TARGET_WINDOWS && TARGET_X86)
-inline void ClrRestoreNonvolatileContext(PCONTEXT ContextRecord)
-{
-    // Falling back to RtlRestoreContext() for now, though it should be possible to have simpler variants for these cases
-    RtlRestoreContext(ContextRecord, NULL);
-}
-#endif // TARGET_WINDOWS && TARGET_AMD64
-#endif // !DACCESS_COMPILE
 
 // src/inc
 #include "utilcode.h"
@@ -292,7 +252,6 @@ inline void ClrRestoreNonvolatileContext(PCONTEXT ContextRecord)
 #include "gcenv.interlocked.inl"
 
 #include "util.hpp"
-#include "ibclogger.h"
 #include "eepolicy.h"
 
 #include "vars.hpp"
@@ -393,6 +352,14 @@ void* GetClrModuleBase();
 // use this when you want to memcpy something that contains GC refs
 void memmoveGCRefs(void *dest, const void *src, size_t len);
 
+// Struct often used as a parameter to callbacks.
+typedef struct
+{
+    promote_func*  f;
+    ScanContext*   sc;
+    CrawlFrame *   cf;
+    SetSHash<Object**, PtrSetSHashTraits<Object**> > *pScannedSlots;
+} GCCONTEXT;
 
 #if defined(_DEBUG)
 
@@ -428,6 +395,8 @@ extern DummyGlobalContract ___contract;
 #undef COMMON_TURNED_FPO_ON
 #undef FPO_ON
 #endif
+
+void LogErrorToHost(const char* format, ...);
 
 #endif // !_common_h_
 

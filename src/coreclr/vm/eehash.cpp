@@ -15,91 +15,6 @@
 #include "typectxt.h"
 #include "genericdict.h"
 
-// ============================================================================
-// UTF8 string hash table helper.
-// ============================================================================
-EEHashEntry_t * EEUtf8HashTableHelper::AllocateEntry(LPCUTF8 pKey, BOOL bDeepCopy, void *pHeap)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        INJECT_FAULT(return NULL;);
-    }
-    CONTRACTL_END
-
-    EEHashEntry_t *pEntry;
-
-    if (bDeepCopy)
-    {
-        SIZE_T StringLen = strlen(pKey);
-        SIZE_T BufLen = 0;
-        if (!ClrSafeInt<SIZE_T>::addition(StringLen, SIZEOF_EEHASH_ENTRY + sizeof(LPUTF8) + 1, BufLen))
-            return NULL;
-        pEntry = (EEHashEntry_t *) new (nothrow) BYTE[BufLen];
-        if (!pEntry)
-            return NULL;
-
-        memcpy(pEntry->Key + sizeof(LPUTF8), pKey, StringLen + 1);
-        *((LPUTF8*)pEntry->Key) = (LPUTF8)(pEntry->Key + sizeof(LPUTF8));
-    }
-    else
-    {
-        pEntry = (EEHashEntry_t *) new (nothrow)BYTE[SIZEOF_EEHASH_ENTRY + sizeof(LPUTF8)];
-        if (pEntry)
-            *((LPCUTF8*)pEntry->Key) = pKey;
-    }
-
-    return pEntry;
-}
-
-
-void EEUtf8HashTableHelper::DeleteEntry(EEHashEntry_t *pEntry, void *pHeap)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        FORBID_FAULT;
-    }
-    CONTRACTL_END
-
-    delete [] (BYTE*)pEntry;
-}
-
-
-BOOL EEUtf8HashTableHelper::CompareKeys(EEHashEntry_t *pEntry, LPCUTF8 pKey)
-{
-    LIMITED_METHOD_DAC_CONTRACT;
-
-    LPCUTF8 pEntryKey = *((LPCUTF8*)pEntry->Key);
-    return (strcmp(pEntryKey, pKey) == 0) ? TRUE : FALSE;
-}
-
-
-DWORD EEUtf8HashTableHelper::Hash(LPCUTF8 pKey)
-{
-    LIMITED_METHOD_DAC_CONTRACT;
-
-    DWORD dwHash = 0;
-
-    while (*pKey != 0)
-    {
-        dwHash = (dwHash << 5) + (dwHash >> 5) + (*pKey);
-        pKey++;
-    }
-
-    return dwHash;
-}
-
-
-LPCUTF8 EEUtf8HashTableHelper::GetKey(EEHashEntry_t *pEntry)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    return *((LPCUTF8*)pEntry->Key);
-}
-
 #ifndef DACCESS_COMPILE
 
 // ============================================================================
@@ -362,7 +277,7 @@ EEHashEntry_t *EEClassFactoryInfoHashTableHelper::AllocateEntry(ClassFactoryInfo
     _ASSERTE(bDeepCopy && "Non deep copy is not supported by the EEComCompInfoHashTableHelper");
 
     if (pKey->m_strServerName)
-        cbStringLen = (S_SIZE_T(wcslen(pKey->m_strServerName)) + S_SIZE_T(1)) * S_SIZE_T(sizeof(WCHAR));
+        cbStringLen = (S_SIZE_T(u16_strlen(pKey->m_strServerName)) + S_SIZE_T(1)) * S_SIZE_T(sizeof(WCHAR));
 
     S_SIZE_T cbEntry = S_SIZE_T(SIZEOF_EEHASH_ENTRY + sizeof(ClassFactoryInfo)) + cbStringLen;
 
@@ -396,7 +311,7 @@ BOOL EEClassFactoryInfoHashTableHelper::CompareKeys(EEHashEntry_t *pEntry, Class
     if (((ClassFactoryInfo*)pEntry->Key)->m_clsid != pKey->m_clsid)
         return FALSE;
 
-    // Next do a trivial comparition on the server name pointer values.
+    // Next do a trivial comparison on the server name pointer values.
     if (((ClassFactoryInfo*)pEntry->Key)->m_strServerName == pKey->m_strServerName)
         return TRUE;
 
@@ -404,8 +319,8 @@ BOOL EEClassFactoryInfoHashTableHelper::CompareKeys(EEHashEntry_t *pEntry, Class
     if (!((ClassFactoryInfo*)pEntry->Key)->m_strServerName || !pKey->m_strServerName)
         return FALSE;
 
-    // Finally do a string comparition of the server names.
-    return wcscmp(((ClassFactoryInfo*)pEntry->Key)->m_strServerName, pKey->m_strServerName) == 0;
+    // Finally do a string comparison of the server names.
+    return u16_strcmp(((ClassFactoryInfo*)pEntry->Key)->m_strServerName, pKey->m_strServerName) == 0;
 }
 
 DWORD EEClassFactoryInfoHashTableHelper::Hash(ClassFactoryInfo *pKey)

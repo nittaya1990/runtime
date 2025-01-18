@@ -2,18 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.Tests;
 
 namespace System.Security.Cryptography.Rsa.Tests
 {
     public class DefaultRSAProvider : IRSAProvider
     {
         private bool? _supports384PrivateKey;
+        private bool? _supportsSha1Signatures;
+        private bool? _supportsMd5Signatures;
 
         public RSA Create() => RSA.Create();
 
         public RSA Create(int keySize)
         {
-#if NETCOREAPP
+#if NET
             return RSA.Create(keySize);
 #else
             RSA rsa = Create();
@@ -38,11 +41,16 @@ namespace System.Security.Cryptography.Rsa.Tests
             }
         }
 
+        public bool SupportsSha1Signatures => _supportsSha1Signatures ??= SignatureSupport.CanProduceSha1Signature(Create());
+        public bool SupportsMd5Signatures => _supportsMd5Signatures ??= SignatureSupport.CanProduceMd5Signature(Create());
+
         public bool SupportsLargeExponent => true;
 
         public bool SupportsSha2Oaep { get; } = true;
 
         public bool SupportsPss { get; } = true;
+
+        public bool SupportsSha3 { get; } = SHA3_256.IsSupported; // If SHA3_256 is supported, assume 384 and 512 are, too.
     }
 
     public partial class RSAFactory

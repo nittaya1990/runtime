@@ -69,29 +69,30 @@ static const gint16 opidx [] = {
 
 #endif
 
+#ifdef TARGET_RISCV64
+#define ARCH_PREFIX "riscv64-linux-gnu-"
+#else
 #define ARCH_PREFIX ""
+#endif
 //#define ARCH_PREFIX "powerpc64-linux-gnu-"
 
+#ifndef DISABLE_LOGGING
 const char*
 mono_inst_name (int op) {
-#ifndef DISABLE_LOGGING
 	if (op >= OP_LOAD && op <= OP_LAST)
 		return (const char*)&opstr + opidx [op - OP_LOAD];
 	if (op < OP_LOAD)
 		return mono_opcode_name (op);
 	g_error ("unknown opcode name for %d", op);
 	return NULL;
-#else
-	g_error ("unknown opcode name for %d", op);
-	g_assert_not_reached ();
-#endif
 }
+#endif
 
 void
 mono_blockset_print (MonoCompile *cfg, MonoBitSet *set, const char *name, guint idom)
 {
 #ifndef DISABLE_LOGGING
-	int i;
+	guint i;
 
 	if (name)
 		g_print ("%s:", name);
@@ -126,7 +127,6 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #endif
 	char *as_file;
 	char *o_file;
-	int unused G_GNUC_UNUSED;
 
 #ifdef HOST_WIN32
 	as_file = g_strdup_printf ("%s/test.s", tmp);
@@ -148,6 +148,8 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 			fprintf (ofd, "%c", id [i]);
 	}
 	fprintf (ofd, ":\n");
+
+MONO_DISABLE_WARNING(4127) /* conditional expression is constant */
 
 	if (emit_debug_info && cfg != NULL) {
 		MonoBasicBlock *bb;
@@ -183,6 +185,8 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 	fprintf (ofd, "\n");
 	fclose (ofd);
 
+MONO_RESTORE_WARNING
+
 #ifdef __APPLE__
 #ifdef __ppc64__
 #define DIS_CMD "otool64 -v -t"
@@ -190,9 +194,7 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #define DIS_CMD "otool -v -t"
 #endif
 #else
-#if defined(sparc) && !defined(__GNUC__)
-#define DIS_CMD "dis"
-#elif defined(TARGET_X86)
+#if defined(TARGET_X86)
 #define DIS_CMD "objdump -l -d"
 #elif defined(TARGET_AMD64)
   #if defined(HOST_WIN32)
@@ -205,9 +207,7 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #endif
 #endif
 
-#if defined(sparc)
-#define AS_CMD "as -xarch=v9"
-#elif defined (TARGET_X86)
+#if defined (TARGET_X86)
 #  if defined(__APPLE__)
 #    define AS_CMD "as -arch i386"
 #  else
@@ -231,8 +231,6 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #  else
 #    define AS_CMD "as -gstabs"
 #  endif
-#elif defined(__mips__) && (_MIPS_SIM == _ABIO32)
-#define AS_CMD "as -mips32"
 #elif defined(__ppc64__)
 #define AS_CMD "as -arch ppc64"
 #elif defined(__powerpc64__)
@@ -253,6 +251,7 @@ mono_disassemble_code (MonoCompile *cfg, guint8 *code, int size, char *id)
 #endif
 
 #ifdef HAVE_SYSTEM
+	int unused G_GNUC_UNUSED;
 	char *cmd = g_strdup_printf (ARCH_PREFIX AS_CMD " %s -o %s", as_file, o_file);
 	unused = system (cmd);
 	g_free (cmd);

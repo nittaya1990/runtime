@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Text;
-using System.ComponentModel;
 using System.Collections;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
+using System.Text;
 
 namespace System.DirectoryServices.ActiveDirectory
 {
@@ -46,8 +46,10 @@ namespace System.DirectoryServices.ActiveDirectory
         private bool _defaultSDSddlFormInitialized;
 
         #region constructors
-        public ActiveDirectorySchemaClass(DirectoryContext context!!, string ldapDisplayName)
+        public ActiveDirectorySchemaClass(DirectoryContext context, string ldapDisplayName)
         {
+            ArgumentNullException.ThrowIfNull(context);
+
             if ((context.Name == null) && (!context.isRootDomain()))
             {
                 throw new ArgumentException(SR.ContextNotAssociatedWithDomain, nameof(context));
@@ -208,10 +210,7 @@ namespace System.DirectoryServices.ActiveDirectory
                         _abstractClassEntry = null;
                     }
                     // dispose the schema object
-                    if (_schema != null)
-                    {
-                        _schema.Dispose();
-                    }
+                    _schema?.Dispose();
                 }
                 _disposed = true;
             }
@@ -219,8 +218,10 @@ namespace System.DirectoryServices.ActiveDirectory
         #endregion IDisposable
 
         #region public methods
-        public static ActiveDirectorySchemaClass FindByName(DirectoryContext context!!, string ldapDisplayName)
+        public static ActiveDirectorySchemaClass FindByName(DirectoryContext context, string ldapDisplayName)
         {
+            ArgumentNullException.ThrowIfNull(context);
+
             ActiveDirectorySchemaClass? schemaClass = null;
             if ((context.Name == null) && (!context.isRootDomain()))
             {
@@ -277,10 +278,7 @@ namespace System.DirectoryServices.ActiveDirectory
                 try
                 {
                     // create a new directory entry for this class
-                    if (_schemaEntry == null)
-                    {
-                        _schemaEntry = DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
-                    }
+                    _schemaEntry ??= DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
 
                     // this will create the class and set the CN value
                     string rdn = "CN=" + _commonName;
@@ -382,10 +380,7 @@ namespace System.DirectoryServices.ActiveDirectory
                     }
                     finally
                     {
-                        if (schemaRoleOwner != null)
-                        {
-                            schemaRoleOwner.Dispose();
-                        }
+                        schemaRoleOwner?.Dispose();
                         if (!alreadyUsingSchemaRoleOwnerContext)
                         {
                             schemaObject.Dispose();
@@ -463,11 +458,8 @@ namespace System.DirectoryServices.ActiveDirectory
 
                 if (isBound)
                 {
-                    if (_commonName == null)
-                    {
-                        // get the property from the server
-                        _commonName = (string)GetValueFromCache(PropertyManager.Cn, true)!;
-                    }
+                    // get the property from the server
+                    _commonName ??= (string)GetValueFromCache(PropertyManager.Cn, true)!;
                 }
                 return _commonName;
             }
@@ -633,7 +625,7 @@ namespace System.DirectoryServices.ActiveDirectory
                             }
                             else
                             {
-                                // there are no superiors, return an emtpy collection
+                                // there are no superiors, return an empty collection
                                 _possibleSuperiors = new ActiveDirectorySchemaClassCollection(_context, this, true /* is Bound */, PropertyManager.PossibleSuperiors, new ArrayList());
                             }
                         }
@@ -732,7 +724,7 @@ namespace System.DirectoryServices.ActiveDirectory
                             }
                             else
                             {
-                                // there are no mandatory properties, return an emtpy collection
+                                // there are no mandatory properties, return an empty collection
                                 _mandatoryProperties = new ActiveDirectorySchemaPropertyCollection(_context, this, true /* isBound */, PropertyManager.MustContain, new ArrayList());
                             }
                         }
@@ -808,7 +800,7 @@ namespace System.DirectoryServices.ActiveDirectory
                             }
                             else
                             {
-                                // there are no optional properties, return an emtpy collection
+                                // there are no optional properties, return an empty collection
                                 _optionalProperties = new ActiveDirectorySchemaPropertyCollection(_context, this, true /* isBound */, PropertyManager.MayContain, new ArrayList());
                             }
                         }
@@ -893,7 +885,7 @@ namespace System.DirectoryServices.ActiveDirectory
                             }
                             else
                             {
-                                // there are no auxiliary classes, return an emtpy collection
+                                // there are no auxiliary classes, return an empty collection
                                 _auxiliaryClasses = new ActiveDirectorySchemaClassCollection(_context, this, true /* is Bound */, PropertyManager.AuxiliaryClass, new ArrayList());
                             }
                         }
@@ -923,11 +915,8 @@ namespace System.DirectoryServices.ActiveDirectory
 
                 if (isBound)
                 {
-                    if (_subClassOf == null)
-                    {
-                        // get the property from the server
-                        _subClassOf = new ActiveDirectorySchemaClass(_context, (string)GetValueFromCache(PropertyManager.SubClassOf, true)!, (DirectoryEntry?)null, _schemaEntry);
-                    }
+                    // get the property from the server
+                    _subClassOf ??= new ActiveDirectorySchemaClass(_context, (string)GetValueFromCache(PropertyManager.SubClassOf, true)!, (DirectoryEntry?)null, _schemaEntry);
                 }
                 return _subClassOf;
             }
@@ -988,11 +977,8 @@ namespace System.DirectoryServices.ActiveDirectory
 
                 if (isBound)
                 {
-                    if (_schemaGuidBinaryForm == null)
-                    {
-                        // get the property from the server
-                        _schemaGuidBinaryForm = (byte[])GetValueFromCache(PropertyManager.SchemaIDGuid, true)!;
-                    }
+                    // get the property from the server
+                    _schemaGuidBinaryForm ??= (byte[])GetValueFromCache(PropertyManager.SchemaIDGuid, true)!;
                 }
 
                 // we cache the byte array and create a new guid each time
@@ -1045,9 +1031,9 @@ namespace System.DirectoryServices.ActiveDirectory
                 if (isBound)
                 {
                     // set the value on the directory entry
-                    SetProperty(PropertyManager.DefaultSecurityDescriptor, (value == null) ? null : value.GetSecurityDescriptorSddlForm(AccessControlSections.All));
+                    SetProperty(PropertyManager.DefaultSecurityDescriptor, value?.GetSecurityDescriptorSddlForm(AccessControlSections.All));
                 }
-                _defaultSDSddlForm = (value == null) ? null : value.GetSecurityDescriptorSddlForm(AccessControlSections.All);
+                _defaultSDSddlForm = value?.GetSecurityDescriptorSddlForm(AccessControlSections.All);
             }
         }
 
@@ -1096,7 +1082,7 @@ namespace System.DirectoryServices.ActiveDirectory
         // This method retrieves all the values of a property (single valued) from the values
         // that were retrieved from the server.
         //
-        private ICollection GetValuesFromCache(string propertyName)
+        private ArrayList GetValuesFromCache(string propertyName)
         {
             // retrieve the properties from the server if necessary
             InitializePropertiesFromSchemaContainer();
@@ -1115,10 +1101,7 @@ namespace System.DirectoryServices.ActiveDirectory
         {
             if (!_propertiesFromSchemaContainerInitialized)
             {
-                if (_schemaEntry == null)
-                {
-                    _schemaEntry = DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
-                }
+                _schemaEntry ??= DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
 
                 _propertyValuesFromServer = GetPropertiesFromSchemaContainer(_context, _schemaEntry, (_isDefunctOnServer) ? _commonName! : _ldapDisplayName, _isDefunctOnServer);
                 _propertiesFromSchemaContainerInitialized = true;
@@ -1285,7 +1268,7 @@ namespace System.DirectoryServices.ActiveDirectory
         // This method searches in the schema container for all non-defunct classes of the
         // specified name (ldapDisplayName).
         //
-        private ArrayList GetClasses(ICollection ldapDisplayNames)
+        private ArrayList GetClasses(ArrayList ldapDisplayNames)
         {
             ArrayList classes = new ArrayList();
             SearchResultCollection? resCol = null;
@@ -1297,10 +1280,7 @@ namespace System.DirectoryServices.ActiveDirectory
                     return classes;
                 }
 
-                if (_schemaEntry == null)
-                {
-                    _schemaEntry = DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
-                }
+                _schemaEntry ??= DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
 
                 // constructing the filter
                 StringBuilder str = new StringBuilder(100);
@@ -1350,10 +1330,7 @@ namespace System.DirectoryServices.ActiveDirectory
             }
             finally
             {
-                if (resCol != null)
-                {
-                    resCol.Dispose();
-                }
+                resCol?.Dispose();
             }
 
             return classes;
@@ -1363,7 +1340,7 @@ namespace System.DirectoryServices.ActiveDirectory
         // This method searches in the schema container for all non-defunct properties of the
         // specified name (ldapDisplayName).
         //
-        private ArrayList GetProperties(ICollection ldapDisplayNames)
+        private ArrayList GetProperties(ArrayList ldapDisplayNames)
         {
             ArrayList properties = new ArrayList();
             SearchResultCollection? resCol = null;
@@ -1375,10 +1352,7 @@ namespace System.DirectoryServices.ActiveDirectory
                     return properties;
                 }
 
-                if (_schemaEntry == null)
-                {
-                    _schemaEntry = DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
-                }
+                _schemaEntry ??= DirectoryEntryManager.GetDirectoryEntry(_context, WellKnownDN.SchemaNamingContext);
 
                 // constructing the filter
                 StringBuilder str = new StringBuilder(100);
@@ -1428,10 +1402,7 @@ namespace System.DirectoryServices.ActiveDirectory
             }
             finally
             {
-                if (resCol != null)
-                {
-                    resCol.Dispose();
-                }
+                resCol?.Dispose();
             }
 
             return properties;
@@ -1458,7 +1429,7 @@ namespace System.DirectoryServices.ActiveDirectory
                 // get the properties of the auxiliary classes
                 foreach (string auxSchemaClassName in GetValuesFromCache(PropertyManager.AuxiliaryClass))
                 {
-                    ActiveDirectorySchemaClass auxSchemaClass = new ActiveDirectorySchemaClass(_context, auxSchemaClassName, (DirectoryEntry?)null, null);
+                    using ActiveDirectorySchemaClass auxSchemaClass = new ActiveDirectorySchemaClass(_context, auxSchemaClassName, (DirectoryEntry?)null, null);
 
                     foreach (string property in auxSchemaClass.GetPropertyValuesRecursively(propertyNames))
                     {
@@ -1470,8 +1441,7 @@ namespace System.DirectoryServices.ActiveDirectory
                 }
                 foreach (string auxSchemaClassName in GetValuesFromCache(PropertyManager.SystemAuxiliaryClass))
                 {
-                    ActiveDirectorySchemaClass auxSchemaClass = new ActiveDirectorySchemaClass(_context, auxSchemaClassName, (DirectoryEntry?)null, null);
-
+                    using ActiveDirectorySchemaClass auxSchemaClass = new ActiveDirectorySchemaClass(_context, auxSchemaClassName, (DirectoryEntry?)null, null);
                     foreach (string property in auxSchemaClass.GetPropertyValuesRecursively(propertyNames))
                     {
                         if (!values.Contains(property))

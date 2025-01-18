@@ -68,30 +68,6 @@ protected:
 
 #endif  // FEATURE_REJIT
 
-#ifndef DACCESS_COMPILE
-// Used to walk the NGEN/R2R inlining data
-class NativeImageInliningIterator
-{
-public:
-    NativeImageInliningIterator();
-
-    HRESULT Reset(Module *pInlineeModule, MethodDesc *pInlinee);
-    BOOL Next();
-    MethodDesc *GetMethodDesc();
-
-private:
-    Module *m_pModule;
-    MethodDesc *m_pInlinee;
-    NewArrayHolder<MethodInModule> m_dynamicBuffer;
-    COUNT_T m_dynamicBufferSize;
-    COUNT_T m_dynamicAvailable;
-    COUNT_T m_currentPos;
-
-    const COUNT_T s_bufferSize = 10;
-    const COUNT_T s_failurePos = -2;
-};
-#endif // DACCESS_COMPILE
-
 //---------------------------------------------------------------------------------------
 // The big honcho.  One of these per AppDomain, plus one for the
 // SharedDomain.  Contains the hash table of ReJitInfo structures to manage
@@ -138,7 +114,6 @@ public:
     static CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags);
 
     static ReJITID GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart);
-    static ReJITID GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart);
     static HRESULT GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * pcReJitIds, ReJITID reJitIds[]);
 
 #ifdef FEATURE_REJIT
@@ -189,7 +164,8 @@ private:
 
     static HRESULT UpdateNativeInlinerActiveILVersions(
         SHash<CodeActivationBatchTraits> *pMgrToCodeActivationBatch,
-        MethodDesc         *pInlinee,
+        Module             *pInlineeModule,
+        mdMethodDef         inlineeMethodDef,
         BOOL                fIsRevert,
         COR_PRF_REJIT_FLAGS flags);
 

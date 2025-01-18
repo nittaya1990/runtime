@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
-include ("${CLR_INTEROP_TEST_ROOT}/Interop.cmake") 
+cmake_minimum_required(VERSION 3.20)
+include ("${CLR_INTEROP_TEST_ROOT}/Interop.cmake")
 set(CMAKE_OBJC_STANDARD 99)
 set(CMAKE_OBJC_STANDARD_REQUIRED TRUE)
 
@@ -15,8 +15,7 @@ set(SOURCES
 
 set_source_files_properties(autorelease.m PROPERTIES COMPILE_FLAGS -fno-objc-arc)
 
-include(CMakeFindFrameworks)
 find_library(FOUNDATION Foundation REQUIRED)
 
 add_library(ObjectiveC SHARED ${SOURCES})
-target_link_libraries(ObjectiveC ${FOUNDATION})
+target_link_libraries(ObjectiveC PRIVATE ${FOUNDATION})

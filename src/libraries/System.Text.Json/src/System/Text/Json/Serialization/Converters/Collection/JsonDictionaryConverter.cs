@@ -12,7 +12,8 @@ namespace System.Text.Json.Serialization
     /// </summary>
     internal abstract class JsonDictionaryConverter<TDictionary> : JsonResumableConverter<TDictionary>
     {
-        internal sealed override ConverterStrategy ConverterStrategy => ConverterStrategy.Dictionary;
+        internal override bool SupportsCreateObjectDelegate => true;
+        private protected sealed override ConverterStrategy GetDefaultConverterStrategy() => ConverterStrategy.Dictionary;
 
         protected internal abstract bool OnWriteResume(Utf8JsonWriter writer, TDictionary dictionary, JsonSerializerOptions options, ref WriteStack state);
     }
@@ -37,26 +38,21 @@ namespace System.Text.Json.Serialization
         /// <summary>
         /// When overridden, create the collection. It may be a temporary collection or the final collection.
         /// </summary>
-        protected virtual void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state)
+        protected virtual void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state)
         {
+            if (state.ParentProperty?.TryGetPrePopulatedValue(ref state) == true)
+            {
+                return;
+            }
+
             JsonTypeInfo typeInfo = state.Current.JsonTypeInfo;
 
             if (typeInfo.CreateObject is null)
             {
-                // The contract model was not able to produce a default constructor for two possible reasons:
-                // 1. Either the declared collection type is abstract and cannot be instantiated.
-                // 2. The collection type does not specify a default constructor.
-                if (TypeToConvert.IsAbstract || TypeToConvert.IsInterface)
-                {
-                    ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(TypeToConvert, ref reader, ref state);
-                }
-                else
-                {
-                    ThrowHelper.ThrowNotSupportedException_DeserializeNoConstructor(TypeToConvert, ref reader, ref state);
-                }
+                ThrowHelper.ThrowNotSupportedException_DeserializeNoConstructor(typeInfo, ref reader, ref state);
             }
 
-            state.Current.ReturnValue = typeInfo.CreateObject()!;
+            state.Current.ReturnValue = typeInfo.CreateObject();
             Debug.Assert(state.Current.ReturnValue is TDictionary);
         }
 
@@ -70,34 +66,36 @@ namespace System.Text.Json.Serialization
 
         protected static JsonConverter<T> GetConverter<T>(JsonTypeInfo typeInfo)
         {
-            JsonConverter<T> converter = (JsonConverter<T>)typeInfo.PropertyInfoForTypeInfo.ConverterBase;
-            Debug.Assert(converter != null); // It should not be possible to have a null converter at this point.
-
-            return converter;
+            return ((JsonTypeInfo<T>)typeInfo).EffectiveConverter;
         }
 
         internal sealed override bool OnTryRead(
             ref Utf8JsonReader reader,
             Type typeToConvert,
             JsonSerializerOptions options,
-            ref ReadStack state,
+            scoped ref ReadStack state,
             [MaybeNullWhen(false)] out TDictionary value)
         {
-            JsonTypeInfo elementTypeInfo = state.Current.JsonTypeInfo.ElementTypeInfo!;
+            JsonTypeInfo jsonTypeInfo = state.Current.JsonTypeInfo;
+            JsonTypeInfo keyTypeInfo = jsonTypeInfo.KeyTypeInfo!;
+            JsonTypeInfo elementTypeInfo = jsonTypeInfo.ElementTypeInfo!;
 
-            if (state.UseFastPath)
+            if (!state.SupportContinuation && !state.Current.CanContainMetadata)
             {
                 // Fast path that avoids maintaining state variables and dealing with preserved references.
 
                 if (reader.TokenType != JsonTokenType.StartObject)
                 {
-                    ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(TypeToConvert);
+                    ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(Type);
                 }
 
                 CreateCollection(ref reader, ref state);
 
-                state.Current.JsonPropertyInfo = elementTypeInfo.PropertyInfoForTypeInfo;
+                jsonTypeInfo.OnDeserializing?.Invoke(state.Current.ReturnValue!);
+
+                _keyConverter ??= GetConverter<TKey>(keyTypeInfo);
                 _valueConverter ??= GetConverter<TValue>(elementTypeInfo);
+
                 if (_valueConverter.CanUseDirectReadOrWrite && state.Current.NumberHandling == null)
                 {
                     // Process all elements.
@@ -114,10 +112,12 @@ namespace System.Text.Json.Serialization
                         // Read method would have thrown if otherwise.
                         Debug.Assert(reader.TokenType == JsonTokenType.PropertyName);
 
-                        TKey key = ReadDictionaryKey(ref reader, ref state);
+                        state.Current.JsonPropertyInfo = keyTypeInfo.PropertyInfoForTypeInfo;
+                        TKey key = ReadDictionaryKey(_keyConverter, ref reader, ref state, options);
 
                         // Read the value and add.
                         reader.ReadWithVerify();
+                        state.Current.JsonPropertyInfo = elementTypeInfo.PropertyInfoForTypeInfo;
                         TValue? element = _valueConverter.Read(ref reader, ElementType, options);
                         Add(key, element!, options, ref state);
                     }
@@ -137,73 +137,100 @@ namespace System.Text.Json.Serialization
 
                         // Read method would have thrown if otherwise.
                         Debug.Assert(reader.TokenType == JsonTokenType.PropertyName);
-
-                        TKey key = ReadDictionaryKey(ref reader, ref state);
+                        state.Current.JsonPropertyInfo = keyTypeInfo.PropertyInfoForTypeInfo;
+                        TKey key = ReadDictionaryKey(_keyConverter, ref reader, ref state, options);
 
                         reader.ReadWithVerify();
 
                         // Get the value from the converter and add it.
-                        _valueConverter.TryRead(ref reader, ElementType, options, ref state, out TValue? element);
+                        state.Current.JsonPropertyInfo = elementTypeInfo.PropertyInfoForTypeInfo;
+                        _valueConverter.TryRead(ref reader, ElementType, options, ref state, out TValue? element, out _);
                         Add(key, element!, options, ref state);
                     }
                 }
             }
             else
             {
-                // Slower path that supports continuation and preserved references.
-
+                // Slower path that supports continuation and reading metadata.
                 if (state.Current.ObjectState == StackFrameObjectState.None)
                 {
                     if (reader.TokenType != JsonTokenType.StartObject)
                     {
-                        ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(TypeToConvert);
+                        ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(Type);
                     }
 
                     state.Current.ObjectState = StackFrameObjectState.StartToken;
-                    state.Current.JsonPropertyInfo = elementTypeInfo.PropertyInfoForTypeInfo;
                 }
 
                 // Handle the metadata properties.
-                bool preserveReferences = options.ReferenceHandlingStrategy == ReferenceHandlingStrategy.Preserve;
-                if (preserveReferences && state.Current.ObjectState < StackFrameObjectState.PropertyValue)
+                if (state.Current.CanContainMetadata && state.Current.ObjectState < StackFrameObjectState.ReadMetadata)
                 {
-                    if (JsonSerializer.ResolveMetadataForJsonObject<TDictionary>(ref reader, ref state, options))
-                    {
-                        if (state.Current.ObjectState == StackFrameObjectState.ReadRefEndObject)
-                        {
-                            // This will never throw since it was previously validated in ResolveMetadataForJsonObject.
-                            value = (TDictionary)state.Current.ReturnValue!;
-                            return true;
-                        }
-                    }
-                    else
+                    if (!JsonSerializer.TryReadMetadata(this, jsonTypeInfo, ref reader, ref state))
                     {
                         value = default;
                         return false;
                     }
+
+                    if (state.Current.MetadataPropertyNames == MetadataPropertyName.Ref)
+                    {
+                        value = JsonSerializer.ResolveReferenceId<TDictionary>(ref state);
+                        return true;
+                    }
+
+                    state.Current.ObjectState = StackFrameObjectState.ReadMetadata;
+                }
+
+                // Dispatch to any polymorphic converters: should always be entered regardless of ObjectState progress
+                if ((state.Current.MetadataPropertyNames & MetadataPropertyName.Type) != 0 &&
+                    state.Current.PolymorphicSerializationState != PolymorphicSerializationState.PolymorphicReEntryStarted &&
+                    ResolvePolymorphicConverter(jsonTypeInfo, ref state) is JsonConverter polymorphicConverter)
+                {
+                    Debug.Assert(!IsValueType);
+                    bool success = polymorphicConverter.OnTryReadAsObject(ref reader, polymorphicConverter.Type!, options, ref state, out object? objectResult);
+                    value = (TDictionary)objectResult!;
+                    state.ExitPolymorphicConverter(success);
+                    return success;
                 }
 
                 // Create the dictionary.
                 if (state.Current.ObjectState < StackFrameObjectState.CreatedObject)
                 {
+                    if (state.Current.CanContainMetadata)
+                    {
+                        JsonSerializer.ValidateMetadataForObjectConverter(ref state);
+                    }
+
                     CreateCollection(ref reader, ref state);
+
+                    if ((state.Current.MetadataPropertyNames & MetadataPropertyName.Id) != 0)
+                    {
+                        Debug.Assert(state.ReferenceId != null);
+                        Debug.Assert(options.ReferenceHandlingStrategy == JsonKnownReferenceHandler.Preserve);
+                        Debug.Assert(state.Current.ReturnValue is TDictionary);
+                        state.ReferenceResolver.AddReference(state.ReferenceId, state.Current.ReturnValue);
+                        state.ReferenceId = null;
+                    }
+
+                    jsonTypeInfo.OnDeserializing?.Invoke(state.Current.ReturnValue!);
+
                     state.Current.ObjectState = StackFrameObjectState.CreatedObject;
                 }
 
                 // Process all elements.
+                _keyConverter ??= GetConverter<TKey>(keyTypeInfo);
                 _valueConverter ??= GetConverter<TValue>(elementTypeInfo);
                 while (true)
                 {
                     if (state.Current.PropertyState == StackFramePropertyState.None)
                     {
-                        state.Current.PropertyState = StackFramePropertyState.ReadName;
-
                         // Read the key name.
                         if (!reader.Read())
                         {
                             value = default;
                             return false;
                         }
+
+                        state.Current.PropertyState = StackFramePropertyState.ReadName;
                     }
 
                     // Determine the property.
@@ -220,16 +247,26 @@ namespace System.Text.Json.Serialization
 
                         state.Current.PropertyState = StackFramePropertyState.Name;
 
-                        if (preserveReferences)
+                        if (state.Current.CanContainMetadata)
                         {
-                            ReadOnlySpan<byte> propertyName = reader.GetSpan();
-                            if (propertyName.Length > 0 && propertyName[0] == '$')
+                            ReadOnlySpan<byte> propertyName = reader.GetUnescapedSpan();
+                            if (JsonSerializer.IsMetadataPropertyName(propertyName, state.Current.BaseJsonTypeInfo.PolymorphicTypeResolver))
                             {
-                                ThrowHelper.ThrowUnexpectedMetadataException(propertyName, ref reader, ref state);
+                                if (options.AllowOutOfOrderMetadataProperties)
+                                {
+                                    reader.SkipWithVerify();
+                                    state.Current.EndElement();
+                                    continue;
+                                }
+                                else
+                                {
+                                    ThrowHelper.ThrowUnexpectedMetadataException(propertyName, ref reader, ref state);
+                                }
                             }
                         }
 
-                        key = ReadDictionaryKey(ref reader, ref state);
+                        state.Current.JsonPropertyInfo = keyTypeInfo.PropertyInfoForTypeInfo;
+                        key = ReadDictionaryKey(_keyConverter, ref reader, ref state, options);
                     }
                     else
                     {
@@ -239,20 +276,21 @@ namespace System.Text.Json.Serialization
 
                     if (state.Current.PropertyState < StackFramePropertyState.ReadValue)
                     {
-                        state.Current.PropertyState = StackFramePropertyState.ReadValue;
-
-                        if (!SingleValueReadWithReadAhead(_valueConverter.RequiresReadAhead, ref reader, ref state))
+                        if (!reader.TryAdvanceWithOptionalReadAhead(_valueConverter.RequiresReadAhead))
                         {
                             state.Current.DictionaryKey = key;
                             value = default;
                             return false;
                         }
+
+                        state.Current.PropertyState = StackFramePropertyState.ReadValue;
                     }
 
                     if (state.Current.PropertyState < StackFramePropertyState.TryRead)
                     {
                         // Get the value from the converter and add it.
-                        bool success = _valueConverter.TryRead(ref reader, typeof(TValue), options, ref state, out TValue? element);
+                        state.Current.JsonPropertyInfo = elementTypeInfo.PropertyInfoForTypeInfo;
+                        bool success = _valueConverter.TryRead(ref reader, typeof(TValue), options, ref state, out TValue? element, out _);
                         if (!success)
                         {
                             state.Current.DictionaryKey = key;
@@ -267,30 +305,28 @@ namespace System.Text.Json.Serialization
             }
 
             ConvertCollection(ref state, options);
-            value = (TDictionary)state.Current.ReturnValue!;
+            object result = state.Current.ReturnValue!;
+            jsonTypeInfo.OnDeserialized?.Invoke(result);
+            value = (TDictionary)result;
+
             return true;
 
-            TKey ReadDictionaryKey(ref Utf8JsonReader reader, ref ReadStack state)
+            static TKey ReadDictionaryKey(JsonConverter<TKey> keyConverter, ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)
             {
                 TKey key;
-                string unescapedPropertyNameAsString;
-
-                _keyConverter ??= GetConverter<TKey>(state.Current.JsonTypeInfo.KeyTypeInfo!);
+                string unescapedPropertyNameAsString = reader.GetString()!;
+                state.Current.JsonPropertyNameAsString = unescapedPropertyNameAsString; // Copy key name for JSON Path support in case of error.
 
                 // Special case string to avoid calling GetString twice and save one allocation.
-                if (_keyConverter.IsInternalConverter && KeyType == typeof(string))
+                if (keyConverter.IsInternalConverter && keyConverter.Type == typeof(string))
                 {
-                    unescapedPropertyNameAsString = reader.GetString()!;
                     key = (TKey)(object)unescapedPropertyNameAsString;
                 }
                 else
                 {
-                    key = _keyConverter.ReadAsPropertyNameCore(ref reader, KeyType, options);
-                    unescapedPropertyNameAsString = reader.GetString()!;
+                    key = keyConverter.ReadAsPropertyNameCore(ref reader, keyConverter.Type, options);
                 }
 
-                // Copy key name for JSON Path support in case of error.
-                state.Current.JsonPropertyNameAsString = unescapedPropertyNameAsString;
                 return key;
             }
         }
@@ -307,17 +343,22 @@ namespace System.Text.Json.Serialization
                 return true;
             }
 
+            JsonTypeInfo jsonTypeInfo = state.Current.JsonTypeInfo;
+
             if (!state.Current.ProcessedStartToken)
             {
                 state.Current.ProcessedStartToken = true;
+
+                jsonTypeInfo.OnSerializing?.Invoke(dictionary);
+
                 writer.WriteStartObject();
-                if (options.ReferenceHandlingStrategy == ReferenceHandlingStrategy.Preserve)
+
+                if (state.CurrentContainsMetadata && CanHaveMetadata)
                 {
-                    MetadataPropertyName propertyName = JsonSerializer.WriteReferenceForObject(this, ref state, writer);
-                    Debug.Assert(propertyName != MetadataPropertyName.Ref);
+                    JsonSerializer.WriteMetadataForObject(this, ref state, writer);
                 }
 
-                state.Current.JsonPropertyInfo = state.Current.JsonTypeInfo.ElementTypeInfo!.PropertyInfoForTypeInfo;
+                state.Current.JsonPropertyInfo = jsonTypeInfo.ElementTypeInfo!.PropertyInfoForTypeInfo;
             }
 
             bool success = OnWriteResume(writer, dictionary, options, ref state);
@@ -328,12 +369,11 @@ namespace System.Text.Json.Serialization
                     state.Current.ProcessedEndToken = true;
                     writer.WriteEndObject();
                 }
+
+                jsonTypeInfo.OnSerialized?.Invoke(dictionary);
             }
 
             return success;
         }
-
-        internal sealed override void CreateInstanceForReferenceResolver(ref Utf8JsonReader reader, ref ReadStack state, JsonSerializerOptions options)
-            => CreateCollection(ref reader, ref state);
     }
 }

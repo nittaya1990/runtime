@@ -4,8 +4,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace Internal.Cryptography
@@ -61,13 +64,6 @@ namespace Internal.Cryptography
             return oddParityKey;
         }
 
-        internal static byte[] GenerateRandom(int count)
-        {
-            byte[] buffer = new byte[count];
-            RandomNumberGenerator.Fill(buffer);
-            return buffer;
-        }
-
         // Encode a byte array as an array of upper-case hex characters.
         internal static char[] ToHexArrayUpper(this byte[] bytes)
         {
@@ -88,7 +84,7 @@ namespace Internal.Cryptography
 
             ReadOnlySpan<char> s = hexString;
 
-            if (s.Length != 0 && s[0] == '\u200E')
+            if (s.StartsWith('\u200E'))
             {
                 s = s.Slice(1);
             }
@@ -123,7 +119,7 @@ namespace Internal.Cryptography
                 // so add it to the buffer.
                 if (!byteInProgress)
                 {
-                    Debug.Assert(index < cbHex, "index < cbHex");
+                    Debug.Assert(index < cbHex);
 
                     hex[index] = accum;
                     index++;
@@ -134,7 +130,7 @@ namespace Internal.Cryptography
             // The .NET Framework algorithm removed all whitespace before the loop, then went up to length/2
             // of what was left.  This means that in the event of odd-length input the last char is
             // ignored, no exception should be raised.
-            Debug.Assert(index == cbHex, "index == cbHex");
+            Debug.Assert(index == cbHex);
 
             return hex;
         }
@@ -211,7 +207,8 @@ namespace Internal.Cryptography
             if (aCurve.IsNamed)
             {
                 // On Windows we care about FriendlyName, on Unix we care about Value
-                return (aCurve.Oid.Value == bCurve.Oid.Value && aCurve.Oid.FriendlyName == bCurve.Oid.FriendlyName);
+                return aCurve.Oid.Value == bCurve.Oid.Value &&
+                    string.Equals(aCurve.Oid.FriendlyName, bCurve.Oid.FriendlyName, StringComparison.OrdinalIgnoreCase);
             }
 
             if (!aCurve.IsExplicit)
@@ -252,10 +249,10 @@ namespace Internal.Cryptography
 
         private static bool IsValidMonth(this Calendar calendar, int year, int month, int era)
         {
-            return (calendar.IsValidYear(year, era) && month >= 1 && month <= calendar.GetMonthsInYear(year, era));
+            return (calendar.IsValidYear(year) && month >= 1 && month <= calendar.GetMonthsInYear(year, era));
         }
 
-        private static bool IsValidYear(this Calendar calendar, int year, int era)
+        private static bool IsValidYear(this Calendar calendar, int year)
         {
             return (year >= calendar.GetYear(calendar.MinSupportedDateTime) && year <= calendar.GetYear(calendar.MaxSupportedDateTime));
         }
@@ -326,6 +323,69 @@ namespace Internal.Cryptography
         public static int GetPaddingSize(this SymmetricAlgorithm algorithm, CipherMode mode, int feedbackSizeInBits)
         {
             return (mode == CipherMode.CFB ? feedbackSizeInBits : algorithm.BlockSize) / 8;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static unsafe ref readonly byte GetNonNullPinnableReference(ReadOnlySpan<byte> buffer)
+        {
+            // Based on the internal implementation from MemoryMarshal.
+            return ref buffer.Length != 0 ? ref MemoryMarshal.GetReference(buffer) : ref Unsafe.AsRef<byte>((void*)1);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static unsafe ref byte GetNonNullPinnableReference(Span<byte> buffer)
+        {
+            // Based on the internal implementation from MemoryMarshal.
+            return ref buffer.Length != 0 ? ref MemoryMarshal.GetReference(buffer) : ref Unsafe.AsRef<byte>((void*)1);
+        }
+
+        internal static ReadOnlySpan<byte> ArrayToSpanOrThrow(
+            byte[] arg,
+            [CallerArgumentExpression(nameof(arg))] string? paramName = null)
+        {
+            ArgumentNullException.ThrowIfNull(arg, paramName);
+
+            return arg;
+        }
+
+        internal static int HashLength(HashAlgorithmName hashAlgorithmName)
+        {
+            if (hashAlgorithmName == HashAlgorithmName.SHA1)
+            {
+                return HMACSHA1.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA256)
+            {
+                return HMACSHA256.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA384)
+            {
+                return HMACSHA384.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA512)
+            {
+                return HMACSHA512.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA3_256)
+            {
+                return HMACSHA3_256.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA3_384)
+            {
+                return HMACSHA3_384.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.SHA3_512)
+            {
+                return HMACSHA3_512.HashSizeInBytes;
+            }
+            else if (hashAlgorithmName == HashAlgorithmName.MD5)
+            {
+                return HMACMD5.HashSizeInBytes;
+            }
+            else
+            {
+                throw new ArgumentOutOfRangeException(nameof(hashAlgorithmName));
+            }
         }
     }
 }

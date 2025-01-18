@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using ILCompiler.DependencyAnalysis;
+using ILCompiler.DependencyAnalysisFramework;
 
 using Internal.TypeSystem;
 
@@ -11,7 +12,7 @@ namespace ILCompiler
 {
     internal delegate void RootAdder(object o, string reason);
 
-    internal class RootingServiceProvider : IRootingServiceProvider
+    internal sealed class RootingServiceProvider : IRootingServiceProvider
     {
         private readonly NodeFactory _factory;
         private readonly RootAdder _rootAdder;
@@ -22,14 +23,17 @@ namespace ILCompiler
             _rootAdder = rootAdder;
         }
 
-        public void AddCompilationRoot(MethodDesc method, string reason, string exportName = null)
+        public void AddCompilationRoot(MethodDesc method, string reason, string exportName = null, bool exportHidden = false)
         {
             MethodDesc canonMethod = method.GetCanonMethodTarget(CanonicalFormKind.Specific);
             IMethodNode methodEntryPoint = _factory.MethodEntrypoint(canonMethod);
             _rootAdder(methodEntryPoint, reason);
 
             if (exportName != null)
-                _factory.NodeAliases.Add(methodEntryPoint, exportName);
+            {
+                exportName = _factory.NameMangler.NodeMangler.ExternMethod(exportName, method);
+                _factory.NodeAliases.Add(methodEntryPoint, (exportName, exportHidden));
+            }
 
             if (canonMethod != method && method.HasInstantiation)
                 _rootAdder(_factory.MethodGenericDictionary(method), reason);
@@ -40,10 +44,42 @@ namespace ILCompiler
             _rootAdder(_factory.MaximallyConstructableType(type), reason);
         }
 
+        public void AddReflectionRoot(TypeDesc type, string reason)
+        {
+            TypeDesc lookedAtType = type;
+            do
+            {
+                _factory.TypeSystemContext.EnsureLoadableType(lookedAtType);
+                lookedAtType = (lookedAtType as MetadataType)?.ContainingType;
+            }
+            while (lookedAtType != null);
+
+            _rootAdder(_factory.ReflectedType(type), reason);
+        }
+
         public void AddReflectionRoot(MethodDesc method, string reason)
         {
             if (!_factory.MetadataManager.IsReflectionBlocked(method))
-                _rootAdder(_factory.ReflectableMethod(method), reason);
+            {
+                _factory.TypeSystemContext.EnsureLoadableMethod(method);
+                _rootAdder(_factory.ReflectedMethod(method.GetCanonMethodTarget(CanonicalFormKind.Specific)), reason);
+            }
+        }
+
+        public void AddReflectionRoot(FieldDesc field, string reason)
+        {
+            if (!_factory.MetadataManager.IsReflectionBlocked(field))
+            {
+                _factory.TypeSystemContext.EnsureLoadableType(field.OwningType);
+                _factory.TypeSystemContext.EnsureLoadableType(field.FieldType);
+                _rootAdder(_factory.ReflectedField(field), reason);
+            }
+        }
+
+        public void AddCompilationRoot(object o, string reason)
+        {
+            Debug.Assert(o is IDependencyNode<NodeFactory>);
+            _rootAdder(o, reason);
         }
 
         public void RootThreadStaticBaseForType(TypeDesc type, string reason)
@@ -104,11 +140,12 @@ namespace ILCompiler
             }
         }
 
-        public void RootReadOnlyDataBlob(byte[] data, int alignment, string reason, string exportName)
+        public void RootReadOnlyDataBlob(byte[] data, int alignment, string reason, string exportName, bool exportHidden)
         {
             var blob = _factory.ReadOnlyDataBlob("__readonlydata_" + exportName, data, alignment);
             _rootAdder(blob, reason);
-            _factory.NodeAliases.Add(blob, exportName);
+            exportName = _factory.NameMangler.NodeMangler.ExternVariable(exportName);
+            _factory.NodeAliases.Add(blob, (exportName, exportHidden));
         }
 
         public void RootDelegateMarshallingData(DefType type, string reason)

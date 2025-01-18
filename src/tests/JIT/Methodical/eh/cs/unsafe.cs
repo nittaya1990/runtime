@@ -4,8 +4,11 @@
 // unsafe memory access in a funclet
 
 using System;
+using Xunit;
 
-class Test
+namespace Test_unsafe
+{
+public class Test
 {
 
     private static TestUtil.TestLog testLog;
@@ -50,7 +53,9 @@ class Test
         }
     }
 
-    static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         //Start recording
         testLog.StartRecording();
@@ -66,11 +71,12 @@ class Test
             goto done;
         }
         Console.WriteLine("After try");
-        done:
+    done:
         Console.WriteLine("Done");
         // stop recoding
         testLog.StopRecording();
 
         return testLog.VerifyOutput();
     }
+}
 }

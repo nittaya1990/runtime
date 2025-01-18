@@ -21,6 +21,7 @@ elseif(TARGET_AARCH64)
 endif()
 
 SET(libunwind_ptrace_la_SOURCES
+    mi/init.c
     ptrace/_UPT_elf.c
     ptrace/_UPT_accessors.c ptrace/_UPT_access_fpreg.c
     ptrace/_UPT_access_mem.c ptrace/_UPT_access_reg.c
@@ -28,6 +29,7 @@ SET(libunwind_ptrace_la_SOURCES
     ptrace/_UPT_find_proc_info.c ptrace/_UPT_get_dyn_info_list_addr.c
     ptrace/_UPT_put_unwind_info.c ptrace/_UPT_get_proc_name.c
     ptrace/_UPT_reg_offset.c ptrace/_UPT_resume.c
+    ptrace/_UPT_get_elf_filename.c
 )
 
 SET(libunwind_coredump_la_SOURCES
@@ -38,7 +40,9 @@ SET(libunwind_coredump_la_SOURCES
     coredump/_UCD_elf_map_image.c
     coredump/_UCD_find_proc_info.c
     coredump/_UCD_get_proc_name.c
+    coredump/_UCD_get_elf_filename.c
 
+    mi/init.c
     coredump/_UPT_elf.c
     coredump/_UPT_access_fpreg.c
     coredump/_UPT_get_dyn_info_list_addr.c
@@ -58,6 +62,8 @@ SET(libunwind_la_SOURCES_generic
     mi/Gget_fpreg.c mi/Gset_fpreg.c
     mi/Gset_caching_policy.c
     mi/Gset_cache_size.c
+    mi/Gset_iterate_phdr_function.c
+    mi/Gget_elf_filename.c
 )
 
 SET(libunwind_la_SOURCES_os_linux
@@ -141,6 +147,8 @@ SET(libunwind_la_SOURCES_local_nounwind
     mi/Lget_fpreg.c mi/Lset_fpreg.c
     mi/Lset_caching_policy.c
     mi/Lset_cache_size.c
+    mi/Lset_iterate_phdr_function.c
+    mi/Lget_elf_filename.c
 )
 
 SET(libunwind_la_SOURCES_local
@@ -156,12 +164,14 @@ SET(libunwind_dwarf_local_la_SOURCES
     dwarf/Lexpr.c dwarf/Lfde.c dwarf/Lparser.c dwarf/Lpe.c
     dwarf/Lfind_proc_info-lsb.c
     dwarf/Lfind_unwind_table.c
+    dwarf/Lget_proc_info_in_range.c
 )
 
 SET(libunwind_dwarf_generic_la_SOURCES
     dwarf/Gexpr.c dwarf/Gfde.c dwarf/Gparser.c dwarf/Gpe.c
     dwarf/Gfind_proc_info-lsb.c
     dwarf/Gfind_unwind_table.c
+    dwarf/Gget_proc_info_in_range.c
 )
 
 SET(libunwind_elf32_la_SOURCES
@@ -351,7 +361,7 @@ endif()
 
 add_library(libunwind
   OBJECT
-  win/pal-single-threaded.c
+  remote/win/missing-functions.c
   # ${libunwind_la_SOURCES}  Local...
   ${libunwind_remote_la_SOURCES}
     # Commented out above for LOCAL + REMOTE runtime build

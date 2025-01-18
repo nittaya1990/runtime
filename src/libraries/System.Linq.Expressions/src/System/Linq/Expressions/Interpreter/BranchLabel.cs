@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace System.Linq.Expressions.Interpreter
@@ -72,10 +72,7 @@ namespace System.Linq.Expressions.Interpreter
 
             if (_targetIndex == UnknownIndex)
             {
-                if (_forwardBranchFixups == null)
-                {
-                    _forwardBranchFixups = new List<int>();
-                }
+                _forwardBranchFixups ??= new List<int>();
                 _forwardBranchFixups.Add(branchIndex);
             }
             else

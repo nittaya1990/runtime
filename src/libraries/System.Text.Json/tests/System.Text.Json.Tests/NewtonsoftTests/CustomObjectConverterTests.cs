@@ -138,7 +138,7 @@ namespace System.Text.Json.Tests
             Assert.Null(byteArrayClass.NullByteArray);
         }
 
-        private static readonly byte[] s_testData = Encoding.UTF8.GetBytes("This is some test data!!!");
+        private static readonly byte[] s_testData = "This is some test data!!!"u8.ToArray();
 
         [Fact]
         public void AssertShouldSerializeTest()
@@ -192,14 +192,14 @@ namespace System.Text.Json.Tests
         public virtual string Company { get; set; }
         public virtual Range<decimal> DecimalRange { get; set; }
         public virtual Range<int> IntRange { get; set; }
-        public virtual Range<decimal> NullDecimalRange { get; set; }
+        public virtual Range<decimal>? NullDecimalRange { get; set; }
     }
 
     internal class MyClass
     {
-        public string Value { get; set; }
+        public string? Value { get; set; }
 
-        public IThing Thing { get; set; }
+        public IThing? Thing { get; set; }
     }
 
     internal interface IThing
@@ -215,6 +215,6 @@ namespace System.Text.Json.Tests
     internal class ByteArrayClass
     {
         public byte[] ByteArray { get; set; }
-        public byte[] NullByteArray { get; set; }
+        public byte[]? NullByteArray { get; set; }
     }
 }

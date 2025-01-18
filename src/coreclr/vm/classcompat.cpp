@@ -869,7 +869,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceMembers(
         bmtMethod->ppMethodDescList[i] = pNewMD;
 
         // Make sure that fcalls have a 0 rva.  This is assumed by the prejit fixup logic
-        _ASSERTE(((Classification & ~mdcMethodImpl) != mcFCall) || dwDescrOffset == 0);
+        _ASSERTE(((Classification & ~mdfMethodImpl) != mcFCall) || dwDescrOffset == 0);
 
         // Non-virtual method
         if (IsMdStatic(dwMemberAttrs) ||
@@ -938,7 +938,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceMembers(
             }
         }
 
-        if (Classification & mdcMethodImpl)
+        if (Classification & mdfMethodImpl)
         {   // If this method serves as the BODY of a MethodImpl specification, then
         // we should iterate all the MethodImpl's for this class and see just how many
         // of them this method participates in as the BODY.
@@ -1415,7 +1415,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceVtableMethods(
 
                     if (i >= NumDeclaredMethods())
                     {
-                        // if this interface has been layed out by our parent then
+                        // if this interface has been laid out by our parent then
                         // we do not need to define a new method desc for it
                         if(fParentInterface)
                         {
@@ -1424,8 +1424,8 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceVtableMethods(
                         }
                         else
                         {
-                            // We will use the interface implemenation if we do not find one in the
-                            // parent. It will have to be overriden by the a method impl unless the
+                            // We will use the interface implementation if we do not find one in the
+                            // parent. It will have to be overridden by the a method impl unless the
                             // class is abstract or it is a special COM type class.
 
                             MethodDesc* pParentMD = NULL;
@@ -1460,7 +1460,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceVtableMethods(
                     }
                     else
                     {
-                        // Found as declared method in class. If the interface was layed out by the parent we
+                        // Found as declared method in class. If the interface was laid out by the parent we
                         // will be overridding their slot so our method counts do not increase. We will fold
                         // our method into our parent's interface if we have not been placed.
                         if(fParentInterface)
@@ -1716,7 +1716,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceInterfaceDeclaration(
 
     BOOL fInterfaceFound = FALSE;
     // Check our vtable for entries that we are suppose to override.
-    // Since this is an external method we must also check the inteface map.
+    // Since this is an external method we must also check the interface map.
     // We want to replace any interface methods even if they have been replaced
     // by a base class.
     for(USHORT i = 0; i < bmtInterface->wInterfaceMapSize; i++)
@@ -1861,7 +1861,7 @@ VOID MethodTableBuilder::BuildInteropVTable_PlaceParentDeclaration(
 
     BOOL fRet = FALSE;
 
-    // Verify that the class of the declaration is in our heirarchy
+    // Verify that the class of the declaration is in our hierarchy
     MethodTable* declType = pDecl->GetMethodTable();
     MethodTable* pParentMT = bmtParent->pParentMethodTable;
     while(pParentMT != NULL)
@@ -2705,13 +2705,13 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
                 if (dwMethodRVA == 0)
                     Classification = mcFCall;
                 else
-                    Classification = mcNDirect;
+                    Classification = mcPInvoke;
             }
             // The NAT_L attribute is present, marking this method as NDirect
             else
             {
                 CONSISTENCY_CHECK(hr == S_OK);
-                Classification = mcNDirect;
+                Classification = mcPInvoke;
             }
         }
         else if (IsMiRuntime(dwImplFlags))
@@ -2771,11 +2771,6 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
                 // Static methods in interfaces need nothing special.
                 Classification = mcIL;
             }
-            else if (bmtProp->fIsMngStandardItf)
-            {
-                // If the interface is a standard managed interface then allocate space for an FCall method desc.
-                Classification = mcFCall;
-            }
             else if (IsMdAbstract(dwMemberAttrs))
             {
                 // If COM interop is supported then all other interface MDs may be
@@ -2797,7 +2792,7 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
         }
 
         // Generic methods should always be mcInstantiated
-        if (!((numGenericMethodArgs == 0) || ((Classification & mdcClassification) == mcInstantiated)))
+        if (!((numGenericMethodArgs == 0) || ((Classification & mdfClassification) == mcInstantiated)))
         {
             BuildMethodTableThrowException(BFA_GENERIC_METHODS_INST);
         }
@@ -2806,7 +2801,7 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
         // from the overrides.
         for(DWORD impls = 0; impls < bmtMethodImpl->dwNumberMethodImpls; impls++) {
             if ((bmtMethodImpl->rgMethodImplTokens[impls].methodBody == tok) && !IsMdStatic(dwMemberAttrs)) {
-                Classification |= mdcMethodImpl;
+                Classification |= mdfMethodImpl;
                 break;
             }
         }
@@ -2830,7 +2825,7 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
 
         // Set the index into the storage locations
         BYTE impl;
-        if (Classification & mdcMethodImpl)
+        if (Classification & mdfMethodImpl)
         {
             impl = METHOD_IMPL;
         }
@@ -2840,25 +2835,25 @@ VOID    MethodTableBuilder::EnumerateClassMethods()
         }
 
         BYTE type;
-        if ((Classification & mdcClassification)  == mcNDirect)
+        if ((Classification & mdfClassification)  == mcPInvoke)
         {
             type = METHOD_TYPE_NDIRECT;
         }
-        else if ((Classification & mdcClassification) == mcFCall)
+        else if ((Classification & mdfClassification) == mcFCall)
         {
             type = METHOD_TYPE_FCALL;
         }
-        else if ((Classification & mdcClassification) == mcEEImpl)
+        else if ((Classification & mdfClassification) == mcEEImpl)
         {
             type = METHOD_TYPE_EEIMPL;
         }
 #ifdef FEATURE_COMINTEROP
-        else if ((Classification & mdcClassification) == mcComInterop)
+        else if ((Classification & mdfClassification) == mcComInterop)
         {
             type = METHOD_TYPE_INTEROP;
         }
 #endif // FEATURE_COMINTEROP
-        else if ((Classification & mdcClassification) == mcInstantiated)
+        else if ((Classification & mdfClassification) == mcInstantiated)
         {
             type = METHOD_TYPE_INSTANTIATED;
         }
@@ -3128,8 +3123,15 @@ HRESULT MethodTableBuilder::LoaderFindMethodInClass(
 
         // Note instantiation info
         {
-            hr = MetaSig::CompareMethodSigsNT(*ppMemberSignature, *pcMemberSignature, pModule, NULL,
-                                                      pHashMethodSig, cHashMethodSig, entryDesc->GetModule(), pSubst);
+            hr = E_FAIL;
+            EX_TRY
+            {
+                hr = MetaSig::CompareMethodSigs(*ppMemberSignature, *pcMemberSignature, pModule, NULL,
+                                        pHashMethodSig, cHashMethodSig, entryDesc->GetModule(), pSubst, FALSE)
+                        ? S_OK
+                        : S_FALSE;
+            }
+            EX_CATCH_HRESULT_NO_ERRORINFO(hr);
 
             if (hr == S_OK)
             {   // Found a match

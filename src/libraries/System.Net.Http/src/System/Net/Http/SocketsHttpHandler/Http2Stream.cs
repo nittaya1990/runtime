@@ -11,6 +11,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 
@@ -27,7 +28,7 @@ namespace System.Net.Http
                 1024;
 #endif
 
-            private static ReadOnlySpan<byte> StatusHeaderName => new byte[] { (byte)':', (byte)'s', (byte)'t', (byte)'a', (byte)'t', (byte)'u', (byte)'s' };
+            private static ReadOnlySpan<byte> StatusHeaderName => ":status"u8;
 
             private readonly Http2Connection _connection;
             private readonly HttpRequestMessage _request;
@@ -44,6 +45,7 @@ namespace System.Net.Http
             private StreamCompletionState _requestCompletionState;
             private StreamCompletionState _responseCompletionState;
             private ResponseProtocolState _responseProtocolState;
+            private bool _responseHeadersReceived;
 
             // If this is not null, then we have received a reset from the server
             // (i.e. RST_STREAM or general IO error processing the connection)
@@ -101,11 +103,17 @@ namespace System.Net.Http
 
                 _windowManager = new Http2StreamWindowManager(connection, this);
 
-                _headerBudgetRemaining = connection._pool.Settings._maxResponseHeadersLength * 1024;
+                _headerBudgetRemaining = connection._pool.Settings.MaxResponseHeadersByteLength;
 
-                if (_request.Content == null)
+                // Extended connect requests will use the response content stream for bidirectional communication.
+                // We will ignore any content set for such requests in SendRequestBodyAsync, as it has no defined semantics.
+                if (_request.Content == null || _request.IsExtendedConnectRequest)
                 {
                     _requestCompletionState = StreamCompletionState.Completed;
+                    if (_request.IsExtendedConnectRequest)
+                    {
+                        _requestBodyCancellationSource = new CancellationTokenSource();
+                    }
                 }
                 else
                 {
@@ -151,6 +159,8 @@ namespace System.Net.Http
 
             public Http2Connection Connection => _connection;
 
+            public bool ConnectProtocolEstablished { get; private set; }
+
             public HttpResponseMessage GetAndClearResponse()
             {
                 // Once SendAsync completes, the Http2Stream should no longer hold onto the response message.
@@ -165,7 +175,9 @@ namespace System.Net.Http
 
             public async Task SendRequestBodyAsync(CancellationToken cancellationToken)
             {
-                if (_request.Content == null)
+                // Extended connect requests will use the response content stream for bidirectional communication.
+                // Ignore any content set for such requests, as it has no defined semantics.
+                if (_request.Content == null || _request.IsExtendedConnectRequest)
                 {
                     Debug.Assert(_requestCompletionState == StreamCompletionState.Completed);
                     return;
@@ -242,6 +254,7 @@ namespace System.Net.Http
                             // and we also don't want to propagate any error to the caller, in particular for non-duplex scenarios.
                             Debug.Assert(_responseCompletionState == StreamCompletionState.Completed);
                             _requestCompletionState = StreamCompletionState.Completed;
+                            Debug.Assert(!ConnectProtocolEstablished);
                             Complete();
                             return;
                         }
@@ -253,6 +266,7 @@ namespace System.Net.Http
 
                         _requestCompletionState = StreamCompletionState.Failed;
                         SendReset();
+                        Debug.Assert(!ConnectProtocolEstablished);
                         Complete();
                     }
 
@@ -305,6 +319,7 @@ namespace System.Net.Http
 
                         if (complete)
                         {
+                            Debug.Assert(!ConnectProtocolEstablished);
                             Complete();
                         }
                     }
@@ -412,7 +427,17 @@ namespace System.Net.Http
                     if (sendReset)
                     {
                         SendReset();
-                        Complete();
+
+                        // Extended CONNECT notes:
+                        //
+                        // To prevent from calling it *twice*, Extended CONNECT stream's Complete() is only
+                        // called from CloseResponseBody(), as CloseResponseBody() is *always* called
+                        // from Extended CONNECT stream's Dispose().
+
+                        if (!ConnectProtocolEstablished)
+                        {
+                            Complete();
+                        }
                     }
                 }
 
@@ -472,12 +497,12 @@ namespace System.Net.Http
             private const int FirstHPackNormalHeaderId = 15;
             private const int LastHPackNormalHeaderId = 61;
 
-            private static readonly int[] s_hpackStaticStatusCodeTable = new int[LastHPackStatusPseudoHeaderId - FirstHPackStatusPseudoHeaderId + 1] { 200, 204, 206, 304, 400, 404, 500 };
+            private static ReadOnlySpan<int> HpackStaticStatusCodeTable => [200, 204, 206, 304, 400, 404, 500];
 
             private static readonly (HeaderDescriptor descriptor, byte[] value)[] s_hpackStaticHeaderTable = new (HeaderDescriptor, byte[])[LastHPackNormalHeaderId - FirstHPackNormalHeaderId + 1]
             {
                 (KnownHeaders.AcceptCharset.Descriptor, Array.Empty<byte>()),
-                (KnownHeaders.AcceptEncoding.Descriptor, Encoding.ASCII.GetBytes("gzip, deflate")),
+                (KnownHeaders.AcceptEncoding.Descriptor, "gzip, deflate"u8.ToArray()),
                 (KnownHeaders.AcceptLanguage.Descriptor, Array.Empty<byte>()),
                 (KnownHeaders.AcceptRanges.Descriptor, Array.Empty<byte>()),
                 (KnownHeaders.Accept.Descriptor, Array.Empty<byte>()),
@@ -532,11 +557,11 @@ namespace System.Net.Http
                 if (index <= LastHPackRequestPseudoHeaderId)
                 {
                     if (NetEventSource.Log.IsEnabled()) Trace($"Invalid request pseudo-header ID {index}.");
-                    throw new HttpRequestException(SR.net_http_invalid_response);
+                    throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response);
                 }
                 else if (index <= LastHPackStatusPseudoHeaderId)
                 {
-                    int statusCode = s_hpackStaticStatusCodeTable[index - FirstHPackStatusPseudoHeaderId];
+                    int statusCode = HpackStaticStatusCodeTable[index - FirstHPackStatusPseudoHeaderId];
 
                     OnStatus(statusCode);
                 }
@@ -555,7 +580,7 @@ namespace System.Net.Http
                 if (index <= LastHPackRequestPseudoHeaderId)
                 {
                     if (NetEventSource.Log.IsEnabled()) Trace($"Invalid request pseudo-header ID {index}.");
-                    throw new HttpRequestException(SR.net_http_invalid_response);
+                    throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response);
                 }
                 else if (index <= LastHPackStatusPseudoHeaderId)
                 {
@@ -581,7 +606,7 @@ namespace System.Net.Http
                 _headerBudgetRemaining -= amount;
                 if (_headerBudgetRemaining < 0)
                 {
-                    throw new HttpRequestException(SR.Format(SR.net_http_response_headers_exceeded_length, _connection._pool.Settings._maxResponseHeadersLength * 1024L));
+                    throw new HttpRequestException(HttpRequestError.ConfigurationLimitExceeded, SR.Format(SR.net_http_response_headers_exceeded_length, _connection._pool.Settings.MaxResponseHeadersByteLength));
                 }
             }
 
@@ -603,14 +628,14 @@ namespace System.Net.Http
                     if (_responseProtocolState == ResponseProtocolState.ExpectingHeaders)
                     {
                         if (NetEventSource.Log.IsEnabled()) Trace("Received extra status header.");
-                        throw new HttpRequestException(SR.net_http_invalid_response_multiple_status_codes);
+                        throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response_multiple_status_codes);
                     }
 
                     if (_responseProtocolState != ResponseProtocolState.ExpectingStatus)
                     {
                         // Pseudo-headers are allowed only in header block
                         if (NetEventSource.Log.IsEnabled()) Trace($"Status pseudo-header received in {_responseProtocolState} state.");
-                        throw new HttpRequestException(SR.net_http_invalid_response_pseudo_header_in_trailer);
+                        throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response_pseudo_header_in_trailer);
                     }
 
                     Debug.Assert(_response != null);
@@ -629,6 +654,11 @@ namespace System.Net.Http
                     }
                     else
                     {
+                        if (statusCode == 200 && _response.RequestMessage!.IsExtendedConnectRequest)
+                        {
+                            ConnectProtocolEstablished = true;
+                        }
+
                         _responseProtocolState = ResponseProtocolState.ExpectingHeaders;
 
                         // If we are waiting for a 100-continue response, signal the waiter now.
@@ -668,7 +698,7 @@ namespace System.Net.Http
                     if (_responseProtocolState != ResponseProtocolState.ExpectingHeaders && _responseProtocolState != ResponseProtocolState.ExpectingTrailingHeaders)
                     {
                         if (NetEventSource.Log.IsEnabled()) Trace("Received header before status.");
-                        throw new HttpRequestException(SR.net_http_invalid_response);
+                        throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response);
                     }
 
                     Encoding? valueEncoding = _connection._pool.Settings._responseHeaderEncodingSelector?.Invoke(descriptor.Name, _request);
@@ -712,7 +742,7 @@ namespace System.Net.Http
                     else
                     {
                         if (NetEventSource.Log.IsEnabled()) Trace($"Invalid response pseudo-header '{Encoding.ASCII.GetString(name)}'.");
-                        throw new HttpRequestException(SR.net_http_invalid_response);
+                        throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.net_http_invalid_response);
                     }
                 }
                 else
@@ -721,7 +751,7 @@ namespace System.Net.Http
                     if (!HeaderDescriptor.TryGet(name, out HeaderDescriptor descriptor))
                     {
                         // Invalid header name
-                        throw new HttpRequestException(SR.Format(SR.net_http_invalid_response_header_name, Encoding.ASCII.GetString(name)));
+                        throw new HttpRequestException(HttpRequestError.InvalidResponse, SR.Format(SR.net_http_invalid_response_header_name, Encoding.ASCII.GetString(name)));
                     }
 
                     OnHeader(descriptor, value);
@@ -764,6 +794,7 @@ namespace System.Net.Http
 
                         case ResponseProtocolState.ExpectingHeaders:
                             _responseProtocolState = endStream ? ResponseProtocolState.Complete : ResponseProtocolState.ExpectingData;
+                            _responseHeadersReceived = true;
                             break;
 
                         case ResponseProtocolState.ExpectingTrailingHeaders:
@@ -796,7 +827,20 @@ namespace System.Net.Http
                         Debug.Assert(_responseCompletionState == StreamCompletionState.InProgress, $"Response already completed with state={_responseCompletionState}");
 
                         _responseCompletionState = StreamCompletionState.Completed;
-                        if (_requestCompletionState == StreamCompletionState.Completed)
+
+                        // Extended CONNECT notes:
+                        //
+                        // To prevent from calling it *prematurely*, Extended CONNECT stream's Complete() is only
+                        // called from CloseResponseBody(), as CloseResponseBody() is *only* called
+                        // from Extended CONNECT stream's Dispose().
+                        //
+                        // Due to bidirectional streaming nature of the Extended CONNECT request,
+                        // the *write side* of the stream can only be completed by calling Dispose().
+                        //
+                        // The streaming in both ways happens over the single "response" stream instance, which makes
+                        // _requestCompletionState *not indicative* of the actual state of the write side of the stream.
+
+                        if (_requestCompletionState == StreamCompletionState.Completed && !ConnectProtocolEstablished)
                         {
                             Complete();
                         }
@@ -857,7 +901,20 @@ namespace System.Net.Http
                         Debug.Assert(_responseCompletionState == StreamCompletionState.InProgress, $"Response already completed with state={_responseCompletionState}");
 
                         _responseCompletionState = StreamCompletionState.Completed;
-                        if (_requestCompletionState == StreamCompletionState.Completed)
+
+                        // Extended CONNECT notes:
+                        //
+                        // To prevent from calling it *prematurely*, Extended CONNECT stream's Complete() is only
+                        // called from CloseResponseBody(), as CloseResponseBody() is *only* called
+                        // from Extended CONNECT stream's Dispose().
+                        //
+                        // Due to bidirectional streaming nature of the Extended CONNECT request,
+                        // the *write side* of the stream can only be completed by calling Dispose().
+                        //
+                        // The streaming in both ways happens over the single "response" stream instance, which makes
+                        // _requestCompletionState *not indicative* of the actual state of the write side of the stream.
+
+                        if (_requestCompletionState == StreamCompletionState.Completed && !ConnectProtocolEstablished)
                         {
                             Complete();
                         }
@@ -977,24 +1034,16 @@ namespace System.Net.Http
                 Debug.Assert(!Monitor.IsEntered(SyncObject));
                 lock (SyncObject)
                 {
-                    CheckResponseBodyState();
-
-                    if (_responseProtocolState == ResponseProtocolState.ExpectingHeaders || _responseProtocolState == ResponseProtocolState.ExpectingIgnoredHeaders || _responseProtocolState == ResponseProtocolState.ExpectingStatus)
+                    if (!_responseHeadersReceived)
                     {
+                        CheckResponseBodyState();
                         Debug.Assert(!_hasWaiter);
                         _hasWaiter = true;
                         _waitSource.Reset();
                         return (true, false);
                     }
-                    else if (_responseProtocolState == ResponseProtocolState.ExpectingData || _responseProtocolState == ResponseProtocolState.ExpectingTrailingHeaders)
-                    {
-                        return (false, false);
-                    }
-                    else
-                    {
-                        Debug.Assert(_responseProtocolState == ResponseProtocolState.Complete);
-                        return (false, _responseBuffer.IsEmpty);
-                    }
+
+                    return (false, _responseProtocolState == ResponseProtocolState.Complete && _responseBuffer.IsEmpty);
                 }
             }
 
@@ -1018,7 +1067,8 @@ namespace System.Net.Http
                         Debug.Assert(!wait);
                     }
 
-                    if (HttpTelemetry.Log.IsEnabled()) HttpTelemetry.Log.ResponseHeadersStop();
+                    Debug.Assert(_response is not null);
+                    if (HttpTelemetry.Log.IsEnabled()) HttpTelemetry.Log.ResponseHeadersStop((int)_response.StatusCode);
                 }
                 catch
                 {
@@ -1029,7 +1079,11 @@ namespace System.Net.Http
                 Debug.Assert(_response != null && _response.Content != null);
                 // Start to process the response body.
                 var responseContent = (HttpConnectionResponseContent)_response.Content;
-                if (emptyResponse)
+                if (ConnectProtocolEstablished)
+                {
+                    responseContent.SetStream(new Http2ReadWriteStream(this, closeResponseBodyOnDispose: true));
+                }
+                else if (emptyResponse)
                 {
                     // If there are any trailers, copy them over to the response.  Normally this would be handled by
                     // the response stream hitting EOF, but if there is no response body, we do it here.
@@ -1298,8 +1352,25 @@ namespace System.Net.Http
                 }
             }
 
+            // This method should only be called from Http2ReadWriteStream.Dispose()
             private void CloseResponseBody()
             {
+                // Extended CONNECT notes:
+                //
+                // Due to bidirectional streaming nature of the Extended CONNECT request,
+                // the *write side* of the stream can only be completed by calling Dispose()
+                // (which, for Extended CONNECT case, will in turn call CloseResponseBody())
+                //
+                // Similarly to QuicStream, disposal *gracefully* closes the write side of the stream
+                // (unless we've received RST_STREAM before) and *abortively* closes the read side
+                // of the stream (unless we've received EOS before).
+
+                if (ConnectProtocolEstablished && _resetException is null)
+                {
+                    // Gracefully close the write side of the Extended CONNECT stream
+                    _connection.LogExceptions(_connection.SendEndStreamAsync(StreamId));
+                }
+
                 // Check if the response body has been fully consumed.
                 bool fullyConsumed = false;
                 Debug.Assert(!Monitor.IsEntered(SyncObject));
@@ -1312,6 +1383,7 @@ namespace System.Net.Http
                 }
 
                 // If the response body isn't completed, cancel it now.
+                // This includes aborting the read side of the Extended CONNECT stream.
                 if (!fullyConsumed)
                 {
                     Cancel();
@@ -1326,6 +1398,12 @@ namespace System.Net.Http
 
                 lock (SyncObject)
                 {
+                    if (ConnectProtocolEstablished)
+                    {
+                        // This should be the only place where Extended Connect stream is completed
+                        Complete();
+                    }
+
                     _responseBuffer.Dispose();
                 }
             }
@@ -1417,20 +1495,67 @@ namespace System.Net.Http
                 Failed
             }
 
-            private sealed class Http2ReadStream : HttpBaseStream
+            private sealed class Http2ReadStream : Http2ReadWriteStream
+            {
+                public Http2ReadStream(Http2Stream http2Stream) : base(http2Stream, closeResponseBodyOnDispose: true) { }
+
+                public override bool CanWrite => false;
+
+                public override void Write(ReadOnlySpan<byte> buffer) => throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+                public override ValueTask WriteAsync(ReadOnlyMemory<byte> destination, CancellationToken cancellationToken) => ValueTask.FromException(new NotSupportedException(SR.net_http_content_readonly_stream));
+            }
+
+            private sealed class Http2WriteStream : Http2ReadWriteStream
+            {
+                public long BytesWritten { get; private set; }
+
+                public long ContentLength { get; }
+
+                public Http2WriteStream(Http2Stream http2Stream, long contentLength) : base(http2Stream)
+                {
+                    Debug.Assert(contentLength >= -1);
+                    ContentLength = contentLength;
+                }
+
+                public override bool CanRead => false;
+
+                public override int Read(Span<byte> buffer) => throw new NotSupportedException(SR.net_http_content_writeonly_stream);
+
+                public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) => ValueTask.FromException<int>(new NotSupportedException(SR.net_http_content_writeonly_stream));
+
+                public override void CopyTo(Stream destination, int bufferSize) => throw new NotSupportedException(SR.net_http_content_writeonly_stream);
+
+                public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) => Task.FromException(new NotSupportedException(SR.net_http_content_writeonly_stream));
+
+                public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+                {
+                    BytesWritten += buffer.Length;
+
+                    if ((ulong)BytesWritten > (ulong)ContentLength) // If ContentLength == -1, this will always be false
+                    {
+                        return ValueTask.FromException(new HttpRequestException(SR.net_http_content_write_larger_than_content_length));
+                    }
+
+                    return base.WriteAsync(buffer, cancellationToken);
+                }
+            }
+
+            public class Http2ReadWriteStream : HttpBaseStream
             {
                 private Http2Stream? _http2Stream;
                 private readonly HttpResponseMessage _responseMessage;
 
-                public Http2ReadStream(Http2Stream http2Stream)
+                public Http2ReadWriteStream(Http2Stream http2Stream, bool closeResponseBodyOnDispose = false)
                 {
                     Debug.Assert(http2Stream != null);
                     Debug.Assert(http2Stream._response != null);
                     _http2Stream = http2Stream;
                     _responseMessage = _http2Stream._response;
+                    CloseResponseBodyOnDispose = closeResponseBodyOnDispose;
                 }
 
-                ~Http2ReadStream()
+                ~Http2ReadWriteStream()
                 {
                     if (NetEventSource.Log.IsEnabled()) _http2Stream?.Trace("");
                     try
@@ -1442,6 +1567,8 @@ namespace System.Net.Http
                         if (NetEventSource.Log.IsEnabled()) _http2Stream?.Trace($"Error: {e}");
                     }
                 }
+
+                protected bool CloseResponseBodyOnDispose { get; private init; }
 
                 protected override void Dispose(bool disposing)
                 {
@@ -1456,18 +1583,21 @@ namespace System.Net.Http
                     // protocol, we have little choice: if someone drops the Http2ReadStream without
                     // disposing of it, we need to a) signal to the server that the stream is being
                     // canceled, and b) clean up the associated state in the Http2Connection.
-
-                    http2Stream.CloseResponseBody();
+                    if (CloseResponseBodyOnDispose)
+                    {
+                        http2Stream.CloseResponseBody();
+                    }
 
                     base.Dispose(disposing);
                 }
 
                 public override bool CanRead => _http2Stream != null;
-                public override bool CanWrite => false;
+                public override bool CanWrite => _http2Stream != null;
 
                 public override int Read(Span<byte> destination)
                 {
-                    Http2Stream http2Stream = _http2Stream ?? throw new ObjectDisposedException(nameof(Http2ReadStream));
+                    Http2Stream? http2Stream = _http2Stream;
+                    ObjectDisposedException.ThrowIf(http2Stream is null, this);
 
                     return http2Stream.ReadData(destination, _responseMessage);
                 }
@@ -1506,53 +1636,8 @@ namespace System.Net.Http
                         http2Stream.CopyToAsync(_responseMessage, destination, bufferSize, cancellationToken);
                 }
 
-                public override void Write(ReadOnlySpan<byte> buffer) => throw new NotSupportedException(SR.net_http_content_readonly_stream);
-
-                public override ValueTask WriteAsync(ReadOnlyMemory<byte> destination, CancellationToken cancellationToken) => throw new NotSupportedException();
-            }
-
-            private sealed class Http2WriteStream : HttpBaseStream
-            {
-                private Http2Stream? _http2Stream;
-
-                public long BytesWritten { get; private set; }
-
-                public long ContentLength { get; private set; }
-
-                public Http2WriteStream(Http2Stream http2Stream, long contentLength)
-                {
-                    Debug.Assert(http2Stream != null);
-                    Debug.Assert(contentLength >= -1);
-                    _http2Stream = http2Stream;
-                    ContentLength = contentLength;
-                }
-
-                protected override void Dispose(bool disposing)
-                {
-                    Http2Stream? http2Stream = Interlocked.Exchange(ref _http2Stream, null);
-                    if (http2Stream == null)
-                    {
-                        return;
-                    }
-
-                    base.Dispose(disposing);
-                }
-
-                public override bool CanRead => false;
-                public override bool CanWrite => _http2Stream != null;
-
-                public override int Read(Span<byte> buffer) => throw new NotSupportedException();
-
-                public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken) => throw new NotSupportedException();
-
                 public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
                 {
-                    BytesWritten += buffer.Length;
-
-                    if ((ulong)BytesWritten > (ulong)ContentLength) // If ContentLength == -1, this will always be false
-                    {
-                        return ValueTask.FromException(new HttpRequestException(SR.net_http_content_write_larger_than_content_length));
-                    }
 
                     Http2Stream? http2Stream = _http2Stream;
 

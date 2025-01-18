@@ -22,6 +22,7 @@ namespace ILCompiler.DependencyAnalysis
     {
         private readonly MethodDesc _method;
         private DependencyList _dependencies;
+        private CombinedDependencyList _conditionalDependencies;
 
         // If we failed to scan the method, the dependencies reported by the node will
         // be for a throwing method body. This field will store the underlying cause of the failure.
@@ -42,11 +43,14 @@ namespace ILCompiler.DependencyAnalysis
 
         public bool RepresentsIndirectionCell => false;
 
+        public override bool HasConditionalStaticDependencies => _conditionalDependencies != null;
+
         public override bool StaticDependenciesAreComputed => _dependencies != null;
 
-        public void InitializeDependencies(NodeFactory factory, IEnumerable<DependencyListEntry> dependencies, TypeSystemException scanningException = null)
+        public void InitializeDependencies(NodeFactory factory, (DependencyList, CombinedDependencyList) dependencies, TypeSystemException scanningException = null)
         {
-            _dependencies = new DependencyList(dependencies);
+            _dependencies = dependencies.Item1;
+            _conditionalDependencies = dependencies.Item2;
 
             if (factory.TypeSystemContext.IsSpecialUnboxingThunk(_method))
             {
@@ -58,6 +62,12 @@ namespace ILCompiler.DependencyAnalysis
                 _dependencies.Add(new DependencyListEntry(factory.MethodEntrypoint(nonUnboxingMethod, false), "Non-unboxing method"));
             }
 
+            TypeDesc owningType = _method.OwningType;
+            if (factory.PreinitializationManager.HasEagerStaticConstructor(owningType))
+            {
+                _dependencies.Add(factory.EagerCctorIndirection(owningType.GetStaticConstructor()), "Eager .cctor");
+            }
+
             _exception = scanningException;
         }
 
@@ -65,26 +75,20 @@ namespace ILCompiler.DependencyAnalysis
         {
             sb.Append(nameMangler.GetMangledMethodName(_method));
         }
-        
+
         public override IEnumerable<DependencyListEntry> GetStaticDependencies(NodeFactory factory)
         {
             Debug.Assert(_dependencies != null);
             return _dependencies;
         }
 
+        public override IEnumerable<CombinedDependencyListEntry> GetConditionalStaticDependencies(NodeFactory factory) => _conditionalDependencies;
+
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
 
-        public override IEnumerable<CombinedDependencyListEntry> GetConditionalStaticDependencies(NodeFactory factory)
-        {
-            CombinedDependencyList dependencies = null;
-            CodeBasedDependencyAlgorithm.AddConditionalDependenciesDueToMethodCodePresence(ref dependencies, factory, _method);
-            return dependencies ?? (IEnumerable<CombinedDependencyListEntry>)Array.Empty<CombinedDependencyListEntry>();
-        }
-
         public override IEnumerable<CombinedDependencyListEntry> SearchDynamicDependencies(List<DependencyNodeCore<NodeFactory>> markedNodes, int firstNode, NodeFactory factory) => null;
-        public override bool InterestingForDynamicDependencyAnalysis => false;
+        public override bool InterestingForDynamicDependencyAnalysis => _method.HasInstantiation || _method.OwningType.HasInstantiation;
         public override bool HasDynamicDependencies => false;
-        public override bool HasConditionalStaticDependencies => CodeBasedDependencyAlgorithm.HasConditionalDependenciesDueToMethodCodePresence(_method);
 
         int ISortableNode.ClassCode => -1381809560;
 

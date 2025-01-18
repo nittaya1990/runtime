@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Reflection;
 using Xunit;
 
 namespace System.Formats.Asn1.Tests.Writer
@@ -17,6 +18,20 @@ namespace System.Formats.Asn1.Tests.Writer
             AssertExtensions.Throws<ArgumentOutOfRangeException>(
                 "ruleSet",
                 () => new AsnWriter((AsnEncodingRules)value));
+
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "ruleSet",
+                () => new AsnWriter((AsnEncodingRules)value, initialCapacity: 1000));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(int.MinValue)]
+        public static void ValidateInitialCapacity(int initialCapacity)
+        {
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "initialCapacity",
+                () => new AsnWriter(AsnEncodingRules.DER, initialCapacity));
         }
 
         [Theory]
@@ -33,6 +48,18 @@ namespace System.Formats.Asn1.Tests.Writer
             Assert.True(writer.TryEncode(Span<byte>.Empty, out int written));
             Assert.Equal(0, written);
             Assert.True(writer.EncodedValueEquals(ReadOnlySpan<byte>.Empty));
+
+#if NET9_0_OR_GREATER
+            writer.Encode<object>(encoded => {
+                Assert.Equal(0, encoded.Length);
+                return null;
+            });
+
+            writer.Encode<object, object>(null, (_, encoded) => {
+                Assert.Equal(0, encoded.Length);
+                return null;
+            });
+#endif
 
             Span<byte> negativeTest = stackalloc byte[] { 5, 0 };
             Assert.False(writer.EncodedValueEquals(negativeTest));
@@ -137,6 +164,125 @@ namespace System.Formats.Asn1.Tests.Writer
             AssertExtensions.Throws<ArgumentNullException>(
                 "destination",
                 () => writer.CopyTo(null));
+        }
+
+        [Fact]
+        public static void InitialCapacity_ExactCapacity()
+        {
+            ReadOnlySpan<byte> value = new byte[] { 0x04, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 };
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, initialCapacity: 8);
+            writer.WriteEncodedValue(value);
+
+            byte[]? buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+
+            byte[] encoded = writer.Encode();
+            AssertExtensions.SequenceEqual(value, encoded);
+
+            writer.Reset();
+            buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+
+            writer.WriteEncodedValue(value);
+            buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+        }
+
+        [Fact]
+        public static void InitialCapacity_ZeroHasNoInitialCapacity()
+        {
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, initialCapacity: 0);
+
+            byte[]? buffer = PeekRawBuffer(writer);
+            Assert.Null(buffer);
+        }
+
+        [Fact]
+        public static void InitialCapacity_UnderCapacity()
+        {
+            ReadOnlySpan<byte> value = new byte[] { 0x04, 0x01, 0x01 };
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, initialCapacity: 8);
+            writer.WriteEncodedValue(value);
+
+            byte[]? buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+
+            byte[] encoded = writer.Encode();
+            AssertExtensions.SequenceEqual(value, encoded);
+
+            writer.Reset();
+            buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+        }
+
+        [Fact]
+        public static void InitialCapacity_ExceedCapacity()
+        {
+            ReadOnlySpan<byte> value = new byte[] { 0x04, 0x07, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, initialCapacity: 8);
+            writer.WriteEncodedValue(value);
+
+            byte[]? buffer = PeekRawBuffer(writer);
+            Assert.Equal(1024, buffer?.Length);
+        }
+
+        [Fact]
+        public static void InitialCapacity_ResizeBlockAligns()
+        {
+            ReadOnlySpan<byte> value = new byte[] { 0x04, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 };
+            ReadOnlySpan<byte> valueLarge = new byte[] { 0x04, 0x07, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
+
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, initialCapacity: 8);
+            writer.WriteEncodedValue(value);
+
+            byte[]? buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+
+            writer.Reset();
+            buffer = PeekRawBuffer(writer);
+            Assert.Equal(8, buffer?.Length);
+
+            writer.WriteEncodedValue(valueLarge);
+            buffer = PeekRawBuffer(writer);
+            Assert.Equal(1024, buffer?.Length);
+        }
+
+#if NET9_0_OR_GREATER
+        [Fact]
+        public static void Encode_Callback_NoModifications()
+        {
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
+
+            writer.Encode(writer, static (writer, encoded) =>
+            {
+                writer.Encode(writer, static (writer, encoded) =>
+                {
+                    Assert.Throws<InvalidOperationException>(() => writer.WriteNull());
+                    return (object)null;
+                });
+
+                Assert.Throws<InvalidOperationException>(() => writer.WriteNull());
+                return (object)null;
+            });
+
+            writer.Encode(writer, static (writer, encoded) =>
+            {
+                writer.Encode(writer, static (writer, encoded) =>
+                {
+                    Assert.Throws<InvalidOperationException>(() => writer.Reset());
+                    return (object)null;
+                });
+
+                Assert.Throws<InvalidOperationException>(() => writer.Reset());
+                return (object)null;
+            });
+        }
+#endif
+
+        private static byte[]? PeekRawBuffer(AsnWriter writer)
+        {
+            FieldInfo bufField = typeof(AsnWriter).GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic);
+            return (byte[]?)bufField.GetValue(writer);
         }
     }
 }

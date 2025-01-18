@@ -89,7 +89,7 @@ namespace System.Text.RegularExpressions
             Match match;
             do
             {
-                match = _regex.RunSingleMatch(false, _prevlen, _input, 0, _input.Length, _startat)!;
+                match = _regex.RunSingleMatch(RegexRunnerMode.FullMatchRequired, _prevlen, _input, 0, _input.Length, _startat)!;
                 if (!match.Success)
                 {
                     _done = true;
@@ -168,7 +168,7 @@ namespace System.Text.RegularExpressions
             throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
 
         bool IList.Contains(object? value) =>
-            value is Match && ((ICollection<Match>)this).Contains((Match)value);
+            value is Match match && ((ICollection<Match>)this).Contains(match);
 
         int IList.IndexOf(object? value) =>
             value is Match other ? ((IList<Match>)this).IndexOf(other) : -1;

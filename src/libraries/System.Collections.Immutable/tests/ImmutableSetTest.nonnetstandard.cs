@@ -26,13 +26,9 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void EnumeratorTest()
         {
-            IComparer<double> comparer = null;
-            var set = this.Empty<double>();
-            var sortedSet = set as ISortKeyCollection<double>;
-            if (sortedSet != null)
-            {
-                comparer = sortedSet.KeyComparer;
-            }
+            IImmutableSet<double> set = this.Empty<double>();
+            Assert.True(set is ImmutableSortedSet<double> or ImmutableHashSet<double>);
+            IComparer<double>? comparer = (set as ImmutableSortedSet<double>)?.KeyComparer;
 
             this.EnumeratorTestHelper(set, comparer, 3, 5, 1);
             double[] data = this.GenerateDummyFillData();
@@ -54,7 +50,7 @@ namespace System.Collections.Immutable.Tests
             this.UnionTestHelper(this.Empty<int>().Union(new[] { 2 }), Enumerable.Range(0, 1000).ToArray());
         }
 
-        internal abstract IBinaryTree GetRootNode<T>(IImmutableSet<T> set);
+        internal abstract BinaryTreeProxy GetRootNode<T>(IImmutableSet<T> set);
 
         protected void TryGetValueTestHelper(IImmutableSet<string> set)
         {
@@ -82,7 +78,7 @@ namespace System.Collections.Immutable.Tests
             var expectedSet = new HashSet<T>(set);
             expectedSet.ExceptWith(valuesToRemove);
 
-            var actualSet = set.Except(valuesToRemove);
+            IImmutableSet<T> actualSet = set.Except(valuesToRemove);
             CollectionAssertAreEquivalent(expectedSet.ToList(), actualSet.ToList());
 
             this.VerifyAvlTreeState(actualSet);
@@ -96,7 +92,7 @@ namespace System.Collections.Immutable.Tests
             var expectedSet = new HashSet<T>(set);
             expectedSet.SymmetricExceptWith(otherCollection);
 
-            var actualSet = set.SymmetricExcept(otherCollection);
+            IImmutableSet<T> actualSet = set.SymmetricExcept(otherCollection);
             CollectionAssertAreEquivalent(expectedSet.ToList(), actualSet.ToList());
 
             this.VerifyAvlTreeState(actualSet);
@@ -112,7 +108,7 @@ namespace System.Collections.Immutable.Tests
             var expected = new HashSet<T>(set);
             expected.IntersectWith(values);
 
-            var actual = set.Intersect(values);
+            IImmutableSet<T> actual = set.Intersect(values);
             CollectionAssertAreEquivalent(expected.ToList(), actual.ToList());
 
             this.VerifyAvlTreeState(actual);
@@ -126,7 +122,7 @@ namespace System.Collections.Immutable.Tests
             var expected = new HashSet<T>(set);
             expected.UnionWith(values);
 
-            var actual = set.Union(values);
+            IImmutableSet<T> actual = set.Union(values);
             CollectionAssertAreEquivalent(expected.ToList(), actual.ToList());
 
             this.VerifyAvlTreeState(actual);
@@ -134,7 +130,7 @@ namespace System.Collections.Immutable.Tests
 
         private void VerifyAvlTreeState<T>(IImmutableSet<T> set)
         {
-            var rootNode = this.GetRootNode(set);
+            BinaryTreeProxy rootNode = this.GetRootNode(set);
             rootNode.VerifyBalanced();
             rootNode.VerifyHeightIsWithinTolerance(set.Count);
         }

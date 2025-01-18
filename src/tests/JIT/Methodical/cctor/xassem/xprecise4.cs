@@ -3,11 +3,14 @@
 
 // static field
 using System;
+using Xunit;
 namespace Precise
 {
-    class Driver_xprecise4
+    public class Driver_xprecise4
     {
-        public static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             try
             {

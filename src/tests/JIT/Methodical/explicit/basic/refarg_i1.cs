@@ -2,8 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-namespace Test
+namespace Test_refarg_i1_cs
 {
     internal class AA
     {
@@ -29,12 +30,11 @@ namespace Test
             catch (NullReferenceException)
             {
                 App.exitCode = 100;
-                Console.WriteLine("NullReferenceException caught in Finalizer as expected");
             }
         }
     }
 
-    internal class App
+    public class App
     {
         private static AA s_aa = new AA(0);
         public static int exitCode = 1;
@@ -57,7 +57,9 @@ namespace Test
             exitCode = 100;
         }
 
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             Test(ref s_aa.mm);
             GC.Collect();

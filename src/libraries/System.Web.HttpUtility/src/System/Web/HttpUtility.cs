@@ -3,7 +3,7 @@
 
 // Authors:
 //   Patrik Torstensson (Patrik.Torstensson@labs2.com)
-//   Wictor Wilén (decode/encode functions) (wictor@ibizkit.se)
+//   Wictor Wil\u00E9n (decode/encode functions) (wictor@ibizkit.se)
 //   Tim Coleman (tim@timcoleman.com)
 //   Gonzalo Paniagua Javier (gonzalo@ximian.com)
 //
@@ -67,24 +67,27 @@ namespace System.Web
                         {
                             if (!string.IsNullOrEmpty(key))
                             {
-                                sb.Append(key).Append('=');
+                                sb.Append(UrlEncode(key)).Append('=');
                             }
                             sb.Append(UrlEncode(value)).Append('&');
                         }
                     }
                 }
 
-                return sb.ToString(0, sb.Length - 1);
+                return sb.Length > 0 ? sb.ToString(0, sb.Length - 1) : "";
             }
         }
 
         public static NameValueCollection ParseQueryString(string query) => ParseQueryString(query, Encoding.UTF8);
 
-        public static NameValueCollection ParseQueryString(string query!!, Encoding encoding!!)
+        public static NameValueCollection ParseQueryString(string query, Encoding encoding)
         {
+            ArgumentNullException.ThrowIfNull(query);
+            ArgumentNullException.ThrowIfNull(encoding);
+
             HttpQSCollection result = new HttpQSCollection();
             int queryLength = query.Length;
-            int namePos = queryLength > 0 && query[0] == '?' ? 1 : 0;
+            int namePos = query.StartsWith('?') ? 1 : 0;
             if (queryLength == namePos)
             {
                 return result;
@@ -114,7 +117,7 @@ namespace System.Web
                 }
                 else
                 {
-                    name = UrlDecode(query.Substring(namePos, valuePos - namePos - 1), encoding);
+                    name = UrlDecode(query.AsSpan(namePos, valuePos - namePos - 1), encoding);
                 }
 
                 if (valueEnd < 0)
@@ -123,108 +126,119 @@ namespace System.Web
                 }
 
                 namePos = valueEnd + 1;
-                string value = UrlDecode(query.Substring(valuePos, valueEnd - valuePos), encoding);
+                string value = UrlDecode(query.AsSpan(valuePos, valueEnd - valuePos), encoding);
                 result.Add(name, value);
             }
 
             return result;
         }
 
-        [return: NotNullIfNotNull("s")]
+        [return: NotNullIfNotNull(nameof(s))]
         public static string? HtmlDecode(string? s) => HttpEncoder.HtmlDecode(s);
 
         public static void HtmlDecode(string? s, TextWriter output) => HttpEncoder.HtmlDecode(s, output);
 
-        [return: NotNullIfNotNull("s")]
+        [return: NotNullIfNotNull(nameof(s))]
         public static string? HtmlEncode(string? s) => HttpEncoder.HtmlEncode(s);
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         public static string? HtmlEncode(object? value) =>
-            value == null ? null : HtmlEncode(Convert.ToString(value, CultureInfo.CurrentCulture) ?? string.Empty);
+            value switch
+            {
+                null => null,
+                IHtmlString ihs => ihs.ToHtmlString() ?? string.Empty,
+                _ => HtmlEncode(Convert.ToString(value, CultureInfo.CurrentCulture) ?? string.Empty),
+            };
 
         public static void HtmlEncode(string? s, TextWriter output) => HttpEncoder.HtmlEncode(s, output);
 
-        [return: NotNullIfNotNull("s")]
+        [return: NotNullIfNotNull(nameof(s))]
         public static string? HtmlAttributeEncode(string? s) => HttpEncoder.HtmlAttributeEncode(s);
 
         public static void HtmlAttributeEncode(string? s, TextWriter output) => HttpEncoder.HtmlAttributeEncode(s, output);
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlEncode(string? str) => UrlEncode(str, Encoding.UTF8);
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlPathEncode(string? str) => HttpEncoder.UrlPathEncode(str);
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlEncode(string? str, Encoding e) =>
             str == null ? null : Encoding.ASCII.GetString(UrlEncodeToBytes(str, e));
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static string? UrlEncode(byte[]? bytes) => bytes == null ? null : Encoding.ASCII.GetString(UrlEncodeToBytes(bytes));
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static string? UrlEncode(byte[]? bytes, int offset, int count) => bytes == null ? null : Encoding.ASCII.GetString(UrlEncodeToBytes(bytes, offset, count));
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static byte[]? UrlEncodeToBytes(string? str) => UrlEncodeToBytes(str, Encoding.UTF8);
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static byte[]? UrlEncodeToBytes(byte[]? bytes) => bytes == null ? null : UrlEncodeToBytes(bytes, 0, bytes.Length);
 
         [Obsolete("This method produces non-standards-compliant output and has interoperability issues. The preferred alternative is UrlEncodeToBytes(String).")]
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static byte[]? UrlEncodeUnicodeToBytes(string? str) => str == null ? null : Encoding.ASCII.GetBytes(UrlEncodeUnicode(str));
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlDecode(string? str) => UrlDecode(str, Encoding.UTF8);
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static string? UrlDecode(byte[]? bytes, Encoding e) => bytes == null ? null : UrlDecode(bytes, 0, bytes.Length, e);
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static byte[]? UrlDecodeToBytes(string? str) => UrlDecodeToBytes(str, Encoding.UTF8);
 
-        [return: NotNullIfNotNull("str")]
-        public static byte[]? UrlDecodeToBytes(string? str, Encoding e) => str == null ? null : UrlDecodeToBytes(e.GetBytes(str));
-
-        [return: NotNullIfNotNull("bytes")]
-        public static byte[]? UrlDecodeToBytes(byte[]? bytes) => bytes == null ? null : UrlDecodeToBytes(bytes, 0, bytes.Length);
-
-        [return: NotNullIfNotNull("str")]
-        public static byte[]? UrlEncodeToBytes(string? str, Encoding e)
+        [return: NotNullIfNotNull(nameof(str))]
+        public static byte[]? UrlDecodeToBytes(string? str, Encoding e)
         {
+            const int StackallocThreshold = 512;
             if (str == null)
             {
                 return null;
             }
 
-            byte[] bytes = e.GetBytes(str);
-            return HttpEncoder.UrlEncode(bytes, 0, bytes.Length, alwaysCreateNewReturnValue: false);
+            if (e.GetMaxByteCount(str.Length) <= StackallocThreshold)
+            {
+                Span<byte> bytes = stackalloc byte[StackallocThreshold];
+                int encodedBytes = e.GetBytes(str, bytes);
+
+                return HttpEncoder.UrlDecode(bytes.Slice(0, encodedBytes));
+            }
+
+            return UrlDecodeToBytes(e.GetBytes(str));
         }
 
-        [return: NotNullIfNotNull("bytes")]
-        public static byte[]? UrlEncodeToBytes(byte[]? bytes, int offset, int count) => HttpEncoder.UrlEncode(bytes, offset, count, alwaysCreateNewReturnValue: true);
+        [return: NotNullIfNotNull(nameof(bytes))]
+        public static byte[]? UrlDecodeToBytes(byte[]? bytes) => bytes == null ? null : HttpEncoder.UrlDecode(bytes);
+
+        [return: NotNullIfNotNull(nameof(str))]
+        public static byte[]? UrlEncodeToBytes(string? str, Encoding e) => str == null ? null : HttpEncoder.UrlEncode(str, e);
+
+        [return: NotNullIfNotNull(nameof(bytes))]
+        public static byte[]? UrlEncodeToBytes(byte[]? bytes, int offset, int count) => HttpEncoder.UrlEncode(bytes, offset, count);
 
         [Obsolete("This method produces non-standards-compliant output and has interoperability issues. The preferred alternative is UrlEncode(String).")]
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlEncodeUnicode(string? str) => HttpEncoder.UrlEncodeUnicode(str);
 
-        [return: NotNullIfNotNull("str")]
+        [return: NotNullIfNotNull(nameof(str))]
         public static string? UrlDecode(string? str, Encoding e) => HttpEncoder.UrlDecode(str, e);
 
-        [return: NotNullIfNotNull("bytes")]
+        private static string UrlDecode(ReadOnlySpan<char> str, Encoding e) => HttpEncoder.UrlDecode(str, e);
+
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static string? UrlDecode(byte[]? bytes, int offset, int count, Encoding e) =>
             HttpEncoder.UrlDecode(bytes, offset, count, e);
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         public static byte[]? UrlDecodeToBytes(byte[]? bytes, int offset, int count) => HttpEncoder.UrlDecode(bytes, offset, count);
 
-        public static string JavaScriptStringEncode(string? value) => HttpEncoder.JavaScriptStringEncode(value);
+        public static string JavaScriptStringEncode(string? value) => HttpEncoder.JavaScriptStringEncode(value, false);
 
-        public static string JavaScriptStringEncode(string? value, bool addDoubleQuotes)
-        {
-            string encoded = HttpEncoder.JavaScriptStringEncode(value);
-            return addDoubleQuotes ? "\"" + encoded + "\"" : encoded;
-        }
+        public static string JavaScriptStringEncode(string? value, bool addDoubleQuotes) => HttpEncoder.JavaScriptStringEncode(value, addDoubleQuotes);
     }
 }

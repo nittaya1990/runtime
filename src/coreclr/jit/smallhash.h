@@ -75,6 +75,26 @@ struct HashTableInfo<unsigned>
     }
 };
 
+#ifdef HOST_64BIT
+//------------------------------------------------------------------------
+// HashTableInfo<ssize_t>: specialized version of HashTableInfo for ssize_t-
+//                          typed keys.
+template <>
+struct HashTableInfo<ssize_t>
+{
+    static bool Equals(ssize_t x, ssize_t y)
+    {
+        return x == y;
+    }
+
+    static unsigned GetHashCode(ssize_t key)
+    {
+        // Return the key itself
+        return (unsigned)key;
+    }
+};
+#endif
+
 //------------------------------------------------------------------------
 // HashTableBase: base type for HashTable and SmallHashTable. This class
 //                provides the vast majority of the implementation. The
@@ -94,7 +114,7 @@ struct HashTableInfo<unsigned>
 //
 // Resolving collisions using a bucket chain avoids the primary clustering
 // issue common in linearly-probed open addressed hash tables, while using
-// buckets as chain nodes avoids the allocaiton traffic typical of chained
+// buckets as chain nodes avoids the allocation traffic typical of chained
 // tables. Applying the hopscotch algorithm in the aforementioned paper
 // could further improve performance by optimizing access patterns for
 // better cache usage.
@@ -318,7 +338,10 @@ private:
 
 protected:
     HashTableBase(TAllocator alloc, Bucket* buckets, unsigned numBuckets)
-        : m_alloc(alloc), m_buckets(buckets), m_numBuckets(numBuckets), m_numFullBuckets(0)
+        : m_alloc(alloc)
+        , m_buckets(buckets)
+        , m_numBuckets(numBuckets)
+        , m_numFullBuckets(0)
     {
         if (numBuckets > 0)
         {
@@ -339,13 +362,15 @@ public:
 
         Bucket* m_bucket;
 
-        KeyValuePair(Bucket* bucket) : m_bucket(bucket)
+        KeyValuePair(Bucket* bucket)
+            : m_bucket(bucket)
         {
             assert(m_bucket != nullptr);
         }
 
     public:
-        KeyValuePair() : m_bucket(nullptr)
+        KeyValuePair()
+            : m_bucket(nullptr)
         {
         }
 
@@ -372,7 +397,9 @@ public:
         unsigned m_index;
 
         Iterator(Bucket* buckets, unsigned numBuckets, unsigned index)
-            : m_buckets(buckets), m_numBuckets(numBuckets), m_index(index)
+            : m_buckets(buckets)
+            , m_numBuckets(numBuckets)
+            , m_index(index)
         {
             assert((buckets != nullptr) || (numBuckets == 0));
             assert(index <= numBuckets);
@@ -385,7 +412,10 @@ public:
         }
 
     public:
-        Iterator() : m_buckets(nullptr), m_numBuckets(0), m_index(0)
+        Iterator()
+            : m_buckets(nullptr)
+            , m_numBuckets(0)
+            , m_index(0)
         {
         }
 
@@ -500,7 +530,7 @@ public:
     //
     // Returns:
     //    True if the key was removed from the table; false otherwise.
-    bool TryRemove(const TKey& key, TValue* value)
+    bool TryRemove(const TKey& key, TValue* value = nullptr)
     {
         unsigned hash = TKeyInfo::GetHashCode(key);
 
@@ -543,8 +573,25 @@ public:
 
         m_numFullBuckets--;
 
-        *value = bucket->m_value;
+        if (value != nullptr)
+        {
+            *value = bucket->m_value;
+        }
+
         return true;
+    }
+
+    //------------------------------------------------------------------------
+    // HashTableBase::Remove: removes a key from the hash table and asserts
+    //                        that it did exist in the the table.
+    //
+    // Arguments:
+    //    key   - The key to remove from the table.
+    //
+    void Remove(const TKey& key)
+    {
+        bool removed = TryRemove(key);
+        assert(removed);
     }
 
     //------------------------------------------------------------------------
@@ -599,7 +646,8 @@ class HashTable final : public HashTableBase<TKey, TValue, TKeyInfo, TAllocator>
     }
 
 public:
-    HashTable(TAllocator alloc) : TBase(alloc, nullptr, 0)
+    HashTable(TAllocator alloc)
+        : TBase(alloc, nullptr, 0)
     {
     }
 
@@ -633,7 +681,8 @@ class SmallHashTable final : public HashTableBase<TKey, TValue, TKeyInfo, TAlloc
     typename TBase::Bucket m_inlineBuckets[RoundedNumInlineBuckets];
 
 public:
-    SmallHashTable(TAllocator alloc) : TBase(alloc, m_inlineBuckets, RoundedNumInlineBuckets)
+    SmallHashTable(TAllocator alloc)
+        : TBase(alloc, m_inlineBuckets, RoundedNumInlineBuckets)
     {
     }
 };

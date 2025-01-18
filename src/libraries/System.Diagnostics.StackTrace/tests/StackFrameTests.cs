@@ -75,6 +75,7 @@ namespace System.Diagnostics.Tests
         [Theory]
         [InlineData(int.MinValue)]
         [InlineData(int.MaxValue)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/103218", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
         public void SkipFrames_ManyFrames_HasNoMethod(int skipFrames)
         {
             var stackFrame = new StackFrame(skipFrames);
@@ -123,6 +124,7 @@ namespace System.Diagnostics.Tests
 
         [Theory]
         [ActiveIssue("https://github.com/mono/mono/issues/15186", TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/103156", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
         [MemberData(nameof(ToString_TestData))]
         public void ToString_Invoke_ReturnsExpected(StackFrame stackFrame, string expectedToString)
         {
@@ -168,7 +170,10 @@ namespace System.Diagnostics.Tests
             }
             else
             {
-                Assert.True(stackFrame.GetILOffset() >= 0, $"Expected GetILOffset() {stackFrame.GetILOffset()} for {stackFrame} to be greater or equal to zero.");
+                if (PlatformDetection.IsILOffsetsSupported)
+                {
+                    Assert.True(stackFrame.GetILOffset() >= 0, $"Expected GetILOffset() {stackFrame.GetILOffset()} for {stackFrame} to be greater or equal to zero.");
+                }
             }
 
             // GetMethod returns null for unknown frames.
@@ -186,7 +191,8 @@ namespace System.Diagnostics.Tests
             }
 
             // GetNativeOffset returns StackFrame.OFFSET_UNKNOWN for unknown frames.
-            // GetNativeOffset returns 0 for known frames with a positive skipFrames.
+            // For a positive skipFrame, the GetNativeOffset return value is dependent upon the implementation of reflection
+            // Invoke() which can be native (where the value would be zero) or managed (where the value is likely non-zero).
             if (skipFrames == int.MaxValue || skipFrames == int.MinValue)
             {
                 Assert.Equal(StackFrame.OFFSET_UNKNOWN, stackFrame.GetNativeOffset());
@@ -198,7 +204,7 @@ namespace System.Diagnostics.Tests
             }
             else
             {
-                Assert.Equal(0, stackFrame.GetNativeOffset());
+                Assert.True(stackFrame.GetNativeOffset() >= 0);
             }
         }
     }

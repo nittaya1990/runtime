@@ -47,6 +47,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////
 
+using System.Buffers.Text;
 using System.Diagnostics;
 using System.Text;
 
@@ -114,7 +115,7 @@ namespace System.Globalization
                 if (_zeroes == 0 && _num > MaxFraction)
                     return false;
 
-                int totalDigitsCount = ((int)Math.Floor(Math.Log10(_num))) + 1 + _zeroes;
+                int totalDigitsCount = FormattingHelpers.CountDigits((uint)_num) + _zeroes;
 
                 if (totalDigitsCount == MaxFractionDigits)
                 {
@@ -132,7 +133,7 @@ namespace System.Globalization
                     // .000001  normalize to 10 ticks
                     // .1       normalize to 1,000,000 ticks
 
-                    _num *= (int)Pow10(MaxFractionDigits - totalDigitsCount);
+                    _num *= Pow10UpToMaxFractionDigits(MaxFractionDigits - totalDigitsCount);
                     return true;
                 }
 
@@ -143,7 +144,18 @@ namespace System.Globalization
                 // .099999999   normalize to 1,000,000 ticks
 
                 Debug.Assert(_zeroes > 0); // Already validated that in the condition _zeroes == 0 && _num > MaxFraction
-                _num = (int)Math.Round((double)_num / Pow10(totalDigitsCount - MaxFractionDigits), MidpointRounding.AwayFromZero);
+
+                if (_zeroes > MaxFractionDigits)
+                {
+                    // If there are 8 leading zeroes, it rounds to zero
+                    _num = 0;
+                    return true;
+                }
+
+                Debug.Assert(totalDigitsCount - MaxFractionDigits <= MaxFractionDigits);
+                uint power = (uint)Pow10UpToMaxFractionDigits(totalDigitsCount - MaxFractionDigits);
+                // Unsigned integer division, rounding away from zero
+                _num = (int)(((uint)_num + power / 2) / power);
                 Debug.Assert(_num < MaxFraction);
 
                 return true;
@@ -169,15 +181,17 @@ namespace System.Globalization
             {
                 // Get the position of the next character to be processed.  If there is no
                 // next character, we're at the end.
-                int pos = _pos;
+                int startPos = _pos;
+                int pos = startPos;
+                ReadOnlySpan<char> value = _value;
                 Debug.Assert(pos > -1);
-                if (pos >= _value.Length)
+                if ((uint)pos >= (uint)value.Length)
                 {
                     return new TimeSpanToken(TTT.End);
                 }
 
                 // Now retrieve that character. If it's a digit, we're processing a number.
-                int num = _value[pos] - '0';
+                int num = value[pos] - '0';
                 if ((uint)num <= 9)
                 {
                     int zeroes = 0;
@@ -188,8 +202,9 @@ namespace System.Globalization
                         while (true)
                         {
                             int digit;
-                            if (++_pos >= _value.Length || (uint)(digit = _value[_pos] - '0') > 9)
+                            if ((uint)++pos >= (uint)value.Length || (uint)(digit = value[pos] - '0') > 9)
                             {
+                                _pos = pos;
                                 return new TimeSpanToken(TTT.Num, 0, zeroes, default);
                             }
 
@@ -202,12 +217,14 @@ namespace System.Globalization
                             num = digit;
                             break;
                         }
+
+                        _pos = pos;
                     }
 
                     // Continue to read as long as we're reading digits.
-                    while (++_pos < _value.Length)
+                    while ((uint)++pos < (uint)value.Length)
                     {
-                        int digit = _value[_pos] - '0';
+                        int digit = value[pos] - '0';
                         if ((uint)digit > 9)
                         {
                             break;
@@ -216,27 +233,26 @@ namespace System.Globalization
                         num = num * 10 + digit;
                         if ((num & 0xF0000000) != 0) // Max limit we can support 268435455 which is FFFFFFF
                         {
+                            _pos = pos;
                             return new TimeSpanToken(TTT.NumOverflow);
                         }
                     }
 
+                    _pos = pos;
                     return new TimeSpanToken(TTT.Num, num, zeroes, default);
                 }
 
                 // Otherwise, we're processing a separator, and we've already processed the first
                 // character of it.  Continue processing characters as long as they're not digits.
                 int length = 1;
-                while (true)
+                while ((uint)++pos < (uint)value.Length && !char.IsAsciiDigit(value[pos]))
                 {
-                    if (++_pos >= _value.Length || (uint)(_value[_pos] - '0') <= 9)
-                    {
-                        break;
-                    }
                     length++;
                 }
+                _pos = pos;
 
                 // Return the separator.
-                return new TimeSpanToken(TTT.Sep, 0, 0, _value.Slice(pos, length));
+                return new TimeSpanToken(TTT.Sep, 0, 0, _value.Slice(startPos, length));
             }
 
             internal bool EOL => _pos >= (_value.Length - 1);
@@ -249,7 +265,7 @@ namespace System.Globalization
             internal char NextChar()
             {
                 int pos = ++_pos;
-                return (uint)pos < (uint)_value.Length?
+                return (uint)pos < (uint)_value.Length ?
                     _value[pos] :
                     (char)0;
             }
@@ -383,7 +399,7 @@ namespace System.Globalization
             private const int MaxLiteralTokens = 6;
             private const int MaxNumericTokens = 5;
 
-            internal TimeSpanToken _numbers0, _numbers1, _numbers2, _numbers3, _numbers4; // MaxNumbericTokens = 5
+            internal TimeSpanToken _numbers0, _numbers1, _numbers2, _numbers3, _numbers4; // MaxNumericTokens = 5
             internal ReadOnlySpan<char> _literals0, _literals1, _literals2, _literals3, _literals4, _literals5; // MaxLiteralTokens=6
 
             internal void Init(DateTimeFormatInfo dtfi)
@@ -519,13 +535,13 @@ namespace System.Globalization
 
             internal bool SetArgumentNullFailure(string argumentName)
             {
-                if (!_throwOnFailure)
+                if (_throwOnFailure)
                 {
-                    return false;
+                    Debug.Assert(argumentName != null);
+                    ArgumentNullException.Throw(argumentName);
                 }
 
-                Debug.Assert(argumentName != null);
-                throw new ArgumentNullException(argumentName, SR.ArgumentNull_String);
+                return false;
             }
 
             internal bool SetOverflowFailure()
@@ -559,20 +575,21 @@ namespace System.Globalization
             }
         }
 
-        internal static long Pow10(int pow)
+        internal static int Pow10UpToMaxFractionDigits(int pow)
         {
-            return pow switch
-            {
-                0 => 1,
-                1 => 10,
-                2 => 100,
-                3 => 1000,
-                4 => 10000,
-                5 => 100000,
-                6 => 1000000,
-                7 => 10000000,
-                _ => (long)Math.Pow(10, pow),
-            };
+            ReadOnlySpan<int> powersOfTen =
+            [
+                1,
+                10,
+                100,
+                1000,
+                10000,
+                100000,
+                1000000,
+                10000000,
+            ];
+            Debug.Assert(powersOfTen.Length == MaxFractionDigits + 1);
+            return powersOfTen[pow];
         }
 
         private static bool TryTimeToTicks(bool positive, TimeSpanToken days, TimeSpanToken hours, TimeSpanToken minutes, TimeSpanToken seconds, TimeSpanToken fraction, out long result)
@@ -1217,22 +1234,13 @@ namespace System.Globalization
 
             if (format.Length == 1)
             {
-                switch (format[0])
+                return format[0] switch
                 {
-                    case 'c':
-                    case 't':
-                    case 'T':
-                        return TryParseTimeSpanConstant(input, ref result); // fast path for legacy style TimeSpan formats.
-
-                    case 'g':
-                        return TryParseTimeSpan(input, TimeSpanStandardStyles.Localized, formatProvider, ref result);
-
-                    case 'G':
-                        return TryParseTimeSpan(input, TimeSpanStandardStyles.Localized | TimeSpanStandardStyles.RequireFull, formatProvider, ref result);
-
-                    default:
-                        return result.SetBadFormatSpecifierFailure(format[0]);
-                }
+                    'c' or 't' or 'T' => TryParseTimeSpanConstant(input, ref result), // fast path for legacy style TimeSpan formats.
+                    'g' => TryParseTimeSpan(input, TimeSpanStandardStyles.Localized, formatProvider, ref result),
+                    'G' => TryParseTimeSpan(input, TimeSpanStandardStyles.Localized | TimeSpanStandardStyles.RequireFull, formatProvider, ref result),
+                    _ => result.SetBadFormatSpecifierFailure(format[0]),
+                };
             }
 
             return TryParseByFormat(input, format, styles, ref result);
@@ -1421,7 +1429,7 @@ namespace System.Globalization
             while (tokenLength < maxDigitLength)
             {
                 char ch = tokenizer.NextChar();
-                if (ch < '0' || ch > '9')
+                if (!char.IsAsciiDigit(ch))
                 {
                     tokenizer.BackOne();
                     break;
@@ -1463,31 +1471,26 @@ namespace System.Globalization
             private ReadOnlySpan<char> _str;
             private char _ch;
             private int _pos;
-            private int _len;
 
             internal void NextChar()
             {
-                if (_pos < _len)
+                ReadOnlySpan<char> str = _str;
+
+                if (_pos < str.Length)
                 {
                     _pos++;
                 }
 
-                _ch = _pos < _len ?
-                    _str[_pos] :
+                int pos = _pos;
+                _ch = (uint)pos < (uint)str.Length ?
+                    str[pos] :
                     (char)0;
             }
 
             internal char NextNonDigit()
             {
-                int i = _pos;
-                while (i < _len)
-                {
-                    char ch = _str[i];
-                    if (ch < '0' || ch > '9') return ch;
-                    i++;
-                }
-
-                return (char)0;
+                int i = _str.Slice(_pos).IndexOfAnyExceptInRange('0', '9');
+                return i < 0 ? (char)0 : _str[_pos + i];
             }
 
             internal bool TryParse(ReadOnlySpan<char> input, ref TimeSpanResult result)
@@ -1495,7 +1498,6 @@ namespace System.Globalization
                 result.parsedTimeSpan = default;
 
                 _str = input;
-                _len = input.Length;
                 _pos = -1;
                 NextChar();
                 SkipBlanks();
@@ -1554,7 +1556,7 @@ namespace System.Globalization
 
                 SkipBlanks();
 
-                if (_pos < _len)
+                if (_pos < _str.Length)
                 {
                     return result.SetBadTimeSpanFailure();
                 }
@@ -1567,7 +1569,7 @@ namespace System.Globalization
             {
                 i = 0;
                 int p = _pos;
-                while (_ch >= '0' && _ch <= '9')
+                while (char.IsAsciiDigit(_ch))
                 {
                     if ((i & 0xF0000000) != 0)
                     {
@@ -1638,7 +1640,7 @@ namespace System.Globalization
                     {
                         NextChar();
                         int f = (int)TimeSpan.TicksPerSecond;
-                        while (f > 1 && _ch >= '0' && _ch <= '9')
+                        while (f > 1 && char.IsAsciiDigit(_ch))
                         {
                             f /= 10;
                             time += (_ch - '0') * f;
@@ -1674,7 +1676,7 @@ namespace System.Globalization
                 return result.SetNoFormatSpecifierFailure();
             }
 
-            // Do a loop through the provided formats and see if we can parse succesfully in
+            // Do a loop through the provided formats and see if we can parse successfully in
             // one of the formats.
             for (int i = 0; i < formats.Length; i++)
             {

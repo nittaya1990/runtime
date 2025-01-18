@@ -1,14 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+extern alias sinlib_cs;
+using Xunit;
 
 namespace SinCalc_against_sinlib_cs
 {
     using System;
-    using SinCalcLib;
+    using sinlib_cs::SinCalcLib;
 
-    class SinCalc
+    public class SinCalc
     {
-        static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             object i;
             object Angle;

@@ -2,7 +2,7 @@
 ## Licensed to the .NET Foundation under one or more agreements.
 ## The .NET Foundation licenses this file to you under the MIT license.
 ##
-##  This script exists to create a dummy implementaion of the eventprovider
+##  This script exists to create a dummy implementation of the eventprovider
 ##  interface from a manifest file
 ##
 ##  The intended use if for platforms which support event pipe
@@ -124,8 +124,6 @@ def generateDummyFiles(etwmanifest, out_dirname, runtimeFlavor, extern, dryRun):
 #include "pal_mstypes.h"
 #include "pal_error.h"
 #include "pal.h"
-#define PAL_free free
-#define PAL_realloc realloc
 #include "pal/stackstring.hpp"
 #endif
 
@@ -147,7 +145,7 @@ def main(argv):
 
     required = parser.add_argument_group('required arguments')
     required.add_argument('--man',  type=str, required=True,
-                                    help='full path to manifest containig the description of events')
+                                    help='full path to manifest containing the description of events')
     required.add_argument('--intermediate', type=str, required=True,
                                     help='full path to eventprovider  intermediate directory')
     required.add_argument('--runtimeflavor', type=str,default="CoreCLR",

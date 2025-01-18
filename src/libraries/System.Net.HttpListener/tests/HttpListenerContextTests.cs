@@ -101,7 +101,7 @@ namespace System.Net.Tests
         [ConditionalFact(nameof(IsNotWindows7))]
         public async Task AcceptWebSocketAsync_AuthorizationInHeaders_ThrowsNotImplementedException()
         {
-            Socket.Options.SetRequestHeader("Authorization", "Basic " + Convert.ToBase64String(Encoding.ASCII.GetBytes("user:password")));
+            Socket.Options.SetRequestHeader("Authorization", "Basic " + Convert.ToBase64String("user:password"u8));
             Factory.GetListener().AuthenticationSchemes = AuthenticationSchemes.Basic;
 
             HttpListenerContext context = await GetWebSocketContext();
@@ -269,7 +269,7 @@ namespace System.Net.Tests
             if (clientConnectTask == await Task.WhenAny(serverContextTask, clientConnectTask))
             {
                 await clientConnectTask;
-                Assert.True(false, "Client should not have completed prior to server sending response");
+                Assert.Fail("Client should not have completed prior to server sending response");
             }
 
             return await serverContextTask;

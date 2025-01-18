@@ -38,7 +38,7 @@ namespace System.Net.Sockets.Tests
             AssertExtensions.Throws<ArgumentOutOfRangeException>("port", () => new TcpClient("localhost", -1));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Connect_InvalidArguments_Throws()
         {
             using (var client = new TcpClient())
@@ -54,6 +54,21 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        public async Task ConnectAsync_InvalidArguments_Throws()
+        {
+            using (var client = new TcpClient())
+            {
+                await AssertExtensions.ThrowsAsync<ArgumentNullException>("host", () => client.ConnectAsync((string)null, 0));
+                await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("port", () => client.ConnectAsync("localhost", -1));
+
+                await AssertExtensions.ThrowsAsync<ArgumentNullException>("address", () => client.ConnectAsync((IPAddress)null, 0));
+                await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("port", () => client.ConnectAsync(IPAddress.Loopback, -1));
+
+                await AssertExtensions.ThrowsAsync<ArgumentNullException>("remoteEP", () => client.ConnectAsync(null));
+            }
+        }
+
+        [Fact]
         public void GetStream_NotConnected_Throws()
         {
             using (var client = new TcpClient())
@@ -62,7 +77,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Active_Roundtrips()
         {
             using (var client = new DerivedTcpClient())
@@ -78,7 +93,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void DisposeClose_OperationsThrow(bool close)
@@ -190,7 +205,7 @@ namespace System.Net.Sockets.Tests
 
                 using (NetworkStream s = client.GetStream())
                 {
-                    byte[] getRequest = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n\r\n");
+                    byte[] getRequest = "GET / HTTP/1.1\r\n\r\n"u8.ToArray();
                     await s.WriteAsync(getRequest, 0, getRequest.Length);
                     Assert.NotEqual(-1, s.ReadByte()); // just verify we successfully get any data back
                 }
@@ -198,7 +213,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop]
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(0)]
         [InlineData(1)]
         [InlineData(2)]
@@ -240,7 +255,7 @@ namespace System.Net.Sockets.Tests
 
                 using (NetworkStream s = client.GetStream())
                 {
-                    byte[] getRequest = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\n\r\n");
+                    byte[] getRequest = "GET / HTTP/1.1\r\n\r\n"u8.ToArray();
                     s.Write(getRequest, 0, getRequest.Length);
                     Assert.NotEqual(-1, s.ReadByte()); // just verify we successfully get any data back
                 }
@@ -268,18 +283,6 @@ namespace System.Net.Sockets.Tests
 
                 Assert.False(client.Connected);
                 Assert.Equal(0, client.Available);
-            }
-        }
-
-        [OuterLoop]
-        [Fact]
-        public void ExclusiveAddressUse_NullClient()
-        {
-            using (TcpClient client = new TcpClient())
-            {
-                client.Client = null;
-
-                Assert.False(client.ExclusiveAddressUse);
             }
         }
 
@@ -466,7 +469,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Connect_Dual_Success()
         {
             if (!Socket.OSSupportsIPv6)
@@ -493,7 +496,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false, "::ffff:127.0.0.1")]
         [InlineData(false, "127.0.0.1")]
         [InlineData(false, "localhost")]

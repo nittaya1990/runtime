@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO;
-using System.Xml;
 using System.Threading.Tasks;
+using System.Xml;
 
 namespace System.Xml.Resolvers
 {
@@ -14,10 +14,12 @@ namespace System.Xml.Resolvers
     //
     public partial class XmlPreloadedResolver : XmlResolver
     {
-        public override Task<object> GetEntityAsync(Uri absoluteUri!!,
+        public override Task<object> GetEntityAsync(Uri absoluteUri,
                                              string? role,
                                              Type? ofObjectToReturn)
         {
+            ArgumentNullException.ThrowIfNull(absoluteUri);
+
             PreloadedData? data;
             if (!_mappings.TryGetValue(absoluteUri, out data))
             {

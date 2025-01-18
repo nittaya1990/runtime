@@ -1,9 +1,12 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Globalization;
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace System
@@ -13,12 +16,11 @@ namespace System
         //
         // All public ctors go through here
         //
+        [MemberNotNull(nameof(_string))]
         private void CreateThis(string? uri, bool dontEscape, UriKind uriKind, in UriCreationOptions creationOptions = default)
         {
             DebugAssertInCtor();
 
-            // if (!Enum.IsDefined(typeof(UriKind), uriKind)) -- We currently believe that Enum.IsDefined() is too slow
-            // to be used here.
             if ((int)uriKind < (int)UriKind.RelativeOrAbsolute || (int)uriKind > (int)UriKind.Relative)
             {
                 throw new ArgumentException(SR.Format(SR.net_uri_InvalidUriKind, uriKind));
@@ -56,7 +58,7 @@ namespace System
                     if (NotAny(Flags.DosPath) &&
                         uriKind != UriKind.Absolute &&
                        ((uriKind == UriKind.Relative || (_string.Length >= 2 && (_string[0] != '\\' || _string[1] != '\\')))
-                    || (!IsWindowsSystem && InFact(Flags.UnixPath))))
+                    || (!OperatingSystem.IsWindows() && InFact(Flags.UnixPath))))
                     {
                         _syntax = null!; //make it be relative Uri
                         _flags &= Flags.UserEscaped; // the only flag that makes sense for a relative uri
@@ -215,32 +217,49 @@ namespace System
             }
         }
 
-        // Unescapes entire string and checks if it has unicode chars
-        // Also checks for sequences that are 3986 Unreserved characters as these should be un-escaped
+        /// <summary>SearchValues for all ASCII characters other than %</summary>
+        private static readonly SearchValues<char> s_asciiOtherThanPercent = SearchValues.Create(
+            "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000A\u000B\u000C\u000D\u000E\u000F" +
+            "\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F" +
+            "\u0020\u0021\u0022\u0023\u0024" +  "\u0026\u0027\u0028\u0029\u002A\u002B\u002C\u002D\u002E\u002F" +
+            "\u0030\u0031\u0032\u0033\u0034\u0035\u0036\u0037\u0038\u0039\u003A\u003B\u003C\u003D\u003E\u003F" +
+            "\u0040\u0041\u0042\u0043\u0044\u0045\u0046\u0047\u0048\u0049\u004A\u004B\u004C\u004D\u004E\u004F" +
+            "\u0050\u0051\u0052\u0053\u0054\u0055\u0056\u0057\u0058\u0059\u005A\u005B\u005C\u005D\u005E\u005F" +
+            "\u0060\u0061\u0062\u0063\u0064\u0065\u0066\u0067\u0068\u0069\u006A\u006B\u006C\u006D\u006E\u006F" +
+            "\u0070\u0071\u0072\u0073\u0074\u0075\u0076\u0077\u0078\u0079\u007A\u007B\u007C\u007D\u007E\u007F");
+
+        /// <summary>
+        /// Unescapes entire string and checks if it has unicode chars.Also checks for sequences that are 3986 Unreserved characters as these should be un-escaped
+        /// </summary>
         private static bool CheckForUnicodeOrEscapedUnreserved(string data)
         {
-            for (int i = 0; i < data.Length; i++)
+            int i = data.AsSpan().IndexOfAnyExcept(s_asciiOtherThanPercent);
+            if (i >= 0)
             {
-                char c = data[i];
-                if (c == '%')
+                for ( ; i < data.Length; i++)
                 {
-                    if ((uint)(i + 2) < (uint)data.Length)
+                    char c = data[i];
+                    if (c == '%')
                     {
-                        char value = UriHelper.DecodeHexChars(data[i + 1], data[i + 2]);
-
-                        if (value >= UriHelper.UnreservedTable.Length || UriHelper.UnreservedTable[value])
+                        if ((uint)(i + 2) < (uint)data.Length)
                         {
-                            return true;
-                        }
+                            char value = UriHelper.DecodeHexChars(data[i + 1], data[i + 2]);
 
-                        i += 2;
+                            if (!char.IsAscii(value) || UriHelper.Unreserved.Contains(value))
+                            {
+                                return true;
+                            }
+
+                            i += 2;
+                        }
+                    }
+                    else if (c > 0x7F)
+                    {
+                        return true;
                     }
                 }
-                else if (c > 0x7F)
-                {
-                    return true;
-                }
             }
+
             return false;
         }
 
@@ -248,7 +267,7 @@ namespace System
         //  Returns true if the string represents a valid argument to the Uri ctor
         //  If uriKind != AbsoluteUri then certain parsing errors are ignored but Uri usage is limited
         //
-        public static bool TryCreate([NotNullWhen(true)] string? uriString, UriKind uriKind, [NotNullWhen(true)] out Uri? result)
+        public static bool TryCreate([NotNullWhen(true), StringSyntax(StringSyntaxAttribute.Uri, "uriKind")] string? uriString, UriKind uriKind, [NotNullWhen(true)] out Uri? result)
         {
             if (uriString is null)
             {
@@ -268,7 +287,7 @@ namespace System
         /// <param name="creationOptions">Options that control how the <seealso cref="Uri"/> is created and behaves.</param>
         /// <param name="result">The constructed <see cref="Uri"/>.</param>
         /// <returns><see langword="true"/> if the <see cref="Uri"/> was successfully created; otherwise, <see langword="false"/>.</returns>
-        public static bool TryCreate([NotNullWhen(true)] string? uriString, in UriCreationOptions creationOptions, [NotNullWhen(true)] out Uri? result)
+        public static bool TryCreate([NotNullWhen(true), StringSyntax(StringSyntaxAttribute.Uri)] string? uriString, in UriCreationOptions creationOptions, [NotNullWhen(true)] out Uri? result)
         {
             if (uriString is null)
             {
@@ -323,8 +342,7 @@ namespace System
                     return false;
             }
 
-            if (result is null)
-                result = CreateHelper(newUriString!, dontEscape, UriKind.Absolute, ref e);
+            result ??= CreateHelper(newUriString!, dontEscape, UriKind.Absolute, ref e);
 
             result?.DebugSetLeftCtor();
             return e is null && result != null && result.IsAbsoluteUri;
@@ -400,7 +418,7 @@ namespace System
             return Syntax.InternalIsWellFormedOriginalString(this);
         }
 
-        public static bool IsWellFormedUriString([NotNullWhen(true)] string? uriString, UriKind uriKind)
+        public static bool IsWellFormedUriString([NotNullWhen(true), StringSyntax(StringSyntaxAttribute.Uri, "uriKind")] string? uriString, UriKind uriKind)
         {
             Uri? result;
 
@@ -459,22 +477,22 @@ namespace System
                 {
                     if ((nonCanonical & (Flags.E_UserNotCanonical | Flags.UserIriCanonical)) == (Flags.E_UserNotCanonical | Flags.UserIriCanonical))
                     {
-                        nonCanonical = nonCanonical & ~(Flags.E_UserNotCanonical | Flags.UserIriCanonical);
+                        nonCanonical &= ~(Flags.E_UserNotCanonical | Flags.UserIriCanonical);
                     }
 
                     if ((nonCanonical & (Flags.E_PathNotCanonical | Flags.PathIriCanonical)) == (Flags.E_PathNotCanonical | Flags.PathIriCanonical))
                     {
-                        nonCanonical = nonCanonical & ~(Flags.E_PathNotCanonical | Flags.PathIriCanonical);
+                        nonCanonical &= ~(Flags.E_PathNotCanonical | Flags.PathIriCanonical);
                     }
 
                     if ((nonCanonical & (Flags.E_QueryNotCanonical | Flags.QueryIriCanonical)) == (Flags.E_QueryNotCanonical | Flags.QueryIriCanonical))
                     {
-                        nonCanonical = nonCanonical & ~(Flags.E_QueryNotCanonical | Flags.QueryIriCanonical);
+                        nonCanonical &= ~(Flags.E_QueryNotCanonical | Flags.QueryIriCanonical);
                     }
 
                     if ((nonCanonical & (Flags.E_FragmentNotCanonical | Flags.FragmentIriCanonical)) == (Flags.E_FragmentNotCanonical | Flags.FragmentIriCanonical))
                     {
-                        nonCanonical = nonCanonical & ~(Flags.E_FragmentNotCanonical | Flags.FragmentIriCanonical);
+                        nonCanonical &= ~(Flags.E_FragmentNotCanonical | Flags.FragmentIriCanonical);
                     }
                 }
 
@@ -523,7 +541,7 @@ namespace System
                 //
                 // Check escaping for authority
                 //
-                // IPv6 hosts cannot be properly validated by CheckCannonical
+                // IPv6 hosts cannot be properly validated by CheckCanonical
                 if ((_flags & Flags.CanonicalDnsHost) == 0 && HostType != Flags.IPv6HostType)
                 {
                     idx = _info.Offset.User;
@@ -554,38 +572,152 @@ namespace System
             return true;
         }
 
-        public static string UnescapeDataString(string stringToUnescape!!)
+        /// <summary>Converts a string to its unescaped representation.</summary>
+        /// <param name="stringToUnescape">The string to unescape.</param>
+        /// <returns>The unescaped representation of <paramref name="stringToUnescape"/>.</returns>
+        public static string UnescapeDataString(string stringToUnescape)
         {
-            if (stringToUnescape.Length == 0)
-                return string.Empty;
+            ArgumentNullException.ThrowIfNull(stringToUnescape);
 
-            int position = stringToUnescape.IndexOf('%');
-            if (position == -1)
-                return stringToUnescape;
+            return UnescapeDataString(stringToUnescape, stringToUnescape);
+        }
+
+        /// <summary>Converts a span to its unescaped representation.</summary>
+        /// <param name="charsToUnescape">The span to unescape.</param>
+        /// <returns>The unescaped representation of <paramref name="charsToUnescape"/>.</returns>
+        public static string UnescapeDataString(ReadOnlySpan<char> charsToUnescape)
+        {
+            return UnescapeDataString(charsToUnescape, backingString: null);
+        }
+
+        private static string UnescapeDataString(ReadOnlySpan<char> charsToUnescape, string? backingString = null)
+        {
+            Debug.Assert(backingString is null || backingString.Length == charsToUnescape.Length);
+
+            int indexOfFirstToUnescape = charsToUnescape.IndexOf('%');
+            if (indexOfFirstToUnescape < 0)
+            {
+                // Nothing to unescape, just return the original value.
+                return backingString ?? charsToUnescape.ToString();
+            }
 
             var vsb = new ValueStringBuilder(stackalloc char[StackallocThreshold]);
-            vsb.EnsureCapacity(stringToUnescape.Length);
 
-            vsb.Append(stringToUnescape.AsSpan(0, position));
+            // We may throw for very large inputs (when growing the ValueStringBuilder).
+            vsb.EnsureCapacity(charsToUnescape.Length - indexOfFirstToUnescape);
+
             UriHelper.UnescapeString(
-                stringToUnescape, position, stringToUnescape.Length, ref vsb,
+                charsToUnescape.Slice(indexOfFirstToUnescape), ref vsb,
                 c_DummyChar, c_DummyChar, c_DummyChar,
                 UnescapeMode.Unescape | UnescapeMode.UnescapeAll,
                 syntax: null, isQuery: false);
 
-            return vsb.ToString();
+            string result = string.Concat(charsToUnescape.Slice(0, indexOfFirstToUnescape), vsb.AsSpan());
+            vsb.Dispose();
+            return result;
+        }
+
+        /// <summary>Attempts to convert a span to its unescaped representation.</summary>
+        /// <param name="charsToUnescape">The span to unescape.</param>
+        /// <param name="destination">The output span that contains the unescaped result of the operation.</param>
+        /// <param name="charsWritten">When this method returns, contains the number of chars that were written into <paramref name="destination"/>.</param>
+        /// <returns><see langword="true"/> if the <paramref name="destination"/> was large enough to hold the entire result; otherwise, <see langword="false"/>.</returns>
+        public static bool TryUnescapeDataString(ReadOnlySpan<char> charsToUnescape, Span<char> destination, out int charsWritten)
+        {
+            int indexOfFirstToUnescape = charsToUnescape.IndexOf('%');
+            if (indexOfFirstToUnescape < 0)
+            {
+                // Nothing to unescape, just copy the original chars.
+                if (charsToUnescape.TryCopyTo(destination))
+                {
+                    charsWritten = charsToUnescape.Length;
+                    return true;
+                }
+
+                charsWritten = 0;
+                return false;
+            }
+
+            // We may throw for very large inputs (when growing the ValueStringBuilder).
+            scoped ValueStringBuilder vsb;
+
+            // If the input and destination buffers overlap, we must take care not to overwrite parts of the input before we've processed it.
+            // If the buffers start at the same location, we can still use the destination as the output length is strictly <= input length.
+            bool overlapped = charsToUnescape.Overlaps(destination) &&
+                !Unsafe.AreSame(ref MemoryMarshal.GetReference(charsToUnescape), ref MemoryMarshal.GetReference(destination));
+
+            if (overlapped)
+            {
+                vsb = new ValueStringBuilder(stackalloc char[StackallocThreshold]);
+                vsb.EnsureCapacity(charsToUnescape.Length - indexOfFirstToUnescape);
+            }
+            else
+            {
+                vsb = new ValueStringBuilder(destination.Slice(indexOfFirstToUnescape));
+            }
+
+            UriHelper.UnescapeString(
+                charsToUnescape.Slice(indexOfFirstToUnescape), ref vsb,
+                c_DummyChar, c_DummyChar, c_DummyChar,
+                UnescapeMode.Unescape | UnescapeMode.UnescapeAll,
+                syntax: null, isQuery: false);
+
+            int newLength = indexOfFirstToUnescape + vsb.Length;
+            Debug.Assert(newLength <= charsToUnescape.Length);
+
+            if (destination.Length >= newLength)
+            {
+                charsToUnescape.Slice(0, indexOfFirstToUnescape).CopyTo(destination);
+
+                if (overlapped)
+                {
+                    vsb.AsSpan().CopyTo(destination.Slice(indexOfFirstToUnescape));
+                    vsb.Dispose();
+                }
+                else
+                {
+                    // We are expecting the builder not to grow if the original span was large enough.
+                    // This means that we MUST NOT over allocate anywhere in UnescapeString (e.g. append and then decrease the length).
+                    Debug.Assert(vsb.RawChars.Overlaps(destination));
+                }
+
+                charsWritten = newLength;
+                return true;
+            }
+
+            vsb.Dispose();
+            charsWritten = 0;
+            return false;
         }
 
         // Where stringToEscape is intended to be a completely unescaped URI string.
         // This method will escape any character that is not a reserved or unreserved character, including percent signs.
         [Obsolete(Obsoletions.EscapeUriStringMessage, DiagnosticId = Obsoletions.EscapeUriStringDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public static string EscapeUriString(string stringToEscape) =>
-            UriHelper.EscapeString(stringToEscape, checkExistingEscaped: false, UriHelper.UnreservedReservedTable);
+            UriHelper.EscapeString(stringToEscape, checkExistingEscaped: false, UriHelper.UnreservedReserved);
 
         // Where stringToEscape is intended to be URI data, but not an entire URI.
         // This method will escape any character that is not an unreserved character, including percent signs.
+
+        /// <summary>Converts a string to its escaped representation.</summary>
+        /// <param name="stringToEscape">The string to escape.</param>
+        /// <returns>The escaped representation of <paramref name="stringToEscape"/>.</returns>
         public static string EscapeDataString(string stringToEscape) =>
-            UriHelper.EscapeString(stringToEscape, checkExistingEscaped: false, UriHelper.UnreservedTable);
+            UriHelper.EscapeString(stringToEscape, checkExistingEscaped: false, UriHelper.Unreserved);
+
+        /// <summary>Converts a span to its escaped representation.</summary>
+        /// <param name="charsToEscape">The span to escape.</param>
+        /// <returns>The escaped representation of <paramref name="charsToEscape"/>.</returns>
+        public static string EscapeDataString(ReadOnlySpan<char> charsToEscape) =>
+            UriHelper.EscapeString(charsToEscape, checkExistingEscaped: false, UriHelper.Unreserved, backingString: null);
+
+        /// <summary>Attempts to convert a span to its escaped representation.</summary>
+        /// <param name="charsToEscape">The span to escape.</param>
+        /// <param name="destination">The output span that contains the escaped result of the operation.</param>
+        /// <param name="charsWritten">When this method returns, contains the number of chars that were written into <paramref name="destination"/>.</param>
+        /// <returns><see langword="true"/> if the <paramref name="destination"/> was large enough to hold the entire result; otherwise, <see langword="false"/>.</returns>
+        public static bool TryEscapeDataString(ReadOnlySpan<char> charsToEscape, Span<char> destination, out int charsWritten) =>
+            UriHelper.TryEscapeDataString(charsToEscape, destination, out charsWritten);
 
         //
         // Cleans up the specified component according to Iri rules
@@ -621,8 +753,6 @@ namespace System
         //
         internal static Uri? CreateHelper(string uriString, bool dontEscape, UriKind uriKind, ref UriFormatException? e, in UriCreationOptions creationOptions = default)
         {
-            // if (!Enum.IsDefined(typeof(UriKind), uriKind)) -- We currently believe that Enum.IsDefined() is too slow
-            // to be used here.
             if ((int)uriKind < (int)UriKind.RelativeOrAbsolute || (int)uriKind > (int)UriKind.Relative)
             {
                 throw new ArgumentException(SR.Format(SR.net_uri_InvalidUriKind, uriKind));
@@ -729,7 +859,7 @@ namespace System
             // Check on the DOS path in the relative Uri (a special case)
             if (relativeStr.Length >= 3
                 && (relativeStr[1] == ':' || relativeStr[1] == '|')
-                && UriHelper.IsAsciiLetter(relativeStr[0])
+                && char.IsAsciiLetter(relativeStr[0])
                 && (relativeStr[2] == '\\' || relativeStr[2] == '/'))
             {
                 if (baseUri.IsImplicitFile)
@@ -765,7 +895,7 @@ namespace System
         {
             if (format == UriFormat.UriEscaped)
             {
-                return UriHelper.EscapeString(_string, checkExistingEscaped: true, UriHelper.UnreservedReservedTable);
+                return UriHelper.EscapeString(_string, checkExistingEscaped: true, UriHelper.UnreservedReserved);
             }
             else if (format == UriFormat.Unescaped)
             {
@@ -852,8 +982,10 @@ namespace System
             }
         }
 
-        public bool IsBaseOf(Uri uri!!)
+        public bool IsBaseOf(Uri uri)
         {
+            ArgumentNullException.ThrowIfNull(uri);
+
             if (!IsAbsoluteUri)
                 return false;
 
@@ -866,6 +998,11 @@ namespace System
 
         internal bool IsBaseOfHelper(Uri uriLink)
         {
+            const UriComponents ComponentsToCompare =
+                UriComponents.AbsoluteUri
+                & ~UriComponents.Fragment
+                & ~UriComponents.UserInfo;
+
             if (!IsAbsoluteUri || UserDrivenParsing)
                 return false;
 
@@ -892,8 +1029,8 @@ namespace System
                 return false;
 
             // Canonicalize and test for substring match up to the last path slash
-            string self = GetParts(UriComponents.AbsoluteUri & ~UriComponents.Fragment, UriFormat.SafeUnescaped);
-            string other = uriLink.GetParts(UriComponents.AbsoluteUri & ~UriComponents.Fragment, UriFormat.SafeUnescaped);
+            string self = GetParts(ComponentsToCompare, UriFormat.SafeUnescaped);
+            string other = uriLink.GetParts(ComponentsToCompare, UriFormat.SafeUnescaped);
 
             unsafe
             {
@@ -911,6 +1048,7 @@ namespace System
         //
         // Only a ctor time call
         //
+        [MemberNotNull(nameof(_string))]
         private void CreateThisFromUri(Uri otherUri)
         {
             DebugAssertInCtor();

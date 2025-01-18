@@ -3,10 +3,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Xml;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Xml;
 
 namespace System.Runtime.Serialization.Json
 {
@@ -19,8 +19,10 @@ namespace System.Runtime.Serialization.Json
             return CreateJsonReader(stream, null, quotas, null);
         }
 
-        public static XmlDictionaryReader CreateJsonReader(byte[] buffer!!, XmlDictionaryReaderQuotas quotas)
+        public static XmlDictionaryReader CreateJsonReader(byte[] buffer, XmlDictionaryReaderQuotas quotas)
         {
+            ArgumentNullException.ThrowIfNull(buffer);
+
             return CreateJsonReader(buffer, 0, buffer.Length, null, quotas, null);
         }
 

@@ -90,7 +90,7 @@ g_build_path (const gchar *separator, const gchar *first_element, ...)
 }
 
 static gchar*
-strrchr_seperator (const gchar* filename)
+strrchr_separator (const gchar* filename)
 {
 #ifdef G_OS_WIN32
 	char *p2;
@@ -114,7 +114,7 @@ g_path_get_dirname (const gchar *filename)
 	size_t count;
 	g_return_val_if_fail (filename != NULL, NULL);
 
-	p = strrchr_seperator (filename);
+	p = strrchr_separator (filename);
 	if (p == NULL)
 		return g_strdup (".");
 	if (p == filename)
@@ -138,7 +138,7 @@ g_path_get_basename (const char *filename)
 		return g_strdup (".");
 
 	/* No separator -> filename */
-	r = strrchr_seperator (filename);
+	r = strrchr_separator (filename);
 	if (r == NULL)
 		return g_strdup (filename);
 
@@ -146,7 +146,7 @@ g_path_get_basename (const char *filename)
 	if (r [1] == 0){
 		char *copy = g_strdup (filename);
 		copy [r-filename] = 0;
-		r = strrchr_seperator (copy);
+		r = strrchr_separator (copy);
 
 		if (r == NULL){
 			g_free (copy);
@@ -160,8 +160,7 @@ g_path_get_basename (const char *filename)
 	return g_strdup (&r[1]);
 }
 
-//wasm does have strtok_r even though autoconf fails to find
-#if !defined (HAVE_STRTOK_R) && !defined (HOST_WASM)
+#if !defined (HAVE_STRTOK_R)
 // This is from BSD's strtok_r
 
 char *
@@ -194,7 +193,7 @@ cont:
 	 * Scan token (scan for delimiters: s += strcspn(s, delim), sort of).
 	 * Note that delim must have one NUL; we stop if we see that, too.
 	 */
-	for (;;){
+	while (true) {
 		c = *s++;
 		spanp = (char *)delim;
 		do {
@@ -214,92 +213,6 @@ cont:
 	/* NOTREACHED */
 }
 #endif
-
-gchar *
-g_find_program_in_path (const gchar *program)
-{
-	char *p;
-	char *x, *l;
-	gchar *curdir = NULL;
-	char *save = NULL;
-#ifdef G_OS_WIN32
-	char *program_exe;
-	static char const * const suffix_list[5] = {".exe",".cmd",".bat",".com",NULL};
-	int listx;
-	gboolean hasSuffix;
-#endif
-
-	g_return_val_if_fail (program != NULL, NULL);
-	x = p = g_getenv ("PATH");
-
-	if (x == NULL || *x == '\0') {
-		curdir = g_get_current_dir ();
-		x = curdir;
-	}
-
-#ifdef G_OS_WIN32
-	/* see if program already has a suffix */
-	listx = 0;
-	hasSuffix = FALSE;
-	while (!hasSuffix && suffix_list[listx]) {
-		hasSuffix = g_str_has_suffix(program,suffix_list[listx++]);
-	}
-#endif
-
-	while ((l = strtok_r (x, G_SEARCHPATH_SEPARATOR_S, &save)) != NULL){
-		char *probe_path;
-
-		x = NULL;
-		probe_path = g_build_path (G_DIR_SEPARATOR_S, l, program, NULL);
-#ifdef HAVE_ACCESS
-		if (g_access (probe_path, X_OK) == 0){ /* FIXME: on windows this is just a read permissions test */
-			g_free (curdir);
-			g_free (p);
-			return probe_path;
-		}
-#endif
-		g_free (probe_path);
-
-#ifdef G_OS_WIN32
-		/* check for program with a suffix attached */
-		if (!hasSuffix) {
-			listx = 0;
-			while (suffix_list[listx]) {
-				program_exe = g_strjoin (NULL, program, suffix_list [listx], (const char*)NULL);
-				probe_path = g_build_path (G_DIR_SEPARATOR_S, l, program_exe, (const char*)NULL);
-#ifdef HAVE_ACCESS
-				if (g_access (probe_path, X_OK) == 0){ /* FIXME: on windows this is just a read permissions test */
-					g_free (curdir);
-					g_free (p);
-					g_free (program_exe);
-					return probe_path;
-				}
-#endif
-				listx++;
-				g_free (probe_path);
-				g_free (program_exe);
-			}
-		}
-#endif
-	}
-	g_free (curdir);
-	g_free (p);
-	return NULL;
-}
-
-static char *name;
-
-void
-g_set_prgname (const gchar *prgname)
-{
-	name = g_strdup (prgname);
-}
-
-gchar *
-g_get_prgname (void)
-{
-	return name;
-}
 
 gboolean
 g_ensure_directory_exists (const gchar *filename)
@@ -321,7 +234,7 @@ g_ensure_directory_exists (const gchar *filename)
 
 	p = dir_utf16;
 
-	/* make life easy and only use one directory seperator */
+	/* make life easy and only use one directory separator */
 	while (*p != '\0')
 	{
 		if (*p == '/')

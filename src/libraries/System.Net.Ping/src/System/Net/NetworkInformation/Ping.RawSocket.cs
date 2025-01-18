@@ -19,9 +19,9 @@ namespace System.Net.NetworkInformation
         private const int MinIpHeaderLengthInBytes = 20;
         private const int MaxIpHeaderLengthInBytes = 60;
         private const int IpV6HeaderLengthInBytes = 40;
-        private static ushort DontFragment = OperatingSystem.IsFreeBSD() ? (ushort)IPAddress.HostToNetworkOrder((short)0x4000) : (ushort)0x4000;
+        private static readonly ushort DontFragment = OperatingSystem.IsFreeBSD() ? (ushort)IPAddress.HostToNetworkOrder((short)0x4000) : (ushort)0x4000;
 
-        private unsafe SocketConfig GetSocketConfig(IPAddress address, byte[] buffer, int timeout, PingOptions? options)
+        private static unsafe SocketConfig GetSocketConfig(IPAddress address, byte[] buffer, int timeout, PingOptions? options)
         {
             // Use a random value as the identifier. This doesn't need to be perfectly random
             // or very unpredictable, rather just good enough to avoid unexpected conflicts.
@@ -58,7 +58,7 @@ namespace System.Net.NetworkInformation
                 }, buffer, totalLength));
         }
 
-        private Socket GetRawSocket(SocketConfig socketConfig)
+        private static Socket GetRawSocket(SocketConfig socketConfig)
         {
             IPEndPoint ep = (IPEndPoint)socketConfig.EndPoint;
             AddressFamily addrFamily = ep.Address.AddressFamily;
@@ -98,17 +98,32 @@ namespace System.Net.NetworkInformation
 #pragma warning disable 618
             // Disable warning about obsolete property. We could use GetAddressBytes but that allocates.
             // IPv4 multicast address starts with 1110 bits so mask rest and test if we get correct value e.g. 0xe0.
-            if (NeedsConnect && !ep.Address.IsIPv6Multicast && !(addrFamily == AddressFamily.InterNetwork && (ep.Address.Address & 0xf0) == 0xe0))
+            bool ipv4 = addrFamily == AddressFamily.InterNetwork;
+            if (NeedsConnect && !ep.Address.IsIPv6Multicast && !(ipv4 && (ep.Address.Address & 0xf0) == 0xe0))
             {
                 // If it is not multicast, use Connect to scope responses only to the target address.
                 socket.Connect(socketConfig.EndPoint);
+                unsafe
+                {
+                    int opt = 1;
+                    if (ipv4)
+                    {
+                        // setsockopt(fd, IPPROTO_IP, IP_RECVERR, &value, sizeof(int))
+                        socket.SetRawSocketOption(0, 11, new ReadOnlySpan<byte>(&opt, sizeof(int)));
+                    }
+                    else
+                    {
+                        // setsockopt(fd, IPPROTO_IPV6, IPV6_RECVERR, &value, sizeof(int))
+                        socket.SetRawSocketOption(41, 25, new ReadOnlySpan<byte>(&opt, sizeof(int)));
+                    }
+                }
             }
 #pragma warning restore 618
 
             return socket;
         }
 
-        private bool TryGetPingReply(
+        private static bool TryGetPingReply(
             SocketConfig socketConfig, byte[] receiveBuffer, int bytesReceived, long startingTimestamp, ref int ipHeaderLength,
             [NotNullWhen(true)] out PingReply? reply)
         {
@@ -232,7 +247,7 @@ namespace System.Net.NetworkInformation
             return true;
         }
 
-        private PingReply SendIcmpEchoRequestOverRawSocket(IPAddress address, byte[] buffer, int timeout, PingOptions? options)
+        private static unsafe PingReply SendIcmpEchoRequestOverRawSocket(IPAddress address, byte[] buffer, int timeout, PingOptions? options)
         {
             SocketConfig socketConfig = GetSocketConfig(address, buffer, timeout, options);
             using (Socket socket = GetRawSocket(socketConfig))
@@ -270,73 +285,103 @@ namespace System.Net.NetworkInformation
                 {
                     return CreatePingReply(IPStatus.PacketTooBig);
                 }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.HostUnreachable)
+                {
+                    // This happens on Linux where we explicitly subscribed to error messages
+                    // We should be able to get more info by getting extended socket error from error queue.
+                    return CreatePingReplyForUnreachableHost(address, socket);
+                }
 
                 // We have exceeded our timeout duration, and no reply has been received.
                 return CreatePingReply(IPStatus.TimedOut);
             }
         }
 
+        private static PingReply CreatePingReplyForUnreachableHost(IPAddress address, Socket socket)
+        {
+            Span<byte> socketAddress = stackalloc byte[SocketAddress.GetMaximumAddressSize(address.AddressFamily)];
+            unsafe
+            {
+                Interop.Sys.MessageHeader header = default;
+
+                SocketError result;
+                fixed (byte* sockAddr = &MemoryMarshal.GetReference(socketAddress))
+                {
+                    header.SocketAddress = sockAddr;
+                    header.SocketAddressLen = socketAddress.Length;
+                    result = Interop.Sys.ReceiveSocketError(socket.SafeHandle, &header);
+                }
+                if (result == SocketError.Success && header.SocketAddressLen > 0)
+                {
+                     return CreatePingReply(IPStatus.TtlExpired, IPEndPointExtensions.GetIPAddress(socketAddress.Slice(0, header.SocketAddressLen)));
+                }
+            }
+            return CreatePingReply(IPStatus.TimedOut);
+        }
+
         private async Task<PingReply> SendIcmpEchoRequestOverRawSocketAsync(IPAddress address, byte[] buffer, int timeout, PingOptions? options)
         {
             SocketConfig socketConfig = GetSocketConfig(address, buffer, timeout, options);
-            using (Socket socket = GetRawSocket(socketConfig))
-            {
-                int ipHeaderLength = socketConfig.IsIpv4 ? MinIpHeaderLengthInBytes : 0;
-                CancellationTokenSource timeoutTokenSource = new CancellationTokenSource(timeout);
+            using Socket socket = GetRawSocket(socketConfig);
+            int ipHeaderLength = socketConfig.IsIpv4 ? MinIpHeaderLengthInBytes : 0;
 
-                try
+            try
+            {
+                CancellationToken timeoutOrCancellationToken = _timeoutOrCancellationSource!.Token;
+
+                await socket.SendToAsync(
+                    socketConfig.SendBuffer.AsMemory(),
+                    SocketFlags.None,
+                    socketConfig.EndPoint,
+                    timeoutOrCancellationToken)
+                    .ConfigureAwait(false);
+
+                byte[] receiveBuffer = new byte[2 * (MaxIpHeaderLengthInBytes + IcmpHeaderLengthInBytes) + buffer.Length];
+
+                // Read from the socket in a loop. We may receive messages that are not echo replies, or that are not in response
+                // to the echo request we just sent. We need to filter such messages out, and continue reading until our timeout.
+                // For example, when pinging the local host, we need to filter out our own echo requests that the socket reads.
+                long startingTimestamp = Stopwatch.GetTimestamp();
+                while (true)
                 {
-                    await socket.SendToAsync(
-                        new ArraySegment<byte>(socketConfig.SendBuffer),
-                        SocketFlags.None, socketConfig.EndPoint,
-                        timeoutTokenSource.Token)
+                    SocketReceiveFromResult receiveResult = await socket.ReceiveFromAsync(
+                        receiveBuffer.AsMemory(),
+                        SocketFlags.None,
+                        socketConfig.EndPoint,
+                        timeoutOrCancellationToken)
                         .ConfigureAwait(false);
 
-                    byte[] receiveBuffer = new byte[2 * (MaxIpHeaderLengthInBytes + IcmpHeaderLengthInBytes) + buffer.Length];
-
-                    // Read from the socket in a loop. We may receive messages that are not echo replies, or that are not in response
-                    // to the echo request we just sent. We need to filter such messages out, and continue reading until our timeout.
-                    // For example, when pinging the local host, we need to filter out our own echo requests that the socket reads.
-                    long startingTimestamp = Stopwatch.GetTimestamp();
-                    while (!timeoutTokenSource.IsCancellationRequested)
+                    int bytesReceived = receiveResult.ReceivedBytes;
+                    if (bytesReceived - ipHeaderLength < IcmpHeaderLengthInBytes)
                     {
-                        SocketReceiveFromResult receiveResult = await socket.ReceiveFromAsync(
-                            new ArraySegment<byte>(receiveBuffer),
-                            SocketFlags.None,
-                            socketConfig.EndPoint,
-                            timeoutTokenSource.Token)
-                            .ConfigureAwait(false);
+                        continue; // Not enough bytes to reconstruct IP header + ICMP header.
+                    }
 
-                        int bytesReceived = receiveResult.ReceivedBytes;
-                        if (bytesReceived - ipHeaderLength < IcmpHeaderLengthInBytes)
-                        {
-                            continue; // Not enough bytes to reconstruct IP header + ICMP header.
-                        }
-
-                        if (TryGetPingReply(socketConfig, receiveBuffer, bytesReceived, startingTimestamp, ref ipHeaderLength, out PingReply? reply))
-                        {
-                            return reply;
-                        }
+                    if (TryGetPingReply(socketConfig, receiveBuffer, bytesReceived, startingTimestamp, ref ipHeaderLength, out PingReply? reply))
+                    {
+                        return reply;
                     }
                 }
-                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
-                {
-                }
-                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.MessageSize)
-                {
-                    return CreatePingReply(IPStatus.PacketTooBig);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-                finally
-                {
-                    timeoutTokenSource.Dispose();
-                }
-
-                // We have exceeded our timeout duration, and no reply has been received.
-                return CreatePingReply(IPStatus.TimedOut);
             }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
+            {
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.MessageSize)
+            {
+                return CreatePingReply(IPStatus.PacketTooBig);
+            }
+            catch (OperationCanceledException) when (!_canceled)
+            {
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.HostUnreachable)
+            {
+                // This happens on Linux where we explicitly subscribed to error messages
+                // We should be able to get more info by getting extended socket error from error queue.
+                return CreatePingReplyForUnreachableHost(address, socket);
+            }
+
+            // We have exceeded our timeout duration, and no reply has been received.
+            return CreatePingReply(IPStatus.TimedOut);
         }
 
         private static PingReply CreatePingReply(IPStatus status, IPAddress? address = null, long rtt = 0)

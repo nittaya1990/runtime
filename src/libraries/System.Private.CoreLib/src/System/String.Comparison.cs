@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -215,7 +216,7 @@ namespace System
         // for meaning of different comparisonType.
         public static int Compare(string? strA, string? strB, StringComparison comparisonType)
         {
-            if (object.ReferenceEquals(strA, strB))
+            if (ReferenceEquals(strA, strB))
             {
                 CheckStringComparison(comparisonType);
                 return 0;
@@ -371,7 +372,7 @@ namespace System
 
             if (strA == null || strB == null)
             {
-                if (object.ReferenceEquals(strA, strB))
+                if (ReferenceEquals(strA, strB))
                 {
                     // They're both null
                     return 0;
@@ -380,24 +381,21 @@ namespace System
                 return strA == null ? -1 : 1;
             }
 
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NegativeLength);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
 
             if (indexA < 0 || indexB < 0)
             {
                 string paramName = indexA < 0 ? nameof(indexA) : nameof(indexB);
-                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (strA.Length - indexA < 0 || strB.Length - indexB < 0)
             {
                 string paramName = strA.Length - indexA < 0 ? nameof(indexA) : nameof(indexB);
-                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
-            if (length == 0 || (object.ReferenceEquals(strA, strB) && indexA == indexB))
+            if (length == 0 || (ReferenceEquals(strA, strB) && indexA == indexB))
             {
                 return 0;
             }
@@ -428,7 +426,7 @@ namespace System
         //
         public static int CompareOrdinal(string? strA, string? strB)
         {
-            if (object.ReferenceEquals(strA, strB))
+            if (ReferenceEquals(strA, strB))
             {
                 return 0;
             }
@@ -463,7 +461,7 @@ namespace System
         {
             if (strA == null || strB == null)
             {
-                if (object.ReferenceEquals(strA, strB))
+                if (ReferenceEquals(strA, strB))
                 {
                     // They're both null
                     return 0;
@@ -475,15 +473,12 @@ namespace System
             // COMPAT: Checking for nulls should become before the arguments are validated,
             // but other optimizations which allow us to return early should come after.
 
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NegativeCount);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
 
             if (indexA < 0 || indexB < 0)
             {
                 string paramName = indexA < 0 ? nameof(indexA) : nameof(indexB);
-                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             int lengthA = Math.Min(length, strA.Length - indexA);
@@ -492,10 +487,10 @@ namespace System
             if (lengthA < 0 || lengthB < 0)
             {
                 string paramName = lengthA < 0 ? nameof(indexA) : nameof(indexB);
-                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(paramName, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
-            if (length == 0 || (object.ReferenceEquals(strA, strB) && indexA == indexB))
+            if (length == 0 || (ReferenceEquals(strA, strB) && indexA == indexB))
             {
                 return 0;
             }
@@ -514,7 +509,7 @@ namespace System
                 return 1;
             }
 
-            if (!(value is string other))
+            if (value is not string other)
             {
                 throw new ArgumentException(SR.Arg_MustBeString);
             }
@@ -526,7 +521,7 @@ namespace System
         //
         public int CompareTo(string? strB)
         {
-            return string.Compare(this, strB, StringComparison.CurrentCulture);
+            return Compare(this, strB, StringComparison.CurrentCulture);
         }
 
         // Determines whether a specified string is a suffix of the current instance.
@@ -539,8 +534,11 @@ namespace System
             return EndsWith(value, StringComparison.CurrentCulture);
         }
 
-        public bool EndsWith(string value!!, StringComparison comparisonType)
+        [Intrinsic] // Unrolled and vectorized for half-constant input (Ordinal)
+        public bool EndsWith(string value, StringComparison comparisonType)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             if ((object)this == (object)value)
             {
                 CheckStringComparison(comparisonType);
@@ -568,17 +566,20 @@ namespace System
                     return (uint)offset <= (uint)this.Length && this.AsSpan(offset).SequenceEqual(value);
 
                 case StringComparison.OrdinalIgnoreCase:
-                    return this.Length < value.Length ?
-                            false :
-                            (Ordinal.CompareStringIgnoreCase(ref Unsafe.Add(ref this.GetRawStringData(), this.Length - value.Length), value.Length, ref value.GetRawStringData(), value.Length) == 0);
+                    return Length >= value.Length &&
+                        Ordinal.EqualsIgnoreCase(ref Unsafe.Add(ref GetRawStringData(), Length - value.Length),
+                                                 ref value.GetRawStringData(),
+                                                 value.Length);
 
                 default:
                     throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
             }
         }
 
-        public bool EndsWith(string value!!, bool ignoreCase, CultureInfo? culture)
+        public bool EndsWith(string value, bool ignoreCase, CultureInfo? culture)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             if ((object)this == (object)value)
             {
                 return true;
@@ -590,6 +591,20 @@ namespace System
 
         public bool EndsWith(char value)
         {
+            // If the string is empty, *(&_firstChar + length - 1) will deref within
+            // the _stringLength field, which will be all-zero. We must forbid '\0'
+            // from going down the optimized code path because otherwise empty strings
+            // would appear to end with '\0', which is incorrect.
+            // n.b. This optimization relies on the layout of string and is not valid
+            // for other data types like char[] or Span<char>.
+            if (RuntimeHelpers.IsKnownConstant(value) && value != '\0')
+            {
+                // deref Length now to front-load the null check; also take this time to zero-extend
+                // n.b. (localLength - 1) could be negative!
+                nuint localLength = (uint)Length;
+                return Unsafe.Add(ref _firstChar, (nint)localLength - 1) == value;
+            }
+
             int lastPos = Length - 1;
             return ((uint)lastPos < (uint)Length) && this[lastPos] == value;
         }
@@ -597,10 +612,10 @@ namespace System
         // Determines whether two strings match.
         public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            if (object.ReferenceEquals(this, obj))
+            if (ReferenceEquals(this, obj))
                 return true;
 
-            if (!(obj is string str))
+            if (obj is not string str)
                 return false;
 
             if (this.Length != str.Length)
@@ -613,7 +628,7 @@ namespace System
         [Intrinsic] // Unrolled and vectorized for half-constant input
         public bool Equals([NotNullWhen(true)] string? value)
         {
-            if (object.ReferenceEquals(this, value))
+            if (ReferenceEquals(this, value))
                 return true;
 
             // NOTE: No need to worry about casting to object here.
@@ -632,7 +647,7 @@ namespace System
         [Intrinsic] // Unrolled and vectorized for half-constant input (Ordinal)
         public bool Equals([NotNullWhen(true)] string? value, StringComparison comparisonType)
         {
-            if (object.ReferenceEquals(this, value))
+            if (ReferenceEquals(this, value))
             {
                 CheckStringComparison(comparisonType);
                 return true;
@@ -674,7 +689,7 @@ namespace System
         [Intrinsic] // Unrolled and vectorized for half-constant input
         public static bool Equals(string? a, string? b)
         {
-            if (object.ReferenceEquals(a, b))
+            if (ReferenceEquals(a, b))
             {
                 return true;
             }
@@ -690,7 +705,7 @@ namespace System
         [Intrinsic] // Unrolled and vectorized for half-constant input (Ordinal)
         public static bool Equals(string? a, string? b, StringComparison comparisonType)
         {
-            if (object.ReferenceEquals(a, b))
+            if (ReferenceEquals(a, b))
             {
                 CheckStringComparison(comparisonType);
                 return true;
@@ -728,9 +743,9 @@ namespace System
             }
         }
 
-        public static bool operator ==(string? a, string? b) => string.Equals(a, b);
+        public static bool operator ==(string? a, string? b) => Equals(a, b);
 
-        public static bool operator !=(string? a, string? b) => !string.Equals(a, b);
+        public static bool operator !=(string? a, string? b) => !Equals(a, b);
 
         // Gets a hash code for this string.  If strings A and B are such that A.Equals(B), then
         // they will return the same hash code.
@@ -797,25 +812,37 @@ namespace System
             return Marvin.ComputeHash32OrdinalIgnoreCase(ref MemoryMarshal.GetReference(value), value.Length /* in chars, not bytes */, (uint)seed, (uint)(seed >> 32));
         }
 
-        // Use this if and only if 'Denial of Service' attacks are not a concern (i.e. never used for free-form user input),
-        // or are otherwise mitigated
+        // Important GetNonRandomizedHashCode{OrdinalIgnoreCase} notes:
+        //
+        // Use if and only if 'Denial of Service' attacks are not a concern (i.e. never used for free-form user input),
+        // or are otherwise mitigated.
+        //
+        // The string-based implementation relies on System.String being null terminated. All reads are performed
+        // two characters at a time, so for odd-length strings, the final read will include the null terminator.
+        // This implementation must not be used as-is with spans, or otherwise arbitrary char refs/pointers, as
+        // they're not guaranteed to be null-terminated.
+        //
+        // For spans, we must produce the exact same value as is used for strings: consumers like Dictionary<>
+        // rely on str.GetNonRandomizedHashCode() == GetNonRandomizedHashCode(str.AsSpan()). As such, we must
+        // restructure the comparison so that for odd-length spans, we simulate the null terminator and include
+        // it in the hash computation exactly as does str.GetNonRandomizedHashCode().
+
         internal unsafe int GetNonRandomizedHashCode()
         {
             fixed (char* src = &_firstChar)
             {
-                Debug.Assert(src[this.Length] == '\0', "src[this.Length] == '\\0'");
+                Debug.Assert(src[Length] == '\0', "src[Length] == '\\0'");
                 Debug.Assert(((int)src) % 4 == 0, "Managed string should start at 4 bytes boundary");
 
                 uint hash1 = (5381 << 16) + 5381;
                 uint hash2 = hash1;
 
                 uint* ptr = (uint*)src;
-                int length = this.Length;
+                int length = Length;
 
                 while (length > 2)
                 {
                     length -= 4;
-                    // Where length is 4n-1 (e.g. 3,7,11,15,19) this additionally consumes the null terminator
                     hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ ptr[0];
                     hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ ptr[1];
                     ptr += 2;
@@ -823,7 +850,6 @@ namespace System
 
                 if (length > 0)
                 {
-                    // Where length is 4n-3 (e.g. 1,5,9,13,17) this additionally consumes the null terminator
                     hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ ptr[0];
                 }
 
@@ -831,23 +857,81 @@ namespace System
             }
         }
 
+        internal static unsafe int GetNonRandomizedHashCode(ReadOnlySpan<char> span)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+
+            int length = span.Length;
+            fixed (char* src = &MemoryMarshal.GetReference(span))
+            {
+                uint* ptr = (uint*)src;
+
+                LengthSwitch:
+                switch (length)
+                {
+                    default:
+                        do
+                        {
+                            length -= 4;
+                            hash1 = BitOperations.RotateLeft(hash1, 5) + hash1 ^ Unsafe.ReadUnaligned<uint>(ptr);
+                            hash2 = BitOperations.RotateLeft(hash2, 5) + hash2 ^ Unsafe.ReadUnaligned<uint>(ptr + 1);
+                            ptr += 2;
+                        }
+                        while (length >= 4);
+                        goto LengthSwitch;
+
+                    case 3:
+                        hash1 = BitOperations.RotateLeft(hash1, 5) + hash1 ^ Unsafe.ReadUnaligned<uint>(ptr);
+                        uint p1 = *(char*)(ptr + 1);
+                        if (!BitConverter.IsLittleEndian)
+                        {
+                            p1 <<= 16;
+                        }
+
+                        hash2 = BitOperations.RotateLeft(hash2, 5) + hash2 ^ p1;
+                        break;
+
+                    case 2:
+                        hash2 = BitOperations.RotateLeft(hash2, 5) + hash2 ^ Unsafe.ReadUnaligned<uint>(ptr);
+                        break;
+
+                    case 1:
+                        uint p0 = *(char*)ptr;
+                        if (!BitConverter.IsLittleEndian)
+                        {
+                            p0 <<= 16;
+                        }
+
+                        hash2 = BitOperations.RotateLeft(hash2, 5) + hash2 ^ p0;
+                        break;
+
+                    case 0:
+                        break;
+                }
+            }
+
+            return (int)(hash1 + (hash2 * 1_566_083_941));
+        }
+
+        // We "normalize to lowercase" every char by ORing with 0x0020. This casts
+        // a very wide net because it will change, e.g., '^' to '~'. But that should
+        // be ok because we expect this to be very rare in practice. These are valid
+        // for both for big-endian and for little-endian.
+        private const uint NormalizeToLowercase = 0x0020_0020u;
+
         internal unsafe int GetNonRandomizedHashCodeOrdinalIgnoreCase()
         {
             uint hash1 = (5381 << 16) + 5381;
             uint hash2 = hash1;
 
+            int length = Length;
             fixed (char* src = &_firstChar)
             {
-                Debug.Assert(src[this.Length] == '\0', "src[this.Length] == '\\0'");
+                Debug.Assert(src[Length] == '\0', "src[this.Length] == '\\0'");
                 Debug.Assert(((int) src) % 4 == 0, "Managed string should start at 4 bytes boundary");
 
                 uint* ptr = (uint*) src;
-                int length = this.Length;
-
-                // We "normalize to lowercase" every char by ORing with 0x0020. This casts
-                // a very wide net because it will change, e.g., '^' to '~'. But that should
-                // be ok because we expect this to be very rare in practice.
-                const uint NormalizeToLowercase = 0x0020_0020u; // valid both for big-endian and for little-endian
 
                 while (length > 2)
                 {
@@ -859,7 +943,6 @@ namespace System
                     }
 
                     length -= 4;
-                    // Where length is 4n-1 (e.g. 3,7,11,15,19) this additionally consumes the null terminator
                     hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ (p0 | NormalizeToLowercase);
                     hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p1 | NormalizeToLowercase);
                     ptr += 2;
@@ -873,7 +956,6 @@ namespace System
                         goto NotAscii;
                     }
 
-                    // Where length is 4n-3 (e.g. 1,5,9,13,17) this additionally consumes the null terminator
                     hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p0 | NormalizeToLowercase);
                 }
             }
@@ -881,60 +963,151 @@ namespace System
             return (int)(hash1 + (hash2 * 1566083941));
 
         NotAscii:
-            return GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(this);
+            return GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(hash1, hash2, this.AsSpan(Length - length));
+        }
 
-            static int GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(string str)
+        internal static unsafe int GetNonRandomizedHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> span)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+
+            uint p0, p1;
+            int length = span.Length;
+
+            fixed (char* src = &MemoryMarshal.GetReference(span))
             {
-                int length = str.Length;
-                char[]? borrowedArr = null;
-                // Important: leave an additional space for '\0'
-                Span<char> scratch = (uint)length < 64 ?
-                    stackalloc char[64] : (borrowedArr = ArrayPool<char>.Shared.Rent(length + 1));
+                uint* ptr = (uint*)src;
 
-                int charsWritten = System.Globalization.Ordinal.ToUpperOrdinal(str, scratch);
-                Debug.Assert(charsWritten == length);
-                scratch[length] = '\0';
-
-                const uint NormalizeToLowercase = 0x0020_0020u;
-                uint hash1 = (5381 << 16) + 5381;
-                uint hash2 = hash1;
-
-                // Duplicate the main loop, can be removed once JIT gets "Loop Unswitching" optimization
-                fixed (char* src = scratch)
+                LengthSwitch:
+                switch (length)
                 {
-                    uint* ptr = (uint*)src;
-                    while (length > 2)
-                    {
-                        length -= 4;
-                        hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ (ptr[0] | NormalizeToLowercase);
-                        hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (ptr[1] | NormalizeToLowercase);
-                        ptr += 2;
-                    }
+                    default:
+                        do
+                        {
+                            p0 = Unsafe.ReadUnaligned<uint>(ptr);
+                            p1 = Unsafe.ReadUnaligned<uint>(ptr + 1);
+                            if (!Utf16Utility.AllCharsInUInt32AreAscii(p0 | p1))
+                            {
+                                goto NotAscii;
+                            }
 
-                    if (length > 0)
-                    {
-                        hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (ptr[0] | NormalizeToLowercase);
-                    }
-                }
+                            length -= 4;
+                            hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ (p0 | NormalizeToLowercase);
+                            hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p1 | NormalizeToLowercase);
+                            ptr += 2;
+                        }
+                        while (length >= 4);
+                        goto LengthSwitch;
 
-                if (borrowedArr != null)
-                {
-                    ArrayPool<char>.Shared.Return(borrowedArr);
+                    case 3:
+                        p0 = Unsafe.ReadUnaligned<uint>(ptr);
+                        p1 = *(char*)(ptr + 1);
+                        if (!BitConverter.IsLittleEndian)
+                        {
+                            p1 <<= 16;
+                        }
+
+                        if (!Utf16Utility.AllCharsInUInt32AreAscii(p0 | p1))
+                        {
+                            goto NotAscii;
+                        }
+
+                        hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ (p0 | NormalizeToLowercase);
+                        hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p1 | NormalizeToLowercase);
+                        break;
+
+                    case 2:
+                        p0 = Unsafe.ReadUnaligned<uint>(ptr);
+                        if (!Utf16Utility.AllCharsInUInt32AreAscii(p0))
+                        {
+                            goto NotAscii;
+                        }
+
+                        hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p0 | NormalizeToLowercase);
+                        break;
+
+                    case 1:
+                        p0 = *(char*)ptr;
+                        if (!BitConverter.IsLittleEndian)
+                        {
+                            p0 <<= 16;
+                        }
+
+                        if (p0 > 0x7f)
+                        {
+                            goto NotAscii;
+                        }
+
+                        hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (p0 | NormalizeToLowercase);
+                        break;
+
+                    case 0:
+                        break;
                 }
-                return (int)(hash1 + (hash2 * 1566083941));
             }
+
+            return (int)(hash1 + (hash2 * 1566083941));
+
+        NotAscii:
+            return GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(hash1, hash2, span.Slice(span.Length - length));
+        }
+
+        private static unsafe int GetNonRandomizedHashCodeOrdinalIgnoreCaseSlow(uint hash1, uint hash2, ReadOnlySpan<char> str)
+        {
+            int length = str.Length;
+
+            // We allocate one char more than the length to accommodate a null terminator.
+            // That lets the reading always be performed two characters at a time, as odd-length
+            // inputs will have a final terminator to backstop the last read.
+            char[]? borrowedArr = null;
+            Span<char> scratch = (uint)length < 256 ?
+                stackalloc char[256] :
+                (borrowedArr = ArrayPool<char>.Shared.Rent(length + 1));
+
+            int charsWritten = Ordinal.ToUpperOrdinal(str, scratch);
+            Debug.Assert(charsWritten == length);
+            scratch[length] = '\0';
+
+            // Duplicate the main loop, can be removed once JIT gets "Loop Unswitching" optimization
+            fixed (char* src = scratch)
+            {
+                uint* ptr = (uint*)src;
+                while (length > 2)
+                {
+                    length -= 4;
+                    hash1 = (BitOperations.RotateLeft(hash1, 5) + hash1) ^ (ptr[0] | NormalizeToLowercase);
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (ptr[1] | NormalizeToLowercase);
+                    ptr += 2;
+                }
+
+                if (length > 0)
+                {
+                    hash2 = (BitOperations.RotateLeft(hash2, 5) + hash2) ^ (ptr[0] | NormalizeToLowercase);
+                }
+            }
+
+            if (borrowedArr != null)
+            {
+                ArrayPool<char>.Shared.Return(borrowedArr);
+            }
+
+            return (int)(hash1 + (hash2 * 1566083941));
         }
 
         // Determines whether a specified string is a prefix of the current instance
         //
-        public bool StartsWith(string value!!)
+        public bool StartsWith(string value)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             return StartsWith(value, StringComparison.CurrentCulture);
         }
 
         [Intrinsic] // Unrolled and vectorized for half-constant input (Ordinal)
-        public bool StartsWith(string value!!, StringComparison comparisonType)
+        public bool StartsWith(string value, StringComparison comparisonType)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             if ((object)this == (object)value)
             {
                 CheckStringComparison(comparisonType);
@@ -981,8 +1154,10 @@ namespace System
             }
         }
 
-        public bool StartsWith(string value!!, bool ignoreCase, CultureInfo? culture)
+        public bool StartsWith(string value, bool ignoreCase, CultureInfo? culture)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             if ((object)this == (object)value)
             {
                 return true;
@@ -994,10 +1169,16 @@ namespace System
 
         public bool StartsWith(char value)
         {
+            // If the string is empty, _firstChar will contain the null terminator.
+            // We forbid '\0' from going down the optimized code path because otherwise
+            // empty strings would appear to begin with '\0', which is incorrect.
+            // n.b. This optimization relies on the layout of string and is not valid
+            // for other data types like char[] or Span<char>.
             if (RuntimeHelpers.IsKnownConstant(value) && value != '\0')
             {
                 return _firstChar == value;
             }
+
             return Length != 0 && _firstChar == value;
         }
 

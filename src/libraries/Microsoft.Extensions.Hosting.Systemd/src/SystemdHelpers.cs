@@ -5,29 +5,48 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
+#if !NET
+using System.Diagnostics;
+#endif
 
 namespace Microsoft.Extensions.Hosting.Systemd
 {
     /// <summary>
     /// Helper methods for systemd Services.
     /// </summary>
-    public static partial class SystemdHelpers
+    public static class SystemdHelpers
     {
-        private static bool? _isSystemdService;
+        private static readonly bool _isSystemdService = GetIsSystemdService();
 
         /// <summary>
-        /// Check if the current process is hosted as a systemd Service.
+        /// Checks if the current process is hosted as a systemd Service.
         /// </summary>
-        /// <returns><c>True</c> if the current process is hosted as a systemd Service, otherwise <c>false</c>.</returns>
-        public static bool IsSystemdService()
-            => _isSystemdService ?? (bool)(_isSystemdService = CheckParentIsSystemd());
+        /// <returns>
+        /// <see langword="true" /> if the current process is hosted as a systemd Service; otherwise, <see langword="false" />.
+        /// </returns>
+        public static bool IsSystemdService() => _isSystemdService;
 
-        private static bool CheckParentIsSystemd()
+        private static bool GetIsSystemdService()
         {
             // No point in testing anything unless it's Unix
             if (Environment.OSVersion.Platform != PlatformID.Unix)
             {
                 return false;
+            }
+
+            // To support containerized systemd services, check if we're the main process (PID 1)
+            // and if there are systemd environment variables defined for notifying the service
+            // manager, or passing listen handles.
+#if NET
+            int processId = Environment.ProcessId;
+#else
+            int processId = Process.GetCurrentProcess().Id;
+#endif
+
+            if (processId == 1)
+            {
+                return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NOTIFY_SOCKET")) ||
+                       !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LISTEN_PID"));
             }
 
             try
@@ -36,7 +55,7 @@ namespace Microsoft.Extensions.Hosting.Systemd
                 int parentPid = Interop.libc.GetParentPid();
                 string ppidString = parentPid.ToString(NumberFormatInfo.InvariantInfo);
                 byte[] comm = File.ReadAllBytes("/proc/" + ppidString + "/comm");
-                return comm.AsSpan().SequenceEqual(Encoding.ASCII.GetBytes("systemd\n"));
+                return comm.AsSpan().SequenceEqual("systemd\n"u8);
             }
             catch
             {

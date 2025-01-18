@@ -1,9 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 
 namespace System.Collections.Generic
@@ -52,21 +54,30 @@ namespace System.Collections.Generic
 
         public HashSet(IEqualityComparer<T>? comparer)
         {
-            if (comparer is not null && comparer != EqualityComparer<T>.Default) // first check for null to avoid forcing default comparer instantiation unnecessarily
+            // For reference types, we always want to store a comparer instance, either
+            // the one provided, or if one wasn't provided, the default (accessing
+            // EqualityComparer<TKey>.Default with shared generics on every dictionary
+            // access can add measurable overhead).  For value types, if no comparer is
+            // provided, or if the default is provided, we'd prefer to use
+            // EqualityComparer<TKey>.Default.Equals on every use, enabling the JIT to
+            // devirtualize and possibly inline the operation.
+            if (!typeof(T).IsValueType)
+            {
+                _comparer = comparer ?? EqualityComparer<T>.Default;
+
+                // Special-case EqualityComparer<string>.Default, StringComparer.Ordinal, and StringComparer.OrdinalIgnoreCase.
+                // We use a non-randomized comparer for improved perf, falling back to a randomized comparer if the
+                // hash buckets become unbalanced.
+                if (typeof(T) == typeof(string) &&
+                    NonRandomizedStringEqualityComparer.GetStringComparer(_comparer) is IEqualityComparer<string> stringComparer)
+                {
+                    _comparer = (IEqualityComparer<T>)stringComparer;
+                }
+            }
+            else if (comparer is not null && // first check for null to avoid forcing default comparer instantiation unnecessarily
+                     comparer != EqualityComparer<T>.Default)
             {
                 _comparer = comparer;
-            }
-
-            // Special-case EqualityComparer<string>.Default, StringComparer.Ordinal, and StringComparer.OrdinalIgnoreCase.
-            // We use a non-randomized comparer for improved perf, falling back to a randomized comparer if the
-            // hash buckets become unbalanced.
-            if (typeof(T) == typeof(string))
-            {
-                IEqualityComparer<string>? stringComparer = NonRandomizedStringEqualityComparer.GetStringComparer(_comparer);
-                if (stringComparer is not null)
-                {
-                    _comparer = (IEqualityComparer<T>?)stringComparer;
-                }
             }
         }
 
@@ -81,7 +92,7 @@ namespace System.Collections.Generic
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.collection);
             }
 
-            if (collection is HashSet<T> otherAsHashSet && EqualityComparersAreEqual(this, otherAsHashSet))
+            if (collection is HashSet<T> otherAsHashSet && EffectiveEqualityComparersAreEqual(this, otherAsHashSet))
             {
                 ConstructFrom(otherAsHashSet);
             }
@@ -120,6 +131,8 @@ namespace System.Collections.Generic
             }
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected HashSet(SerializationInfo info, StreamingContext context)
         {
             // We can't do anything with the keys and values until the entire graph has been
@@ -132,6 +145,8 @@ namespace System.Collections.Generic
         /// <summary>Initializes the HashSet from another HashSet with the same element type and equality comparer.</summary>
         private void ConstructFrom(HashSet<T> source)
         {
+            Debug.Assert(EffectiveEqualityComparersAreEqual(this, source), "must use identical effective comparers.");
+
             if (source.Count == 0)
             {
                 // As well as short-circuiting on the rest of the work done,
@@ -212,56 +227,32 @@ namespace System.Collections.Generic
                 uint collisionCount = 0;
                 IEqualityComparer<T>? comparer = _comparer;
 
-                if (comparer == null)
+                if (typeof(T).IsValueType && // comparer can only be null for value types; enable JIT to eliminate entire if block for ref types
+                    comparer == null)
                 {
-                    int hashCode = item != null ? item.GetHashCode() : 0;
-                    if (typeof(T).IsValueType)
+                    // ValueType: Devirtualize with EqualityComparer<TValue>.Default intrinsic
+                    int hashCode = item!.GetHashCode();
+                    int i = GetBucketRef(hashCode) - 1; // Value in _buckets is 1-based
+                    while (i >= 0)
                     {
-                        // ValueType: Devirtualize with EqualityComparer<TValue>.Default intrinsic
-                        int i = GetBucketRef(hashCode) - 1; // Value in _buckets is 1-based
-                        while (i >= 0)
+                        ref Entry entry = ref entries[i];
+                        if (entry.HashCode == hashCode && EqualityComparer<T>.Default.Equals(entry.Value, item))
                         {
-                            ref Entry entry = ref entries[i];
-                            if (entry.HashCode == hashCode && EqualityComparer<T>.Default.Equals(entry.Value, item))
-                            {
-                                return i;
-                            }
-                            i = entry.Next;
-
-                            collisionCount++;
-                            if (collisionCount > (uint)entries.Length)
-                            {
-                                // The chain of entries forms a loop, which means a concurrent update has happened.
-                                ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
-                            }
+                            return i;
                         }
-                    }
-                    else
-                    {
-                        // Object type: Shared Generic, EqualityComparer<TValue>.Default won't devirtualize (https://github.com/dotnet/runtime/issues/10050),
-                        // so cache in a local rather than get EqualityComparer per loop iteration.
-                        EqualityComparer<T> defaultComparer = EqualityComparer<T>.Default;
-                        int i = GetBucketRef(hashCode) - 1; // Value in _buckets is 1-based
-                        while (i >= 0)
-                        {
-                            ref Entry entry = ref entries[i];
-                            if (entry.HashCode == hashCode && defaultComparer.Equals(entry.Value, item))
-                            {
-                                return i;
-                            }
-                            i = entry.Next;
+                        i = entry.Next;
 
-                            collisionCount++;
-                            if (collisionCount > (uint)entries.Length)
-                            {
-                                // The chain of entries forms a loop, which means a concurrent update has happened.
-                                ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
-                            }
+                        collisionCount++;
+                        if (collisionCount > (uint)entries.Length)
+                        {
+                            // The chain of entries forms a loop, which means a concurrent update has happened.
+                            ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
                         }
                     }
                 }
                 else
                 {
+                    Debug.Assert(comparer is not null);
                     int hashCode = item != null ? comparer.GetHashCode(item) : 0;
                     int i = GetBucketRef(hashCode) - 1; // Value in _buckets is 1-based
                     while (i >= 0)
@@ -307,7 +298,13 @@ namespace System.Collections.Generic
 
                 uint collisionCount = 0;
                 int last = -1;
-                int hashCode = item != null ? (_comparer?.GetHashCode(item) ?? item.GetHashCode()) : 0;
+
+                IEqualityComparer<T>? comparer = _comparer;
+                Debug.Assert(typeof(T).IsValueType || comparer is not null);
+                int hashCode =
+                    typeof(T).IsValueType && comparer == null ? item!.GetHashCode() :
+                    item is not null ? comparer!.GetHashCode(item) :
+                    0;
 
                 ref int bucket = ref GetBucketRef(hashCode);
                 int i = bucket - 1; // Value in buckets is 1-based
@@ -316,7 +313,7 @@ namespace System.Collections.Generic
                 {
                     ref Entry entry = ref entries[i];
 
-                    if (entry.HashCode == hashCode && (_comparer?.Equals(entry.Value, item) ?? EqualityComparer<T>.Default.Equals(entry.Value, item)))
+                    if (entry.HashCode == hashCode && (comparer?.Equals(entry.Value, item) ?? EqualityComparer<T>.Default.Equals(entry.Value, item)))
                     {
                         if (last < 0)
                         {
@@ -359,22 +356,344 @@ namespace System.Collections.Generic
         /// <summary>Gets the number of elements that are contained in the set.</summary>
         public int Count => _count - _freeCount;
 
+        /// <summary>
+        /// Gets the total numbers of elements the internal data structure can hold without resizing.
+        /// </summary>
+        public int Capacity => _entries?.Length ?? 0;
+
         bool ICollection<T>.IsReadOnly => false;
 
+        #endregion
+
+        #region AlternateLookup
+
+        /// <summary>
+        /// Gets an instance of a type that may be used to perform operations on the current <see cref="HashSet{T}"/>
+        /// using a <typeparamref name="TAlternate"/> instead of a <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="TAlternate">The alternate type of instance for performing lookups.</typeparam>
+        /// <returns>The created lookup instance.</returns>
+        /// <exception cref="InvalidOperationException">The set's comparer is not compatible with <typeparamref name="TAlternate"/>.</exception>
+        /// <remarks>
+        /// The set must be using a comparer that implements <see cref="IAlternateEqualityComparer{TAlternate, T}"/> with
+        /// <typeparamref name="TAlternate"/> and <typeparamref name="T"/>. If it doesn't, an exception will be thrown.
+        /// </remarks>
+        public AlternateLookup<TAlternate> GetAlternateLookup<TAlternate>()
+            where TAlternate : allows ref struct
+        {
+            if (!AlternateLookup<TAlternate>.IsCompatibleItem(this))
+            {
+                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.InvalidOperation_IncompatibleComparer);
+            }
+
+            return new AlternateLookup<TAlternate>(this);
+        }
+
+        /// <summary>
+        /// Gets an instance of a type that may be used to perform operations on the current <see cref="HashSet{T}"/>
+        /// using a <typeparamref name="TAlternate"/> instead of a <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="TAlternate">The alternate type of instance for performing lookups.</typeparam>
+        /// <param name="lookup">The created lookup instance when the method returns true, or a default instance that should not be used if the method returns false.</param>
+        /// <returns>true if a lookup could be created; otherwise, false.</returns>
+        /// <remarks>
+        /// The set must be using a comparer that implements <see cref="IAlternateEqualityComparer{TAlternate, T}"/> with
+        /// <typeparamref name="TAlternate"/> and <typeparamref name="T"/>. If it doesn't, the method returns false.
+        /// </remarks>
+        public bool TryGetAlternateLookup<TAlternate>(out AlternateLookup<TAlternate> lookup)
+            where TAlternate : allows ref struct
+        {
+            if (AlternateLookup<TAlternate>.IsCompatibleItem(this))
+            {
+                lookup = new AlternateLookup<TAlternate>(this);
+                return true;
+            }
+
+            lookup = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Provides a type that may be used to perform operations on a <see cref="HashSet{T}"/>
+        /// using a <typeparamref name="TAlternate"/> instead of a <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="TAlternate">The alternate type of instance for performing lookups.</typeparam>
+        public struct AlternateLookup<TAlternate> where TAlternate : allows ref struct
+        {
+            /// <summary>Initialize the instance. The set must have already been verified to have a compatible comparer.</summary>
+            internal AlternateLookup(HashSet<T> set)
+            {
+                Debug.Assert(set is not null);
+                Debug.Assert(IsCompatibleItem(set));
+                Set = set;
+            }
+
+            /// <summary>Gets the <see cref="HashSet{T}"/> against which this instance performs operations.</summary>
+            public HashSet<T> Set { get; }
+
+            /// <summary>Checks whether the set has a comparer compatible with <typeparamref name="TAlternate"/>.</summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static bool IsCompatibleItem(HashSet<T> set)
+            {
+                Debug.Assert(set is not null);
+                return set._comparer is IAlternateEqualityComparer<TAlternate, T>;
+            }
+
+            /// <summary>Gets the set's alternate comparer. The set must have already been verified as compatible.</summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static IAlternateEqualityComparer<TAlternate, T> GetAlternateComparer(HashSet<T> set)
+            {
+                Debug.Assert(IsCompatibleItem(set));
+                return Unsafe.As<IAlternateEqualityComparer<TAlternate, T>>(set._comparer);
+            }
+
+            /// <summary>Adds the specified element to a set.</summary>
+            /// <param name="item">The element to add to the set.</param>
+            /// <returns>true if the element is added to the set; false if the element is already present.</returns>
+            public bool Add(TAlternate item)
+            {
+                HashSet<T> set = Set;
+                IAlternateEqualityComparer<TAlternate, T> comparer = GetAlternateComparer(set);
+
+                if (set._buckets == null)
+                {
+                    set.Initialize(0);
+                }
+                Debug.Assert(set._buckets != null);
+
+                Entry[]? entries = set._entries;
+                Debug.Assert(entries != null, "expected entries to be non-null");
+
+                int hashCode;
+
+                uint collisionCount = 0;
+                ref int bucket = ref Unsafe.NullRef<int>();
+
+                Debug.Assert(comparer is not null);
+                hashCode = comparer.GetHashCode(item);
+                bucket = ref set.GetBucketRef(hashCode);
+                int i = bucket - 1; // Value in _buckets is 1-based
+                while (i >= 0)
+                {
+                    ref Entry entry = ref entries[i];
+                    if (entry.HashCode == hashCode && comparer.Equals(item, entry.Value))
+                    {
+                        return false;
+                    }
+                    i = entry.Next;
+
+                    collisionCount++;
+                    if (collisionCount > (uint)entries.Length)
+                    {
+                        // The chain of entries forms a loop, which means a concurrent update has happened.
+                        ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
+                    }
+                }
+
+                // Invoke comparer.Map before allocating space in the collection in order to avoid corrupting
+                // the collection if the operation fails.
+                T mappedItem = comparer.Create(item);
+
+                int index;
+                if (set._freeCount > 0)
+                {
+                    index = set._freeList;
+                    set._freeCount--;
+                    Debug.Assert((StartOfFreeList - entries![set._freeList].Next) >= -1, "shouldn't overflow because `next` cannot underflow");
+                    set._freeList = StartOfFreeList - entries[set._freeList].Next;
+                }
+                else
+                {
+                    int count = set._count;
+                    if (count == entries.Length)
+                    {
+                        set.Resize();
+                        bucket = ref set.GetBucketRef(hashCode);
+                    }
+                    index = count;
+                    set._count = count + 1;
+                    entries = set._entries;
+                }
+
+                {
+                    ref Entry entry = ref entries![index];
+                    entry.HashCode = hashCode;
+                    entry.Next = bucket - 1; // Value in _buckets is 1-based
+                    entry.Value = mappedItem;
+                    bucket = index + 1;
+                    set._version++;
+                }
+
+                // Value types never rehash
+                if (!typeof(T).IsValueType && collisionCount > HashHelpers.HashCollisionThreshold && comparer is NonRandomizedStringEqualityComparer)
+                {
+                    // If we hit the collision threshold we'll need to switch to the comparer which is using randomized string hashing
+                    // i.e. EqualityComparer<string>.Default.
+                    set.Resize(entries.Length, forceNewHashCodes: true);
+                }
+
+                return true;
+            }
+
+            /// <summary>Removes the specified element from a set.</summary>
+            /// <param name="item">The element to remove.</param>
+            /// <returns>true if the element is successfully found and removed; otherwise, false.</returns>
+            public bool Remove(TAlternate item)
+            {
+                HashSet<T> set = Set;
+                IAlternateEqualityComparer<TAlternate, T> comparer = GetAlternateComparer(set);
+
+                if (set._buckets != null)
+                {
+                    Entry[]? entries = set._entries;
+                    Debug.Assert(entries != null, "entries should be non-null");
+
+                    uint collisionCount = 0;
+                    int last = -1;
+
+                    int hashCode = item is not null ? comparer!.GetHashCode(item) : 0;
+
+                    ref int bucket = ref set.GetBucketRef(hashCode);
+                    int i = bucket - 1; // Value in buckets is 1-based
+
+                    while (i >= 0)
+                    {
+                        ref Entry entry = ref entries[i];
+
+                        if (entry.HashCode == hashCode && comparer.Equals(item, entry.Value))
+                        {
+                            if (last < 0)
+                            {
+                                bucket = entry.Next + 1; // Value in buckets is 1-based
+                            }
+                            else
+                            {
+                                entries[last].Next = entry.Next;
+                            }
+
+                            Debug.Assert((StartOfFreeList - set._freeList) < 0, "shouldn't underflow because max hashtable length is MaxPrimeArrayLength = 0x7FEFFFFD(2146435069) _freelist underflow threshold 2147483646");
+                            entry.Next = StartOfFreeList - set._freeList;
+
+                            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                            {
+                                entry.Value = default!;
+                            }
+
+                            set._freeList = i;
+                            set._freeCount++;
+                            return true;
+                        }
+
+                        last = i;
+                        i = entry.Next;
+
+                        collisionCount++;
+                        if (collisionCount > (uint)entries.Length)
+                        {
+                            // The chain of entries forms a loop; which means a concurrent update has happened.
+                            // Break out of the loop and throw, rather than looping forever.
+                            ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            /// <summary>Determines whether a set contains the specified element.</summary>
+            /// <param name="item">The element to locate in the set.</param>
+            /// <returns>true if the set contains the specified element; otherwise, false.</returns>
+            public bool Contains(TAlternate item) => !Unsafe.IsNullRef(in FindValue(item));
+
+            /// <summary>Searches the set for a given value and returns the equal value it finds, if any.</summary>
+            /// <param name="equalValue">The value to search for.</param>
+            /// <param name="actualValue">The value from the set that the search found, or the default value of <typeparamref name="T"/> when the search yielded no match.</param>
+            /// <returns>A value indicating whether the search was successful.</returns>
+            public bool TryGetValue(TAlternate equalValue, [MaybeNullWhen(false)] out T actualValue)
+            {
+                ref readonly T value = ref FindValue(equalValue);
+                if (!Unsafe.IsNullRef(in value))
+                {
+                    actualValue = value;
+                    return true;
+                }
+
+                actualValue = default!;
+                return false;
+            }
+
+            /// <summary>Finds the item in the set and returns a reference to the found item, or a null reference if not found.</summary>
+            internal ref readonly T FindValue(TAlternate item)
+            {
+                HashSet<T> set = Set;
+                IAlternateEqualityComparer<TAlternate, T> comparer = GetAlternateComparer(set);
+
+                ref Entry entry = ref Unsafe.NullRef<Entry>();
+                if (set._buckets != null)
+                {
+                    Debug.Assert(set._entries != null, "expected entries to be != null");
+
+                    int hashCode = comparer.GetHashCode(item);
+                    int i = set.GetBucketRef(hashCode);
+                    Entry[]? entries = set._entries;
+                    uint collisionCount = 0;
+                    i--; // Value in _buckets is 1-based; subtract 1 from i. We do it here so it fuses with the following conditional.
+                    do
+                    {
+                        // Should be a while loop https://github.com/dotnet/runtime/issues/9422
+                        // Test in if to drop range check for following array access
+                        if ((uint)i >= (uint)entries.Length)
+                        {
+                            goto ReturnNotFound;
+                        }
+
+                        entry = ref entries[i];
+                        if (entry.HashCode == hashCode && comparer.Equals(item, entry.Value))
+                        {
+                            goto ReturnFound;
+                        }
+
+                        i = entry.Next;
+
+                        collisionCount++;
+                    } while (collisionCount <= (uint)entries.Length);
+
+                    // The chain of entries forms a loop; which means a concurrent update has happened.
+                    // Break out of the loop and throw, rather than looping forever.
+                    goto ConcurrentOperation;
+                }
+
+                goto ReturnNotFound;
+
+            ConcurrentOperation:
+                ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
+            ReturnFound:
+                ref readonly T value = ref entry.Value;
+            Return:
+                return ref value;
+            ReturnNotFound:
+                value = ref Unsafe.NullRef<T>();
+                goto Return;
+            }
+        }
         #endregion
 
         #region IEnumerable methods
 
         public Enumerator GetEnumerator() => new Enumerator(this);
 
-        IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() =>
+            Count == 0 ? SZGenericArrayEnumerator<T>.Empty :
+            GetEnumerator();
 
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         #endregion
 
         #region ISerializable methods
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
@@ -608,25 +927,26 @@ namespace System.Collections.Generic
             }
 
             // The empty set is a subset of any set, and a set is a subset of itself.
-            // Set is always a subset of itself
+            // Set is always a subset of itself.
             if (Count == 0 || other == this)
             {
                 return true;
             }
 
-            // Faster if other has unique elements according to this equality comparer; so check
-            // that other is a hashset using the same equality comparer.
-            if (other is HashSet<T> otherAsSet && EqualityComparersAreEqual(this, otherAsSet))
+            if (other is ICollection<T> otherAsCollection)
             {
-                // if this has more elements then it can't be a subset
-                if (Count > otherAsSet.Count)
+                // If this has more elements then it can't be a subset.
+                if (Count > otherAsCollection.Count)
                 {
                     return false;
                 }
 
-                // already checked that we're using same equality comparer. simply check that
-                // each element in this is contained in other.
-                return IsSubsetOfHashSetWithSameComparer(otherAsSet);
+                // Faster if other has unique elements according to this equality comparer; so check
+                // that other is a hashset using the same equality comparer.
+                if (other is HashSet<T> otherAsSet && EqualityComparersAreEqual(this, otherAsSet))
+                {
+                    return IsSubsetOfHashSetWithSameComparer(otherAsSet);
+                }
             }
 
             (int uniqueCount, int unfoundCount) = CheckUniqueAndUnfoundElements(other, returnIfUnfound: false);
@@ -651,8 +971,8 @@ namespace System.Collections.Generic
 
             if (other is ICollection<T> otherAsCollection)
             {
-                // No set is a proper subset of an empty set.
-                if (otherAsCollection.Count == 0)
+                // No set is a proper subset of a set with less or equal number of elements.
+                if (otherAsCollection.Count <= Count)
                 {
                     return false;
                 }
@@ -660,17 +980,13 @@ namespace System.Collections.Generic
                 // The empty set is a proper subset of anything but the empty set.
                 if (Count == 0)
                 {
-                    return otherAsCollection.Count > 0;
+                    // Based on check above, other is not empty when Count == 0.
+                    return true;
                 }
 
                 // Faster if other is a hashset (and we're using same equality comparer).
                 if (other is HashSet<T> otherAsSet && EqualityComparersAreEqual(this, otherAsSet))
                 {
-                    if (Count >= otherAsSet.Count)
-                    {
-                        return false;
-                    }
-
                     // This has strictly less than number of items in other, so the following
                     // check suffices for proper subset.
                     return IsSubsetOfHashSetWithSameComparer(otherAsSet);
@@ -715,7 +1031,15 @@ namespace System.Collections.Generic
                 }
             }
 
-            return ContainsAllElements(other);
+            foreach (T element in other)
+            {
+                if (!Contains(element))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>Determines whether a <see cref="HashSet{T}"/> object is a proper superset of the specified collection.</summary>
@@ -752,7 +1076,7 @@ namespace System.Collections.Generic
                     }
 
                     // Now perform element check.
-                    return ContainsAllElements(otherAsSet);
+                    return otherAsSet.IsSubsetOfHashSetWithSameComparer(this);
                 }
             }
 
@@ -809,33 +1133,38 @@ namespace System.Collections.Generic
                 return true;
             }
 
-            // Faster if other is a hashset and we're using same equality comparer.
-            if (other is HashSet<T> otherAsSet && EqualityComparersAreEqual(this, otherAsSet))
+            if (other is ICollection<T> otherAsCollection)
             {
-                // Attempt to return early: since both contain unique elements, if they have
-                // different counts, then they can't be equal.
-                if (Count != otherAsSet.Count)
+                // If this is empty, they are equal iff other is empty.
+                if (Count == 0)
+                {
+                    return otherAsCollection.Count == 0;
+                }
+
+                // Faster if other is a hashset and we're using same equality comparer.
+                if (other is HashSet<T> otherAsSet && EqualityComparersAreEqual(this, otherAsSet))
+                {
+                    // Attempt to return early: since both contain unique elements, if they have
+                    // different counts, then they can't be equal.
+                    if (Count != otherAsSet.Count)
+                    {
+                        return false;
+                    }
+
+                    // Already confirmed that the sets have the same number of distinct elements, so if
+                    // one is a subset of the other then they must be equal.
+                    return IsSubsetOfHashSetWithSameComparer(otherAsSet);
+                }
+
+                // Can't be equal if other set contains fewer elements than this.
+                if (Count > otherAsCollection.Count)
                 {
                     return false;
                 }
-
-                // Already confirmed that the sets have the same number of distinct elements, so if
-                // one is a superset of the other then they must be equal.
-                return ContainsAllElements(otherAsSet);
             }
-            else
-            {
-                // If this count is 0 but other contains at least one element, they can't be equal.
-                if (Count == 0 &&
-                    other is ICollection<T> otherAsCollection &&
-                    otherAsCollection.Count > 0)
-                {
-                    return false;
-                }
 
-                (int uniqueCount, int unfoundCount) = CheckUniqueAndUnfoundElements(other, returnIfUnfound: true);
-                return uniqueCount == Count && unfoundCount == 0;
-            }
+            (int uniqueCount, int unfoundCount) = CheckUniqueAndUnfoundElements(other, returnIfUnfound: true);
+            return uniqueCount == Count && unfoundCount == 0;
         }
 
         public void CopyTo(T[] array) => CopyTo(array, 0, Count);
@@ -852,17 +1181,8 @@ namespace System.Collections.Generic
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
             }
 
-            // Check array index valid index into array.
-            if (arrayIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(arrayIndex), arrayIndex, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
-
-            // Also throw if count less than 0.
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), count, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(arrayIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             // Will the array, starting at arrayIndex, be able to hold elements? Note: not
             // checking arrayIndex >= array.Length (consistency with list of allowing
@@ -922,7 +1242,8 @@ namespace System.Collections.Generic
             {
                 if (typeof(T) == typeof(string))
                 {
-                    return (IEqualityComparer<T>)IInternalStringEqualityComparer.GetUnderlyingEqualityComparer((IEqualityComparer<string?>?)_comparer);
+                    Debug.Assert(_comparer is not null, "The comparer should never be null for a reference type.");
+                    return (IEqualityComparer<T>)IInternalStringEqualityComparer.GetUnderlyingEqualityComparer((IEqualityComparer<string?>)_comparer);
                 }
                 else
                 {
@@ -930,6 +1251,11 @@ namespace System.Collections.Generic
                 }
             }
         }
+
+        /// <summary>
+        /// Similar to <see cref="Comparer"/> but surfaces the actual comparer being used to hash entries.
+        /// </summary>
+        internal IEqualityComparer<T> EffectiveComparer => _comparer ?? EqualityComparer<T>.Default;
 
         /// <summary>Ensures that this hash set can hold the specified number of elements without growing.</summary>
         public int EnsureCapacity(int capacity)
@@ -972,20 +1298,15 @@ namespace System.Collections.Generic
             if (!typeof(T).IsValueType && forceNewHashCodes)
             {
                 Debug.Assert(_comparer is NonRandomizedStringEqualityComparer);
-                _comparer = (IEqualityComparer<T>)((NonRandomizedStringEqualityComparer)_comparer).GetRandomizedEqualityComparer();
+                IEqualityComparer<T> comparer = _comparer = (IEqualityComparer<T>)((NonRandomizedStringEqualityComparer)_comparer).GetRandomizedEqualityComparer();
 
                 for (int i = 0; i < count; i++)
                 {
                     ref Entry entry = ref entries[i];
                     if (entry.Next >= -1)
                     {
-                        entry.HashCode = entry.Value != null ? _comparer!.GetHashCode(entry.Value) : 0;
+                        entry.HashCode = entry.Value != null ? comparer.GetHashCode(entry.Value) : 0;
                     }
-                }
-
-                if (ReferenceEquals(_comparer, EqualityComparer<T>.Default))
-                {
-                    _comparer = null;
                 }
             }
 
@@ -1012,9 +1333,17 @@ namespace System.Collections.Generic
         /// Sets the capacity of a <see cref="HashSet{T}"/> object to the actual number of elements it contains,
         /// rounded up to a nearby, implementation-specific value.
         /// </summary>
-        public void TrimExcess()
+        public void TrimExcess() => TrimExcess(Count);
+
+        /// <summary>
+        /// Sets the capacity of a <see cref="HashSet{T}"/> object to the specified number of entries,
+        /// rounded up to a nearby, implementation-specific value.
+        /// </summary>
+        /// <param name="capacity">The new capacity.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Passed capacity is lower than entries count.</exception>
+        public void TrimExcess(int capacity)
         {
-            int capacity = Count;
+            ArgumentOutOfRangeException.ThrowIfLessThan(capacity, Count);
 
             int newSize = HashHelpers.GetPrime(capacity);
             Entry[]? oldEntries = _entries;
@@ -1043,7 +1372,7 @@ namespace System.Collections.Generic
                 }
             }
 
-            _count = capacity;
+            _count = count;
             _freeCount = 0;
         }
 
@@ -1096,58 +1425,35 @@ namespace System.Collections.Generic
             uint collisionCount = 0;
             ref int bucket = ref Unsafe.NullRef<int>();
 
-            if (comparer == null)
+            if (typeof(T).IsValueType && // comparer can only be null for value types; enable JIT to eliminate entire if block for ref types
+                comparer == null)
             {
-                hashCode = value != null ? value.GetHashCode() : 0;
+                hashCode = value!.GetHashCode();
                 bucket = ref GetBucketRef(hashCode);
                 int i = bucket - 1; // Value in _buckets is 1-based
-                if (typeof(T).IsValueType)
-                {
-                    // ValueType: Devirtualize with EqualityComparer<TValue>.Default intrinsic
-                    while (i >= 0)
-                    {
-                        ref Entry entry = ref entries[i];
-                        if (entry.HashCode == hashCode && EqualityComparer<T>.Default.Equals(entry.Value, value))
-                        {
-                            location = i;
-                            return false;
-                        }
-                        i = entry.Next;
 
-                        collisionCount++;
-                        if (collisionCount > (uint)entries.Length)
-                        {
-                            // The chain of entries forms a loop, which means a concurrent update has happened.
-                            ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
-                        }
+                // ValueType: Devirtualize with EqualityComparer<TValue>.Default intrinsic
+                while (i >= 0)
+                {
+                    ref Entry entry = ref entries[i];
+                    if (entry.HashCode == hashCode && EqualityComparer<T>.Default.Equals(entry.Value, value))
+                    {
+                        location = i;
+                        return false;
                     }
-                }
-                else
-                {
-                    // Object type: Shared Generic, EqualityComparer<TValue>.Default won't devirtualize (https://github.com/dotnet/runtime/issues/10050),
-                    // so cache in a local rather than get EqualityComparer per loop iteration.
-                    EqualityComparer<T> defaultComparer = EqualityComparer<T>.Default;
-                    while (i >= 0)
-                    {
-                        ref Entry entry = ref entries[i];
-                        if (entry.HashCode == hashCode && defaultComparer.Equals(entry.Value, value))
-                        {
-                            location = i;
-                            return false;
-                        }
-                        i = entry.Next;
+                    i = entry.Next;
 
-                        collisionCount++;
-                        if (collisionCount > (uint)entries.Length)
-                        {
-                            // The chain of entries forms a loop, which means a concurrent update has happened.
-                            ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
-                        }
+                    collisionCount++;
+                    if (collisionCount > (uint)entries.Length)
+                    {
+                        // The chain of entries forms a loop, which means a concurrent update has happened.
+                        ThrowHelper.ThrowInvalidOperationException_ConcurrentOperationsNotSupported();
                     }
                 }
             }
             else
             {
+                Debug.Assert(comparer is not null);
                 hashCode = value != null ? comparer.GetHashCode(value) : 0;
                 bucket = ref GetBucketRef(hashCode);
                 int i = bucket - 1; // Value in _buckets is 1-based
@@ -1215,24 +1521,6 @@ namespace System.Collections.Generic
         }
 
         /// <summary>
-        /// Checks if this contains of other's elements. Iterates over other's elements and
-        /// returns false as soon as it finds an element in other that's not in this.
-        /// Used by SupersetOf, ProperSupersetOf, and SetEquals.
-        /// </summary>
-        private bool ContainsAllElements(IEnumerable<T> other)
-        {
-            foreach (T element in other)
-            {
-                if (!Contains(element))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        /// <summary>
         /// Implementation Notes:
         /// If other is a hashset and is using same equality comparer, then checking subset is
         /// faster. Simply check that each element in this is in other.
@@ -1282,7 +1570,7 @@ namespace System.Collections.Generic
         ///
         /// This attempts to allocate on the stack, if below StackAllocThreshold.
         /// </summary>
-        private unsafe void IntersectWithEnumerable(IEnumerable<T> other)
+        private void IntersectWithEnumerable(IEnumerable<T> other)
         {
             Debug.Assert(_buckets != null, "_buckets shouldn't be null; callers should check first");
 
@@ -1292,7 +1580,7 @@ namespace System.Collections.Generic
             int intArrayLength = BitHelper.ToIntArrayLength(originalCount);
 
             Span<int> span = stackalloc int[StackAllocThreshold];
-            BitHelper bitHelper = intArrayLength <= StackAllocThreshold ?
+            BitHelper bitHelper = (uint)intArrayLength <= StackAllocThreshold ?
                 new BitHelper(span.Slice(0, intArrayLength), clear: true) :
                 new BitHelper(new int[intArrayLength], clear: false);
 
@@ -1354,7 +1642,7 @@ namespace System.Collections.Generic
         ///
         /// </summary>
         /// <param name="other"></param>
-        private unsafe void SymmetricExceptWithEnumerable(IEnumerable<T> other)
+        private void SymmetricExceptWithEnumerable(IEnumerable<T> other)
         {
             int originalCount = _count;
             int intArrayLength = BitHelper.ToIntArrayLength(originalCount);
@@ -1427,7 +1715,7 @@ namespace System.Collections.Generic
         /// <param name="other"></param>
         /// <param name="returnIfUnfound">Allows us to finish faster for equals and proper superset
         /// because unfoundCount must be 0.</param>
-        private unsafe (int UniqueCount, int UnfoundCount) CheckUniqueAndUnfoundElements(IEnumerable<T> other, bool returnIfUnfound)
+        private (int UniqueCount, int UnfoundCount) CheckUniqueAndUnfoundElements(IEnumerable<T> other, bool returnIfUnfound)
         {
             // Need special case in case this has no elements.
             if (_count == 0)
@@ -1487,7 +1775,13 @@ namespace System.Collections.Generic
         /// </summary>
         internal static bool EqualityComparersAreEqual(HashSet<T> set1, HashSet<T> set2) => set1.Comparer.Equals(set2.Comparer);
 
-#endregion
+        /// <summary>
+        /// Checks if effective equality comparers are equal. This is used for algorithms that
+        /// require that both collections use identical hashing implementations for their entries.
+        /// </summary>
+        internal static bool EffectiveEqualityComparersAreEqual(HashSet<T> set1, HashSet<T> set2) => set1.EffectiveComparer.Equals(set2.EffectiveComparer);
+
+        #endregion
 
         private struct Entry
         {

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Versioning;
 using Microsoft.Win32.SafeHandles;
 
@@ -8,7 +9,7 @@ namespace System.Security.Cryptography
 {
     public sealed partial class ECDiffieHellmanOpenSsl : ECDiffieHellman
     {
-        private ECOpenSsl _key;
+        private Lazy<SafeEvpPKeyHandle>? _key;
 
         [UnsupportedOSPlatform("android")]
         [UnsupportedOSPlatform("browser")]
@@ -18,8 +19,8 @@ namespace System.Security.Cryptography
         public ECDiffieHellmanOpenSsl(ECCurve curve)
         {
             ThrowIfNotSupported();
-            _key = new ECOpenSsl(curve);
-            KeySizeValue = _key.KeySize;
+            _key = new Lazy<SafeEvpPKeyHandle>(ECOpenSsl.GenerateECKey(curve, out int keySize));
+            KeySizeValue = keySize;
         }
 
         [UnsupportedOSPlatform("android")]
@@ -41,21 +42,17 @@ namespace System.Security.Cryptography
         {
             ThrowIfNotSupported();
             base.KeySize = keySize;
-            _key = new ECOpenSsl(this);
+            _key = new Lazy<SafeEvpPKeyHandle>(() => ECOpenSsl.GenerateECKey(keySize));
         }
 
-        public override KeySizes[] LegalKeySizes =>
-            new[] {
-                new KeySizes(minSize: 256, maxSize: 384, skipSize: 128),
-                new KeySizes(minSize: 521, maxSize: 521, skipSize: 0)
-            };
+        public override KeySizes[] LegalKeySizes => s_defaultKeySizes.CloneKeySizesArray();
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                _key?.Dispose();
-                _key = null!;
+                FreeKey();
+                _key = null;
             }
 
             base.Dispose(disposing);
@@ -78,15 +75,18 @@ namespace System.Security.Cryptography
                 base.KeySize = value;
 
                 ThrowIfDisposed();
-                _key.Dispose();
-                _key = new ECOpenSsl(this);
+                FreeKey();
+                _key = new Lazy<SafeEvpPKeyHandle>(ECOpenSsl.GenerateECKey(value));
             }
         }
 
         public override void GenerateKey(ECCurve curve)
         {
             ThrowIfDisposed();
-            KeySizeValue = _key.GenerateKey(curve);
+
+            FreeKey();
+            _key = new Lazy<SafeEvpPKeyHandle>(ECOpenSsl.GenerateECKey(curve, out int keySizeValue));
+            KeySizeValue = keySizeValue;
         }
 
         public override ECDiffieHellmanPublicKey PublicKey
@@ -94,21 +94,39 @@ namespace System.Security.Cryptography
             get
             {
                 ThrowIfDisposed();
-                return new ECDiffieHellmanOpenSslPublicKey(_key.UpRefKeyHandle());
+
+                // This may generate the key
+                return new ECDiffieHellmanOpenSslPublicKey(_key.Value);
             }
         }
 
         public override void ImportParameters(ECParameters parameters)
         {
             ThrowIfDisposed();
-            KeySizeValue = _key.ImportParameters(parameters);
+            FreeKey();
+            _key = new Lazy<SafeEvpPKeyHandle>(ECOpenSsl.ImportECKey(parameters, out int keySize));
+            KeySizeValue = keySize;
         }
 
-        public override ECParameters ExportExplicitParameters(bool includePrivateParameters) =>
-            ECOpenSsl.ExportExplicitParameters(GetKey(), includePrivateParameters);
+        public override ECParameters ExportExplicitParameters(bool includePrivateParameters)
+        {
+            ThrowIfDisposed();
 
-        public override ECParameters ExportParameters(bool includePrivateParameters) =>
-            ECOpenSsl.ExportParameters(GetKey(), includePrivateParameters);
+            using (SafeEcKeyHandle ecKey = Interop.Crypto.EvpPkeyGetEcKey(_key.Value))
+            {
+                return ECOpenSsl.ExportExplicitParameters(ecKey, includePrivateParameters);
+            }
+        }
+
+        public override ECParameters ExportParameters(bool includePrivateParameters)
+        {
+            ThrowIfDisposed();
+
+            using (SafeEcKeyHandle ecKey = Interop.Crypto.EvpPkeyGetEcKey(_key.Value))
+            {
+                return ECOpenSsl.ExportParameters(ecKey, includePrivateParameters);
+            }
+        }
 
         public override void ImportEncryptedPkcs8PrivateKey(
             ReadOnlySpan<byte> passwordBytes,
@@ -128,18 +146,19 @@ namespace System.Security.Cryptography
             base.ImportEncryptedPkcs8PrivateKey(password, source, out bytesRead);
         }
 
-        private void ThrowIfDisposed()
+        private void FreeKey()
         {
-            if (_key == null)
+            if (_key != null && _key.IsValueCreated)
             {
-                throw new ObjectDisposedException(nameof(ECDiffieHellmanOpenSsl));
+                SafeEvpPKeyHandle handle = _key.Value;
+                handle?.Dispose();
             }
         }
 
-        private SafeEcKeyHandle GetKey()
+        [MemberNotNull(nameof(_key))]
+        private void ThrowIfDisposed()
         {
-            ThrowIfDisposed();
-            return _key.Value;
+            ObjectDisposedException.ThrowIf(_key is null, this);
         }
 
         static partial void ThrowIfNotSupported();

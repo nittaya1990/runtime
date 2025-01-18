@@ -4,6 +4,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -11,86 +13,77 @@ namespace System.Text.Json.Serialization.Tests
 {
     public class PolymorphicTests_Span : PolymorphicTests
     {
-        public PolymorphicTests_Span() : base(JsonSerializerWrapperForString.SpanSerializer) { }
+        public PolymorphicTests_Span() : base(JsonSerializerWrapper.SpanSerializer) { }
     }
 
     public class PolymorphicTests_String : PolymorphicTests
     {
-        public PolymorphicTests_String() : base(JsonSerializerWrapperForString.StringSerializer) { }
+        public PolymorphicTests_String() : base(JsonSerializerWrapper.StringSerializer) { }
     }
 
     public class PolymorphicTests_AsyncStream : PolymorphicTests
     {
-        public PolymorphicTests_AsyncStream() : base(JsonSerializerWrapperForString.AsyncStreamSerializer) { }
+        public PolymorphicTests_AsyncStream() : base(JsonSerializerWrapper.AsyncStreamSerializer) { }
     }
 
     public class PolymorphicTests_AsyncStreamWithSmallBuffer : PolymorphicTests
     {
-        public PolymorphicTests_AsyncStreamWithSmallBuffer() : base(JsonSerializerWrapperForString.AsyncStreamSerializerWithSmallBuffer) { }
+        public PolymorphicTests_AsyncStreamWithSmallBuffer() : base(JsonSerializerWrapper.AsyncStreamSerializerWithSmallBuffer) { }
     }
 
     public class PolymorphicTests_SyncStream : PolymorphicTests
     {
-        public PolymorphicTests_SyncStream() : base(JsonSerializerWrapperForString.SyncStreamSerializer) { }
+        public PolymorphicTests_SyncStream() : base(JsonSerializerWrapper.SyncStreamSerializer) { }
     }
 
     public class PolymorphicTests_Writer : PolymorphicTests
     {
-        public PolymorphicTests_Writer() : base(JsonSerializerWrapperForString.ReaderWriterSerializer) { }
+        public PolymorphicTests_Writer() : base(JsonSerializerWrapper.ReaderWriterSerializer) { }
     }
 
     public class PolymorphicTests_Document : PolymorphicTests
     {
-        public PolymorphicTests_Document() : base(JsonSerializerWrapperForString.DocumentSerializer) { }
+        public PolymorphicTests_Document() : base(JsonSerializerWrapper.DocumentSerializer) { }
     }
 
     public class PolymorphicTests_Element : PolymorphicTests
     {
-        public PolymorphicTests_Element() : base(JsonSerializerWrapperForString.ElementSerializer) { }
+        public PolymorphicTests_Element() : base(JsonSerializerWrapper.ElementSerializer) { }
     }
 
     public class PolymorphicTests_Node : PolymorphicTests
     {
-        public PolymorphicTests_Node() : base(JsonSerializerWrapperForString.NodeSerializer) { }
+        public PolymorphicTests_Node() : base(JsonSerializerWrapper.NodeSerializer) { }
     }
 
-    public abstract class PolymorphicTests
+    public class PolymorphicTests_Pipe : PolymorphicTests
     {
-        private JsonSerializerWrapperForString Serializer { get; }
+        public PolymorphicTests_Pipe() : base(JsonSerializerWrapper.AsyncPipeSerializer) { }
+    }
 
-        public PolymorphicTests(JsonSerializerWrapperForString serializer)
+    public abstract partial class PolymorphicTests : SerializerTests
+    {
+        public PolymorphicTests(JsonSerializerWrapper serializer) : base(serializer)
         {
-            Serializer = serializer;
         }
 
-        [Fact]
-        public async Task PrimitivesAsRootObject()
+        [Theory]
+        [InlineData(1, "1")]
+        [InlineData("stringValue", @"""stringValue""")]
+        [InlineData(true, "true")]
+        [InlineData(null, "null")]
+        [InlineData(new int[] { 1, 2, 3}, "[1,2,3]")]
+        public async Task PrimitivesAsRootObject(object? value, string expectedJson)
         {
-            string json = await Serializer.SerializeWrapper<object>(1);
-            Assert.Equal("1", json);
-            json = await Serializer.SerializeWrapper(1, typeof(object));
-            Assert.Equal("1", json);
+            string json = await Serializer.SerializeWrapper(value);
+            Assert.Equal(expectedJson, json);
+            json = await Serializer.SerializeWrapper(value, typeof(object));
+            Assert.Equal(expectedJson, json);
 
-            json = await Serializer.SerializeWrapper<object>("foo");
-            Assert.Equal(@"""foo""", json);
-            json = await Serializer.SerializeWrapper("foo", typeof(object));
-            Assert.Equal(@"""foo""", json);
-
-            json = await Serializer.SerializeWrapper<object>(true);
-            Assert.Equal(@"true", json);
-            json = await Serializer.SerializeWrapper(true, typeof(object));
-            Assert.Equal(@"true", json);
-
-            json = await Serializer.SerializeWrapper<object>(null);
-            Assert.Equal(@"null", json);
-            json = await Serializer.SerializeWrapper((object)null, typeof(object));
-            Assert.Equal(@"null", json);
-
-            decimal pi = 3.1415926535897932384626433833m;
-            json = await Serializer.SerializeWrapper<object>(pi);
-            Assert.Equal(@"3.1415926535897932384626433833", json);
-            json = await Serializer.SerializeWrapper(pi, typeof(object));
-            Assert.Equal(@"3.1415926535897932384626433833", json);
+            var options = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+            JsonTypeInfo<object> objectTypeInfo = (JsonTypeInfo<object>)options.GetTypeInfo(typeof(object));
+            json = await Serializer.SerializeWrapper(value, objectTypeInfo);
+            Assert.Equal(expectedJson, json);
         }
 
         [Fact]
@@ -532,6 +525,36 @@ namespace System.Text.Json.Serialization.Tests
             Assert.Equal(Expected, json);
         }
 
+        [Fact]
+        public async Task CustomResolverWithFailingAncestorType_DoesNotSurfaceException()
+        {
+            var options = new JsonSerializerOptions
+            {
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver
+                {
+                    Modifiers =
+                    {
+                        static typeInfo =>
+                        {
+                            if (typeInfo.Type == typeof(MyThing) ||
+                                typeInfo.Type == typeof(IList))
+                            {
+                                throw new InvalidOperationException("some latent custom resolution bug");
+                            }
+                        }
+                    }
+                }
+            };
+
+            object value = new MyDerivedThing { Number = 42 };
+            string json = await Serializer.SerializeWrapper(value, options);
+            Assert.Equal("""{"Number":42}""", json);
+
+            value = new int[] { 1, 2, 3 };
+            json = await Serializer.SerializeWrapper(value, options);
+            Assert.Equal("[1,2,3]", json);
+        }
+
         class MyClass
         {
             public string Value { get; set; }
@@ -548,8 +571,109 @@ namespace System.Text.Json.Serialization.Tests
             public int Number { get; set; }
         }
 
+        class MyDerivedThing : MyThing
+        {
+        }
+
         class MyThingCollection : List<IThing> { }
 
         class MyThingDictionary : Dictionary<string, IThing> { }
+
+        [Theory]
+        [InlineData(typeof(PolymorphicTypeWithConflictingPropertyNameAtBase), typeof(PolymorphicTypeWithConflictingPropertyNameAtBase.Derived))]
+        [InlineData(typeof(PolymorphicTypeWithConflictingPropertyNameAtDerived), typeof(PolymorphicTypeWithConflictingPropertyNameAtDerived.Derived))]
+        public async Task PolymorphicTypesWithConflictingPropertyNames_ThrowsInvalidOperationException(Type baseType, Type derivedType)
+        {
+            InvalidOperationException ex;
+            object value = Activator.CreateInstance(derivedType);
+
+            ex = Assert.Throws<InvalidOperationException>(() => Serializer.GetTypeInfo(baseType));
+            ValidateException(ex);
+
+            ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Serializer.SerializeWrapper(value, baseType));
+            ValidateException(ex);
+
+            ex = await Assert.ThrowsAsync<InvalidOperationException>(() => Serializer.DeserializeWrapper("{}", baseType));
+            ValidateException(ex);
+
+            void ValidateException(InvalidOperationException ex)
+            {
+                Assert.Contains($"The type '{derivedType}' contains property 'Type' that conflicts with an existing metadata property name.", ex.Message);
+            }
+        }
+
+        [JsonPolymorphic(TypeDiscriminatorPropertyName = "Type")]
+        [JsonDerivedType(typeof(Derived), nameof(Derived))]
+        public abstract class PolymorphicTypeWithConflictingPropertyNameAtBase
+        {
+            public string Type { get; set; }
+
+            public class Derived : PolymorphicTypeWithConflictingPropertyNameAtBase
+            {
+                public string Name { get; set; }
+            }
+        }
+
+        [JsonPolymorphic(TypeDiscriminatorPropertyName = "Type")]
+        [JsonDerivedType(typeof(Derived), nameof(Derived))]
+        public abstract class PolymorphicTypeWithConflictingPropertyNameAtDerived
+        {
+            public class Derived : PolymorphicTypeWithConflictingPropertyNameAtDerived
+            {
+                public string Type { get; set; }
+            }
+        }
+
+        [Fact]
+        public async Task PolymorphicTypeWithIgnoredConflictingPropertyName_Supported()
+        {
+            PolymorphicTypeWithIgnoredConflictingPropertyName value = new PolymorphicTypeWithIgnoredConflictingPropertyName.Derived();
+
+            JsonTypeInfo typeInfo = Serializer.GetTypeInfo(typeof(PolymorphicTypeWithIgnoredConflictingPropertyName));
+            Assert.NotNull(typeInfo);
+
+            string json = await Serializer.SerializeWrapper(value);
+            Assert.Equal("""{"Type":"Derived"}""", json);
+
+            value = await Serializer.DeserializeWrapper<PolymorphicTypeWithIgnoredConflictingPropertyName>(json);
+            Assert.IsType<PolymorphicTypeWithIgnoredConflictingPropertyName.Derived>(value);
+        }
+
+        [JsonPolymorphic(TypeDiscriminatorPropertyName = "Type")]
+        [JsonDerivedType(typeof(Derived), nameof(Derived))]
+        public abstract class PolymorphicTypeWithIgnoredConflictingPropertyName
+        {
+            [JsonIgnore]
+            public string Type { get; set; }
+
+            public class Derived : PolymorphicTypeWithIgnoredConflictingPropertyName;
+        }
+
+        [Fact]
+        public async Task PolymorphicTypeWithExtensionDataConflictingPropertyName_Supported()
+        {
+            PolymorphicTypeWithExtensionDataConflictingPropertyName value = new PolymorphicTypeWithExtensionDataConflictingPropertyName.Derived();
+
+            JsonTypeInfo typeInfo = Serializer.GetTypeInfo(typeof(PolymorphicTypeWithIgnoredConflictingPropertyName));
+            Assert.NotNull(typeInfo);
+
+            string json = await Serializer.SerializeWrapper(value);
+            Assert.Equal("""{"Type":"Derived"}""", json);
+
+            value = await Serializer.DeserializeWrapper<PolymorphicTypeWithExtensionDataConflictingPropertyName>("""{"Type":"Derived","extraProp":null}""");
+            Assert.IsType<PolymorphicTypeWithExtensionDataConflictingPropertyName.Derived>(value);
+            Assert.Equal(1, value.Type.Count);
+            Assert.Contains("extraProp", value.Type);
+        }
+
+        [JsonPolymorphic(TypeDiscriminatorPropertyName = "Type")]
+        [JsonDerivedType(typeof(Derived), nameof(Derived))]
+        public abstract class PolymorphicTypeWithExtensionDataConflictingPropertyName
+        {
+            [JsonExtensionData]
+            public JsonObject Type { get; set; }
+
+            public class Derived : PolymorphicTypeWithExtensionDataConflictingPropertyName;
+        }
     }
 }

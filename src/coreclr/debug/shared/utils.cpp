@@ -41,12 +41,12 @@ CORDB_ADDRESS IsEventDebuggerNotification(
     _ASSERTE(pRecord != NULL);
 
     // Must specify a CLR instance.
-    _ASSERTE(pClrBaseAddress != NULL);
+    _ASSERTE(pClrBaseAddress != (CORDB_ADDRESS)NULL);
 
     // If it's not even our exception code, then it's not ours.
     if (pRecord->ExceptionCode != CLRDBG_NOTIFICATION_EXCEPTION_CODE)
     {
-        return NULL;
+        return (CORDB_ADDRESS)NULL;
     }
 
     //
@@ -57,7 +57,7 @@ CORDB_ADDRESS IsEventDebuggerNotification(
     //
     if (pRecord->NumberParameters != 3)
     {
-        return NULL;
+        return (CORDB_ADDRESS)NULL;
     }
 
     // 1st argument should always be the cookie.
@@ -66,7 +66,7 @@ CORDB_ADDRESS IsEventDebuggerNotification(
     DWORD cookie = (DWORD) pRecord->ExceptionInformation[0];
     if (cookie != CLRDBG_EXCEPTION_DATA_CHECKSUM)
     {
-        return NULL;
+        return (CORDB_ADDRESS)NULL;
     }
 
     // TODO: We don't do this check in case of non-windows debugging now, because we don't support
@@ -79,7 +79,7 @@ CORDB_ADDRESS IsEventDebuggerNotification(
     CORDB_ADDRESS pTargetBase = GetExceptionInfoAsAddress(pRecord, 1);
     if (pTargetBase != pClrBaseAddress)
     {
-        return NULL;
+        return (CORDB_ADDRESS)NULL;
     }
 #endif
 
@@ -117,39 +117,6 @@ void InitEventForDebuggerNotification(DEBUG_EVENT *      pDebugEvent,
              PTR_TO_CORDB_ADDRESS(pIPCEvent));
 }
 #endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
-
-//-----------------------------------------------------------------------------
-// Helper to get the proper decorated name
-// Caller ensures that pBufSize is large enough. We'll assert just to check,
-// but no runtime failure.
-// pBuf - the output buffer to write the decorated name in
-// cBufSizeInChars - the size of the buffer in characters, including the null.
-// pPrefx - The undecorated name of the event.
-//-----------------------------------------------------------------------------
-void GetPidDecoratedName(_Out_writes_z_(cBufSizeInChars) WCHAR * pBuf, int cBufSizeInChars, const WCHAR * pPrefix, DWORD pid)
-{
-    const WCHAR szGlobal[] = W("Global\\");
-    int szGlobalLen;
-    szGlobalLen = STRING_LENGTH(szGlobal);
-
-    // Caller should always give us a big enough buffer.
-    _ASSERTE(cBufSizeInChars > (int) wcslen(pPrefix) + szGlobalLen);
-
-    // PERF: We are no longer calling GetSystemMetrics in an effort to prevent
-    //       superfluous DLL loading on startup.  Instead, we're prepending
-    //       "Global\" to named kernel objects if we are on NT5 or above.  The
-    //       only bad thing that results from this is that you can't debug
-    //       cross-session on NT4.  Big bloody deal.
-    wcscpy_s(pBuf, cBufSizeInChars, szGlobal);
-    pBuf += szGlobalLen;
-    cBufSizeInChars -= szGlobalLen;
-
-    int ret;
-    ret = _snwprintf_s(pBuf, cBufSizeInChars, _TRUNCATE, pPrefix, pid);
-
-    // Since this is all determined at compile time, we know we should have enough buffer.
-    _ASSERTE (ret != STRUNCATE);
-}
 
 //-----------------------------------------------------------------------------
 // The 'internal' version of our IL to Native map (the DebuggerILToNativeMap struct)

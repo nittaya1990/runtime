@@ -1,15 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-//
 
-//
 //*****************************************************************************
 // EventReporter.cpp
 //
 // A utility to log an entry in event log.
 //
 //*****************************************************************************
-
 
 #include "common.h"
 #include "utilcode.h"
@@ -44,7 +41,7 @@ EventReporter::EventReporter(EventReporterType type)
 
     m_eventType = type;
 
-    HMODULE hModule = WszGetModuleHandle(NULL);
+    HMODULE hModule = GetModuleHandle(NULL);
     PathString appPath;
     DWORD ret = WszGetModuleFileName(hModule, appPath);
 
@@ -63,7 +60,7 @@ EventReporter::EventReporter(EventReporterType type)
     if (ret != 0)
     {
         // If app name has a '\', consider the part after that; otherwise consider whole name.
-        LPCWSTR appName =  wcsrchr(appPath, W('\\'));
+        LPCWSTR appName =  u16_strrchr(appPath, W('\\'));
         appName = appName ? appName+1 : (LPCWSTR)appPath;
         m_Description.Append(appName);
         m_Description.Append(W("\n"));
@@ -287,7 +284,7 @@ void EventReporter::AddStackTrace(SString& s)
         COUNT_T curSize = m_Description.GetCount();
 
         // Truncate the buffer if we have exceeded the limit based upon the OS we are on
-        DWORD dwMaxSizeLimit = MAX_SIZE_EVENTLOG_ENTRY_STRING_WINVISTA;
+        DWORD dwMaxSizeLimit = MAX_SIZE_EVENTLOG_ENTRY_STRING;
         if (curSize >= dwMaxSizeLimit)
         {
             // Load the truncation message
@@ -303,7 +300,7 @@ void EventReporter::AddStackTrace(SString& s)
             COUNT_T truncCount = truncate.GetCount();
 
             // Go back "truncCount" characters from the end of the string.
-            // The "-1" in end is to accomodate null termination.
+            // The "-1" in end is to accommodate null termination.
             ext = m_Description.Begin() + dwMaxSizeLimit - truncCount - 1;
 
             // Now look for a "\n" from the last position we got
@@ -466,7 +463,7 @@ BOOL ShouldLogInEventLog()
     CONTRACTL_END;
 
     // If the process is being debugged, don't log
-    if ((CORDebuggerAttached() || IsDebuggerPresent())
+    if ((CORDebuggerAttached() || minipal_is_native_debugger_present())
 #ifdef _DEBUG
         // Allow debug to be able to break in
         &&
@@ -478,7 +475,7 @@ BOOL ShouldLogInEventLog()
     }
 
     static LONG fOnce = 0;
-    if (fOnce == 1 || FastInterlockExchange(&fOnce, 1) == 1)
+    if (fOnce == 1 || InterlockedExchange(&fOnce, 1) == 1)
     {
         return FALSE;
     }
@@ -557,7 +554,7 @@ void LogCallstackForEventReporterWorker(EventReporter& reporter)
     {
         WordAt.Insert(WordAt.Begin(), W("   "));
     }
-    WordAt += W(" ");
+    WordAt.Append(W(" "));
 
     LogCallstackData data = {
         &reporter, &WordAt
@@ -606,9 +603,9 @@ void ReportExceptionStackHelper(OBJECTREF exObj, EventReporter& reporter, SmallS
         EXCEPTIONREF ex;
         STRINGREF remoteStackTraceString;
     } gc;
-    ZeroMemory(&gc, sizeof(gc));
     gc.exObj = exObj;
     gc.ex = (EXCEPTIONREF)exObj;
+    gc.remoteStackTraceString = NULL;
 
     GCPROTECT_BEGIN(gc);
 
@@ -632,7 +629,6 @@ void ReportExceptionStackHelper(OBJECTREF exObj, EventReporter& reporter, SmallS
 
     DebugStackTrace::GetStackFramesData stackFramesData;
     stackFramesData.pDomain = NULL;
-    stackFramesData.skip = 0;
     stackFramesData.NumFramesRequested = 0;
 
     DebugStackTrace::GetStackFramesFromException(&(gc.exObj), &stackFramesData);
@@ -672,22 +668,23 @@ void DoReportForUnhandledNativeException(PEXCEPTION_POINTERS pExceptionInfo)
         EventReporter reporter(EventReporter::ERT_UnhandledException);
         EX_TRY
         {
+            WCHAR exceptionCodeString[MaxIntegerDecHexString + 1];
+            FormatInteger(exceptionCodeString, ARRAY_SIZE(exceptionCodeString), "%x", pExceptionInfo->ExceptionRecord->ExceptionCode);
+
+            WCHAR addressString[MaxIntegerDecHexString + 1];
+            FormatInteger(addressString, ARRAY_SIZE(addressString), "%p", (SIZE_T)pExceptionInfo->ExceptionRecord->ExceptionAddress);
+
             StackSString s;
-        InlineSString<80> ssErrorFormat;
-        if (!ssErrorFormat.LoadResource(CCompRC::Optional, IDS_ER_UNHANDLEDEXCEPTIONINFO))
-            ssErrorFormat.Set(W("exception code %1, exception address %2"));
-        SmallStackSString exceptionCodeString;
-        exceptionCodeString.Printf(W("%x"), pExceptionInfo->ExceptionRecord->ExceptionCode);
-        SmallStackSString addressString;
-        addressString.Printf(W("%p"), (UINT_PTR)pExceptionInfo->ExceptionRecord->ExceptionAddress);
-        s.FormatMessage(FORMAT_MESSAGE_FROM_STRING, (LPCWSTR)ssErrorFormat, 0, 0, exceptionCodeString, addressString);
-        reporter.AddDescription(s);
-        if (pThread)
-        {
-            LogCallstackForEventReporter(reporter);
+            s.FormatMessage(FORMAT_MESSAGE_FROM_STRING, W("exception code %1, exception address %2"), 0, 0,
+                SString{ SString::Literal, exceptionCodeString },
+                SString{ SString::Literal, addressString });
+            reporter.AddDescription(s);
+            if (pThread)
+            {
+                LogCallstackForEventReporter(reporter);
+            }
         }
-        }
-            EX_CATCH
+        EX_CATCH
         {
             // We are reporting an exception.  If we throw while working on this, it is not fatal.
         }

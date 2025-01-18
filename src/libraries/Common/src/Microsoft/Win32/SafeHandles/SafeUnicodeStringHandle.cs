@@ -2,9 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-#pragma warning disable CA1419 // TODO https://github.com/dotnet/roslyn-analyzers/issues/5232: not intended for use with P/Invoke
 
 namespace Microsoft.Win32.SafeHandles
 {
@@ -25,12 +24,12 @@ namespace Microsoft.Win32.SafeHandles
         public unsafe SafeUnicodeStringHandle(ReadOnlySpan<char> s)
             : base(IntPtr.Zero, ownsHandle: true)
         {
-            // If s == default then the span represents the null string,
+            // If s contains a null ref then the span represents the null string,
             // and handle should be IntPtr.Zero to match Marshal.StringToHGlobalUni.
             //
             // Since that was already done in the base ctor call, we only need to do
-            // work when s != default.
-            if (s != default)
+            // work when s does not contain a null ref.
+            if (!Unsafe.IsNullRef(ref MemoryMarshal.GetReference(s)))
             {
                 int cch = checked(s.Length + 1);
                 int cb = checked(cch * sizeof(char));

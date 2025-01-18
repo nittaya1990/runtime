@@ -170,7 +170,7 @@ namespace System
         public static IEnumerable<object[]> GetKeyChords()
         {
             yield return MkConsoleKeyInfo("Ctrl+B", '\x02', ConsoleKey.B, ConsoleModifiers.Control);
-            yield return MkConsoleKeyInfo("Ctrl+Alt+B", OperatingSystem.IsWindows() ? '\x00' : '\x02', ConsoleKey.B, ConsoleModifiers.Control | ConsoleModifiers.Alt);
+            yield return MkConsoleKeyInfo("Ctrl+Alt+B", '\x00', ConsoleKey.B, ConsoleModifiers.Control | ConsoleModifiers.Alt);
             yield return MkConsoleKeyInfo("Enter", '\r', ConsoleKey.Enter, default);
 
             if (OperatingSystem.IsWindows())
@@ -179,8 +179,8 @@ namespace System
             }
             else
             {
-                // Validate current Unix console behaviour: '\n' is reported as '\r'
-                yield return MkConsoleKeyInfo("Ctrl+J", '\r', ConsoleKey.Enter, default);
+                // Ctrl+J is mapped by every Unix Terminal as Ctrl+Enter with new line character
+                yield return MkConsoleKeyInfo("Ctrl+J", '\n', ConsoleKey.Enter, ConsoleModifiers.Control);
             }
 
             static object[] MkConsoleKeyInfo (string requestedKeyChord, char keyChar, ConsoleKey consoleKey, ConsoleModifiers modifiers)
@@ -318,7 +318,18 @@ namespace System
         {
             Console.WriteLine(Console.OutputEncoding);
             Console.WriteLine("'\u03A0\u03A3'.");
-            AssertUserExpectedResults("Pi and Segma or question marks");
+            AssertUserExpectedResults("Pi and Sigma or question marks");
+        }
+
+        [ConditionalFact(nameof(ManualTestsEnabled))]
+        public static void CursorLeftFromLastColumn()
+        {
+            Console.CursorLeft = Console.BufferWidth - 1;
+            Console.Write("2");
+            Console.CursorLeft = 0;
+            Console.Write("1");
+            Console.WriteLine();
+            AssertUserExpectedResults("single line with '1' at the start and '2' at the end.");
         }
 
         private static void AssertUserExpectedResults(string expected)

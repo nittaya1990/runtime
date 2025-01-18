@@ -31,7 +31,7 @@
 #pragma warning(disable:4312) // FIXME pointer cast to different size
 #endif
 
-#if defined (HOST_ANDROID) || defined (TARGET_IOS)
+#if defined (HOST_ANDROID) || defined (TARGET_IOS) || defined(TARGET_TVOS)
 #  undef printf
 #  define printf(...) g_log("mono", G_LOG_LEVEL_MESSAGE, __VA_ARGS__)
 #  undef fprintf
@@ -144,7 +144,6 @@ mono_trace_enter_method (MonoMethod *method, MonoJitInfo *ji, MonoProfilerCallCo
 {
 	int i;
 	MonoClass *klass;
-	MonoObject *o;
 	MonoMethodSignature *sig;
 	char *fname;
 	MonoGenericSharingContext *gsctx = NULL;
@@ -254,7 +253,7 @@ mono_trace_enter_method (MonoMethod *method, MonoJitInfo *ji, MonoProfilerCallCo
 		}
 		case MONO_TYPE_CLASS:
 		case MONO_TYPE_OBJECT: {
-			o = *arg_in_stack_slot(buf, MonoObject *);
+			MonoObject *o = *arg_in_stack_slot(buf, MonoObject *);
 			if (o) {
 				klass = o->vtable->klass;
 
@@ -483,7 +482,7 @@ mono_trace_enable (gboolean enable)
 }
 
 gboolean
-mono_trace_is_enabled ()
+mono_trace_is_enabled (void)
 {
 	return trace_spec.enabled;
 }

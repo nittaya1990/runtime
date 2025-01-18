@@ -11,6 +11,8 @@
 #include <ex.h>
 #include <contract.h>
 
+#include <minipal/debugger.h>
+
 #ifdef _DEBUG
 size_t CHECK::s_cLeakedBytes = 0;
 size_t CHECK::s_cNumFailures = 0;
@@ -63,7 +65,6 @@ SPECIALIZED_VIOLATION(GCViolation);
 SPECIALIZED_VIOLATION(ModeViolation);
 SPECIALIZED_VIOLATION(FaultViolation);
 SPECIALIZED_VIOLATION(FaultNotFatal);
-SPECIALIZED_VIOLATION(HostViolation);
 SPECIALIZED_VIOLATION(TakesLockViolation);
 SPECIALIZED_VIOLATION(LoadsTypeViolation);
 
@@ -107,14 +108,11 @@ void CHECK::Trigger(LPCSTR reason)
     STATIC_CONTRACT_GC_NOTRIGGER;
 
     const char *messageString = NULL;
-    NewHolder<StackScratchBuffer> pScratch(NULL);
     NewHolder<StackSString> pMessage(NULL);
 
     EX_TRY
     {
         FAULT_NOT_FATAL();
-
-        pScratch = new StackScratchBuffer();
         pMessage = new StackSString();
 
         pMessage->AppendASCII(reason);
@@ -123,11 +121,11 @@ void CHECK::Trigger(LPCSTR reason)
             pMessage->AppendASCII((m_message != (LPCSTR)1) ? m_message : "<runtime check failure>");
 
 #if _DEBUG
-        pMessage->AppendASCII("FAILED: ");
+        pMessage->AppendASCII("\nFAILED: ");
         pMessage->AppendASCII(m_condition);
 #endif
 
-        messageString = pMessage->GetANSI(*pScratch);
+        messageString = pMessage->GetUTF8();
     }
     EX_CATCH
     {
@@ -138,7 +136,7 @@ void CHECK::Trigger(LPCSTR reason)
 #if _DEBUG
     DbgAssertDialog((char*)m_file, m_line, (char *)messageString);
 #else
-    OutputDebugStringA(messageString);
+    OutputDebugStringUtf8(messageString);
     DebugBreak();
 #endif
 
@@ -175,7 +173,7 @@ void CHECK::Setup(LPCSTR message, LPCSTR condition, LPCSTR file, INT line)
             // Try to build a stack of condition failures
 
             StackSString context;
-            context.Printf("%s\n\t%s%s FAILED: %s\n\t\t%s, line: %d",
+            context.Printf("%s\n\t%s%s FAILED: %s\n\t\t%s:%d",
                            m_condition,
                            message && *message ? message : "",
                            message && *message ? ": " : "",
@@ -193,7 +191,7 @@ void CHECK::Setup(LPCSTR message, LPCSTR condition, LPCSTR file, INT line)
 #endif
 
 #if defined(_DEBUG_IMPL)
-    if (IsInAssert() && IsDebuggerPresent())
+    if (IsInAssert() && minipal_is_native_debugger_present())
     {
         DebugBreak();
     }
@@ -260,8 +258,7 @@ LPCSTR CHECK::AllocateDynamicMessage(const SString &s)
     STATIC_CONTRACT_GC_NOTRIGGER;
 
     // Make a copy of it.
-    StackScratchBuffer buffer;
-    const char * pMsg = s.GetANSI(buffer);
+    const char * pMsg = s.GetUTF8();
 
     // Must copy that into our own field.
     size_t len = strlen(pMsg) + 1;

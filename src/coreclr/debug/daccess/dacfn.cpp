@@ -17,27 +17,19 @@
 
 #include "gcinterface.h"
 #include "gcinterface.dac.h"
-
-DacTableInfo g_dacTableInfo;
-DacGlobals g_dacGlobals;
-
 struct DacHostVtPtrs
 {
 #define VPTR_CLASS(name) PVOID name;
-#define VPTR_MULTI_CLASS(name, keyBase) PVOID name##__##keyBase;
 #include <vptr_list.h>
 #undef VPTR_CLASS
-#undef VPTR_MULTI_CLASS
 };
 
 
 const WCHAR *g_dacVtStrings[] =
 {
 #define VPTR_CLASS(name) W(#name),
-#define VPTR_MULTI_CLASS(name, keyBase) W(#name),
 #include <vptr_list.h>
 #undef VPTR_CLASS
-#undef VPTR_MULTI_CLASS
 };
 
 DacHostVtPtrs g_dacHostVtPtrs;
@@ -47,11 +39,8 @@ DacGetHostVtPtrs(void)
 {
 #define VPTR_CLASS(name) \
     g_dacHostVtPtrs.name = name::VPtrHostVTable();
-#define VPTR_MULTI_CLASS(name, keyBase) \
-    g_dacHostVtPtrs.name##__##keyBase = name::VPtrHostVTable();
 #include <vptr_list.h>
 #undef VPTR_CLASS
-#undef VPTR_MULTI_CLASS
 
     return S_OK;
 }
@@ -133,6 +122,18 @@ DacGlobalBase(void)
     return g_dacImpl->m_globalBase;
 }
 
+DacGlobals*
+DacGlobalValues(void)
+{
+    if (!g_dacImpl)
+    {
+        DacError(E_UNEXPECTED);
+        UNREACHABLE();
+    }
+
+    return &g_dacImpl->m_dacGlobals;
+}
+
 HRESULT
 DacReadAll(TADDR addr, PVOID buffer, ULONG32 size, bool throwEx)
 {
@@ -153,7 +154,7 @@ DacReadAll(TADDR addr, PVOID buffer, ULONG32 size, bool throwEx)
     ULONG32 returned;
 
 #if defined(DAC_MEASURE_PERF)
-    unsigned __int64  nStart, nEnd;
+    uint64_t  nStart, nEnd;
     nStart = GetCycleCount();
 #endif // #if defined(DAC_MEASURE_PERF)
 
@@ -470,6 +471,7 @@ DacInstantiateTypeByAddressHelper(TADDR addr, ULONG32 size, bool throwEx, bool f
         g_dacImpl->m_instances.ReturnAlloc(inst);
         if (throwEx)
         {
+            DacLogMessage("DacReadAll(%p, %08x) FAILED %08x\n", addr, size, status);
             DacError(status);
         }
         return NULL;
@@ -591,25 +593,15 @@ DacInstantiateClassByVTable(TADDR addr, ULONG32 minSize, bool throwEx)
     // class identity.
     //
 
-#define VPTR_CLASS(name)                       \
-    if (vtAddr == g_dacImpl->m_globalBase +    \
-        g_dacGlobals.name##__vtAddr)           \
-    {                                          \
-        size = sizeof(name);                   \
-        hostVtPtr = g_dacHostVtPtrs.name;      \
-    }                                          \
-    else
-#define VPTR_MULTI_CLASS(name, keyBase)        \
-    if (vtAddr == g_dacImpl->m_globalBase +    \
-        g_dacGlobals.name##__##keyBase##__mvtAddr) \
-    {                                          \
-        size = sizeof(name);                   \
-        hostVtPtr = g_dacHostVtPtrs.name##__##keyBase; \
-    }                                          \
+#define VPTR_CLASS(name)                        \
+    if (vtAddr == DacGlobalValues()->name##__vtAddr) \
+    {                                           \
+        size = sizeof(name);                    \
+        hostVtPtr = g_dacHostVtPtrs.name;       \
+    }                                           \
     else
 #include <vptr_list.h>
 #undef VPTR_CLASS
-#undef VPTR_MULTI_CLASS
 
     {
         // Can't identify the vtable pointer.
@@ -624,9 +616,10 @@ DacInstantiateClassByVTable(TADDR addr, ULONG32 minSize, bool throwEx)
     // Sanity check that the object we're returning is big enough to fill the PTR type it's being
     // accessed with.
     // If this is not true, it means the type being marshalled isn't a sub-type (or the same type)
-    // as the PTR type it's being used as.  For example, trying to marshal an instance of a SystemDomain
-    // object into a PTR_AppDomain will cause this ASSERT to fire (because both SystemDomain and AppDomain
-    // derived from BaseDomain, and SystemDomain is smaller than AppDomain).
+    // as the PTR type it's being used as. For example, trying to marshal an AssemblyLoaderAllocator
+    // into a PTR_GlobalLoaderAllocator will cause this ASSERT to fire (because AssemblyLoaderAllocator
+    // and GlobalLoaderAllocator derived from LoaderAllocator and AssemblyLoaderAllocator is smaller
+    // than GlobalLoaderAllocator).
     _ASSERTE_MSG(size >= minSize, "DAC coding error: Attempt to instantiate a VPTR from an object that is too small");
 
     inst = g_dacImpl->m_instances.Alloc(addr, size, DAC_VPTR);
@@ -1145,11 +1138,11 @@ PWSTR    DacGetVtNameW(TADDR targetVtable)
 {
     PWSTR pszRet = NULL;
 
-    ULONG *targ = &g_dacGlobals.EEJitManager__vtAddr;
-    ULONG *targStart = targ;
+    TADDR *targ = &DacGlobalValues()->EEJitManager__vtAddr;
+    TADDR *targStart = targ;
     for (ULONG i = 0; i < sizeof(g_dacHostVtPtrs) / sizeof(PVOID); i++)
     {
-        if (targetVtable == (*targ + DacGlobalBase()))
+        if (targetVtable == (*targ))
         {
             pszRet = (PWSTR) *(g_dacVtStrings + (targ - targStart));
             break;
@@ -1164,19 +1157,19 @@ TADDR
 DacGetTargetVtForHostVt(LPCVOID vtHost, bool throwEx)
 {
     PVOID* host;
-    ULONG* targ;
+    TADDR* targ;
     ULONG i;
 
     // The host vtable table exactly parallels the
     // target vtable table, so just iterate to a match
     // return the matching entry.
     host = &g_dacHostVtPtrs.EEJitManager;
-    targ = &g_dacGlobals.EEJitManager__vtAddr;
+    targ = &DacGlobalValues()->EEJitManager__vtAddr;
     for (i = 0; i < sizeof(g_dacHostVtPtrs) / sizeof(PVOID); i++)
     {
         if (*host == vtHost)
         {
-            return *targ + DacGlobalBase();
+            return *targ;
         }
 
         host++;
@@ -1394,6 +1387,15 @@ DacAllocHostOnlyInstance(ULONG32 size, bool throwEx)
     return inst + 1;
 }
 
+thread_local bool t_DacAssertsUnconditionally = false;
+
+bool DacSetEnableDacAssertsUnconditionally(bool enable)
+{
+    bool oldValue = t_DacAssertsUnconditionally;
+    t_DacAssertsUnconditionally = enable;
+    return oldValue;
+}
+
 //
 // Queries whether ASSERTs should be raised when inconsistencies in the target are detected
 //
@@ -1411,6 +1413,10 @@ bool DacTargetConsistencyAssertsEnabled()
         // the case should only be host-asserts (i.e. always bugs), and so we should just return true.
         return true;
     }
+
+    // If asserts are unconditionally enabled via the thread local, simply return true.
+    if (t_DacAssertsUnconditionally)
+        return true;
 
     return g_dacImpl->TargetConsistencyAssertsEnabled();
 }
@@ -1464,7 +1470,7 @@ void DacEnumCodeForStackwalk(TADDR taCallEnd)
     // Note that this only handles absolute indirect calls (ModR/M byte of 0x15), all the other forms of
     // indirect calls are register-relative, and so we'd have to do a much more complicated decoding based
     // on the register context.  Regardless, it seems like this is fundamentally error-prone because it's
-    // aways possible that the call instruction was not 6 bytes long, and we could have some other instructions
+    // always possible that the call instruction was not 6 bytes long, and we could have some other instructions
     // that happen to match the pattern we're looking for.
     PTR_BYTE callCode = PTR_BYTE(taCallEnd - 6);
     PTR_BYTE callMrm = PTR_BYTE(taCallEnd - 5);
@@ -1490,7 +1496,7 @@ void DacEnumCodeForStackwalk(TADDR taCallEnd)
 //
 // Arguments:
 //    * range   - the address and the size of the memory range
-//    * pBuffer - the buffer containting the memory range
+//    * pBuffer - the buffer containing the memory range
 //
 // Return Value:
 //    Return S_OK if everything succeeds.
@@ -1533,7 +1539,7 @@ HRESULT DacReplacePatchesInHostMemory(MemoryRange range, PVOID pBuffer)
     {
         CORDB_ADDRESS patchAddress = (CORDB_ADDRESS)dac_cast<TADDR>(pPatch->address);
 
-        if (patchAddress != NULL)
+        if (patchAddress != (CORDB_ADDRESS)NULL)
         {
             PRD_TYPE opcode = pPatch->opcode;
 

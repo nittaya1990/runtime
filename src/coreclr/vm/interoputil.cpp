@@ -22,7 +22,6 @@
 #include "comcallablewrapper.h"
 #include "../md/compiler/custattr.h"
 #include "siginfo.hpp"
-#include "eemessagebox.h"
 #include "finalizerthread.h"
 #include "interoplibinterface.h"
 
@@ -52,7 +51,7 @@
 #define GET_ENUMERATOR_METHOD_NAME          W("GetEnumerator")
 
 #ifdef _DEBUG
-    VOID IntializeInteropLogging();
+    VOID InitializeInteropLogging();
 #endif
 
 struct ByrefArgumentInfo
@@ -95,7 +94,6 @@ HRESULT GetHRFromCLRErrorInfo(IErrorInfo* pErr)
     SimpleComCallWrapper* pSimpleWrap = SimpleComCallWrapper::GetWrapperFromIP(pErr);
     return pSimpleWrap->IErrorInfo_hr();
 }
-#endif // FEATURE_COMINTEROP
 
 HRESULT SetupErrorInfo(OBJECTREF pThrownObject)
 {
@@ -109,9 +107,7 @@ HRESULT SetupErrorInfo(OBJECTREF pThrownObject)
 
     HRESULT hr = E_FAIL;
 
-#ifdef FEATURE_COMINTEROP
     Exception* pException = NULL;
-#endif
 
     GCPROTECT_BEGIN(pThrownObject)
     {
@@ -121,37 +117,6 @@ HRESULT SetupErrorInfo(OBJECTREF pThrownObject)
             hr = EnsureComStartedNoThrow();
             if (SUCCEEDED(hr) && pThrownObject != NULL)
             {
-#ifdef _DEBUG
-                EX_TRY
-                {
-                    StackSString message;
-                    GetExceptionMessage(pThrownObject, message);
-
-                    if (g_pConfig->ShouldExposeExceptionsInCOMToConsole())
-                    {
-                        PrintToStdOutW(W(".NET exception in COM\n"));
-                        if (!message.IsEmpty())
-                            PrintToStdOutW(message.GetUnicode());
-                        else
-                            PrintToStdOutW(W("No exception info available"));
-                    }
-
-                    if (g_pConfig->ShouldExposeExceptionsInCOMToMsgBox())
-                    {
-                        GCX_PREEMP();
-                        if (!message.IsEmpty())
-                            EEMessageBoxNonLocalizedDebugOnly((LPWSTR)message.GetUnicode(), W(".NET exception in COM"), MB_ICONSTOP | MB_OK);
-                        else
-                            EEMessageBoxNonLocalizedDebugOnly(W("No exception information available"), W(".NET exception in COM"),MB_ICONSTOP | MB_OK);
-                    }
-                }
-                EX_CATCH
-                {
-                }
-                EX_END_CATCH (SwallowAllExceptions);
-#endif
-
-#ifdef FEATURE_COMINTEROP
                 IErrorInfo* pErr = NULL;
                 EX_TRY
                 {
@@ -175,7 +140,6 @@ HRESULT SetupErrorInfo(OBJECTREF pThrownObject)
                     hr = GET_EXCEPTION()->GetHR();
                 }
                 EX_END_CATCH(SwallowAllExceptions);
-#endif // FEATURE_COMINTEROP
             }
         }
         EX_CATCH
@@ -222,6 +186,7 @@ void FillExceptionData(
         }
     }
 }
+#endif // FEATURE_COMINTEROP
 
 //---------------------------------------------------------------------------
 // If pImport has the DefaultDllImportSearchPathsAttribute,
@@ -574,7 +539,7 @@ SIZE_T GetStringizedItfDef(TypeHandle InterfaceType, CQuickArray<BYTE> &rDef)
     DefineFullyQualifiedNameForClassW();
     szName = GetFullyQualifiedNameForClassNestedAwareW(pIntfMT);
 
-    cchName = (ULONG)wcslen(szName);
+    cchName = (ULONG)u16_strlen(szName);
 
     // Start with the interface name.
     cbCur = cchName * sizeof(WCHAR);
@@ -633,7 +598,7 @@ HRESULT GetStringizedTypeLibGuidForAssembly(Assembly *pAssembly, CQuickArray<BYT
     // Get the name, and determine its length.
     pszName = pAssembly->GetSimpleName();
     cbName=(ULONG)strlen(pszName);
-    cchName = WszMultiByteToWideChar(CP_ACP,0, pszName,cbName+1, 0,0);
+    cchName = MultiByteToWideChar(CP_ACP,0, pszName,cbName+1, 0,0);
 
     // See if there is a public key.
     EX_TRY
@@ -698,7 +663,7 @@ HRESULT GetStringizedTypeLibGuidForAssembly(Assembly *pAssembly, CQuickArray<BYT
     IfFailGo(rDef.ReSizeNoThrow(cbCur + cchName*sizeof(WCHAR) + sizeof(szTypeLibKeyName)-1 + cbSN + sizeof(ver)+sizeof(USHORT)));
 
     // Put it all together.  Name first.
-    WszMultiByteToWideChar(CP_ACP,0, pszName,cbName+1, (LPWSTR)(&rDef[cbCur]),cchName);
+    MultiByteToWideChar(CP_ACP,0, pszName,cbName+1, (LPWSTR)(&rDef[cbCur]),cchName);
     pName = (LPWSTR)(&rDef[cbCur]);
     for (pch=pName; *pch; ++pch)
         if (*pch == '.' || *pch == ' ')
@@ -825,21 +790,11 @@ BOOL IsComObjectClass(TypeHandle type)
     CONTRACTL_END;
 
 #ifdef FEATURE_COMINTEROP
-    if (!type.IsTypeDesc())
-    {
-        MethodTable *pMT = type.AsMethodTable();
-
-        if (pMT->IsComObjectType())
-        {
-            // May be __ComObject or typed RCW. __ComObject must have already been loaded
-            // if we see an MT marked like this so calling the *NoInit method is sufficient.
-
-            return pMT == g_pBaseCOMObject;
-        }
-    }
-#endif
-
+    // May be __ComObject or typed RCW.
+    return type == TypeHandle(g_pBaseCOMObject);
+#else
     return FALSE;
+#endif
 }
 
 VOID
@@ -942,7 +897,7 @@ int InternalWideToAnsi(_In_reads_(iNumWideChars) LPCWSTR szWideString, int iNumW
     if (fThrowOnUnmappableChar)
     {
         BOOL DefaultCharUsed = FALSE;
-        retval = WszWideCharToMultiByte(CP_ACP,
+        retval = WideCharToMultiByte(CP_ACP,
                                     flags,
                                     szWideString,
                                     iNumWideChars,
@@ -954,9 +909,9 @@ int InternalWideToAnsi(_In_reads_(iNumWideChars) LPCWSTR szWideString, int iNumW
 
         if (retval == 0)
         {
-            INSTALL_UNWIND_AND_CONTINUE_HANDLER;
+            INSTALL_UNWIND_AND_CONTINUE_HANDLER_EX;
             COMPlusThrowHR(HRESULT_FROM_WIN32(lastError));
-            UNINSTALL_UNWIND_AND_CONTINUE_HANDLER;
+            UNINSTALL_UNWIND_AND_CONTINUE_HANDLER_EX(true);
         }
 
         if (DefaultCharUsed)
@@ -975,7 +930,7 @@ int InternalWideToAnsi(_In_reads_(iNumWideChars) LPCWSTR szWideString, int iNumW
     }
     else
     {
-        retval = WszWideCharToMultiByte(CP_ACP,
+        retval = WideCharToMultiByte(CP_ACP,
                                     flags,
                                     szWideString,
                                     iNumWideChars,
@@ -987,9 +942,9 @@ int InternalWideToAnsi(_In_reads_(iNumWideChars) LPCWSTR szWideString, int iNumW
 
         if (retval == 0)
         {
-            INSTALL_UNWIND_AND_CONTINUE_HANDLER;
+            INSTALL_UNWIND_AND_CONTINUE_HANDLER_EX;
             COMPlusThrowHR(HRESULT_FROM_WIN32(lastError));
-            UNINSTALL_UNWIND_AND_CONTINUE_HANDLER;
+            UNINSTALL_UNWIND_AND_CONTINUE_HANDLER_EX(true);
         }
     }
 
@@ -1026,7 +981,7 @@ namespace
         if (FAILED(cap.ValidateProlog()))
             return COR_E_BADIMAGEFORMAT;
 
-        U1 u1;
+        UINT8 u1;
         if (FAILED(cap.GetU1(&u1)))
             return COR_E_BADIMAGEFORMAT;
 
@@ -1074,6 +1029,7 @@ CorClassIfaceAttr ReadClassInterfaceTypeCustomAttribute(TypeHandle type)
     return DEFAULT_CLASS_INTERFACE_TYPE;
 }
 
+#ifdef FEATURE_COMINTEROP
 //--------------------------------------------------------------------------------
 // GetErrorInfo helper, enables and disables GC during call-outs
 HRESULT SafeGetErrorInfo(IErrorInfo **ppIErrInfo)
@@ -1089,7 +1045,6 @@ HRESULT SafeGetErrorInfo(IErrorInfo **ppIErrInfo)
 
     *ppIErrInfo = NULL;
 
-#ifdef FEATURE_COMINTEROP
     GCX_PREEMP();
 
     HRESULT hr = S_OK;
@@ -1104,12 +1059,9 @@ HRESULT SafeGetErrorInfo(IErrorInfo **ppIErrInfo)
     EX_END_CATCH(SwallowAllExceptions);
 
     return hr;
-#else // FEATURE_COMINTEROP
-    // Indicate no error object
-    return S_FALSE;
-#endif
 }
 
+#endif // FEATURE_COMINTEROP
 
 #include <optsmallperfcritical.h>
 //--------------------------------------------------------------------------------
@@ -1234,7 +1186,7 @@ void MinorCleanupSyncBlockComData(InteropSyncBlockInfo* pInteropInfo)
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION( GCHeapUtilities::IsGCInProgress() || ( (g_fEEShutDown & ShutDown_SyncBlock) && g_fProcessDetach ) );
+        PRECONDITION( GCHeapUtilities::IsGCInProgress() || ( (g_fEEShutDown & ShutDown_SyncBlock) && IsAtProcessExit() ) );
     }
     CONTRACTL_END;
 
@@ -1263,7 +1215,7 @@ void CleanupSyncBlockComData(InteropSyncBlockInfo* pInteropInfo)
     }
     CONTRACTL_END;
 
-    if ((g_fEEShutDown & ShutDown_SyncBlock) && g_fProcessDetach )
+    if ((g_fEEShutDown & ShutDown_SyncBlock) && IsAtProcessExit() )
         MinorCleanupSyncBlockComData(pInteropInfo);
 
 #ifdef FEATURE_COMINTEROP_UNMANAGED_ACTIVATION
@@ -1324,11 +1276,8 @@ static void ReleaseRCWsInCaches(LPVOID pCtxCookie)
     }
     CONTRACTL_END;
 
-    // Go through all the app domains and for each one release all the
-    // RCW's that live in the current context.
-    AppDomainIterator i(TRUE);
-    while (i.Next())
-        i.GetDomain()->ReleaseRCWs(pCtxCookie);
+    // Release all the RCW's that live in the AppDomain.
+    AppDomain::GetCurrentDomain()->ReleaseRCWs(pCtxCookie);
 
     if (!g_fEEShutDown)
     {
@@ -1461,7 +1410,7 @@ VOID EnsureComStarted(BOOL fCoInitCurrentThread)
 
         // Attempt to set the thread's apartment model (to MTA by default). May not
         // succeed (if someone beat us to the punch). That doesn't matter (since
-        // COM+ objects are now apartment agile), we only care that a CoInitializeEx
+        // CLR objects are now apartment agile), we only care that a CoInitializeEx
         // has been performed on this thread by us.
         if (fCoInitCurrentThread)
             GetThread()->SetApartment(Thread::AS_InMTA);
@@ -1709,8 +1658,8 @@ void SafeReleaseStream(IStream *pStream)
         HRESULT hr = CoReleaseMarshalData(pStream);
 
 #ifdef _DEBUG
-        WCHAR      logStr[200];
-        swprintf_s(logStr, ARRAY_SIZE(logStr), W("Object gone: CoReleaseMarshalData returned %x, file %S, line %d\n"), hr, __FILE__, __LINE__);
+        UTF8 logStr[512];
+        sprintf_s(logStr, ARRAY_SIZE(logStr), "Object gone: CoReleaseMarshalData returned %x, file %s, line %d\n", hr, __FILE__, __LINE__);
         LogInterop(logStr);
         if (hr != S_OK)
         {
@@ -1720,7 +1669,7 @@ void SafeReleaseStream(IStream *pStream)
             ULARGE_INTEGER li2;
             pStream->Seek(li, STREAM_SEEK_SET, &li2);
             hr = CoReleaseMarshalData(pStream);
-            swprintf_s(logStr, ARRAY_SIZE(logStr), W("Object gone: CoReleaseMarshalData returned %x, file %S, line %d\n"), hr, __FILE__, __LINE__);
+            sprintf_s(logStr, ARRAY_SIZE(logStr), "Object gone: CoReleaseMarshalData returned %x, file %s, line %d\n", hr, __FILE__, __LINE__);
             LogInterop(logStr);
         }
 #endif
@@ -1878,7 +1827,7 @@ DefaultInterfaceType GetDefaultInterfaceForClassInternal(TypeHandle hndClass, Ty
         {
             GCX_COOP();
 
-            DefItfType = TypeName::GetTypeUsingCASearchRules(defItf.GetUnicode(), pClassMT->GetAssembly());
+            DefItfType = TypeName::GetTypeReferencedByCustomAttribute(defItf.GetUnicode(), pClassMT->GetAssembly());
 
             // If the type handle isn't a named type, then throw an exception using
             // the name of the type obtained from pCurrInterfaces.
@@ -2150,7 +2099,7 @@ void GetComSourceInterfacesForClass(MethodTable *pMT, CQuickArray<MethodTable *>
                 {
                     // Load the COM source interface specified in the CA.
                     TypeHandle ItfType;
-                    ItfType = TypeName::GetTypeUsingCASearchRules(pCurrInterfaces, pMT->GetAssembly());
+                    ItfType = TypeName::GetTypeReferencedByCustomAttribute(pCurrInterfaces, pMT->GetAssembly());
 
                     // If the type handle isn't a named type, then throw an exception using
                     // the name of the type obtained from pCurrInterfaces.
@@ -2228,10 +2177,9 @@ void GetComSourceInterfacesForClass(MethodTable *pMT, CQuickArray<MethodTable *>
     }
 }
 
-
 //--------------------------------------------------------------------------------
-// These methods convert a native IEnumVARIANT to a managed IEnumerator.
-OBJECTREF ConvertEnumVariantToMngEnum(IEnumVARIANT *pNativeEnum)
+// This method converts an OLE_COLOR to a boxed Color object.
+void ConvertOleColorToSystemColor(OLE_COLOR SrcOleColor, OBJECTREF *pDestSysColor)
 {
     CONTRACTL
     {
@@ -2241,57 +2189,14 @@ OBJECTREF ConvertEnumVariantToMngEnum(IEnumVARIANT *pNativeEnum)
     }
     CONTRACTL_END;
 
-    OBJECTREF MngEnum = NULL;
-    OBJECTREF EnumeratorToEnumVariantMarshaler = NULL;
-    GCPROTECT_BEGIN(EnumeratorToEnumVariantMarshaler)
-    {
-        // Retrieve the custom marshaler and the MD to use to convert the IEnumVARIANT.
-        StdMngIEnumerator *pStdMngIEnumInfo = SystemDomain::GetCurrentDomain()->GetMngStdInterfacesInfo()->GetStdMngIEnumerator();
-        MethodDesc *pEnumNativeToManagedMD = pStdMngIEnumInfo->GetCustomMarshalerMD(CustomMarshalerMethods_MarshalNativeToManaged);
-        EnumeratorToEnumVariantMarshaler = pStdMngIEnumInfo->GetCustomMarshaler();
-        MethodDescCallSite enumNativeToManaged(pEnumNativeToManagedMD, &EnumeratorToEnumVariantMarshaler);
-
-        // Prepare the arguments that will be passed to MarshalNativeToManaged.
-        ARG_SLOT MarshalNativeToManagedArgs[] = {
-            ObjToArgSlot(EnumeratorToEnumVariantMarshaler),
-            (ARG_SLOT)pNativeEnum
-        };
-
-        // Retrieve the managed view for the current native interface pointer.
-        MngEnum = enumNativeToManaged.Call_RetOBJECTREF(MarshalNativeToManagedArgs);
-    }
-    GCPROTECT_END();
-
-    return MngEnum;
-}
-
-//--------------------------------------------------------------------------------
-// This method converts an OLE_COLOR to a System.Color.
-void ConvertOleColorToSystemColor(OLE_COLOR SrcOleColor, SYSTEMCOLOR *pDestSysColor)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_TRIGGERS;
-        MODE_COOPERATIVE;
-    }
-    CONTRACTL_END;
-
-    // Retrieve the method desc to use for the current AD.
-    MethodDesc *pOleColorToSystemColorMD =
-        GetAppDomain()->GetLoaderAllocator()->GetMarshalingData()->GetOleColorMarshalingInfo()->GetOleColorToSystemColorMD();
-
-    MethodDescCallSite oleColorToSystemColor(pOleColorToSystemColorMD);
-
-    _ASSERTE(pOleColorToSystemColorMD->HasRetBuffArg());
+    MethodDescCallSite oleColorToSystemColor(METHOD__COLORMARSHALER__CONVERT_TO_MANAGED);
 
     ARG_SLOT Args[] =
     {
-        PtrToArgSlot(pDestSysColor),
-        PtrToArgSlot(SrcOleColor)
+        PtrToArgSlot(&SrcOleColor)
     };
 
-    oleColorToSystemColor.Call(Args);
+    *pDestSysColor = oleColorToSystemColor.Call_RetOBJECTREF(Args);
 }
 
 //--------------------------------------------------------------------------------
@@ -2306,14 +2211,24 @@ OLE_COLOR ConvertSystemColorToOleColor(OBJECTREF *pSrcObj)
     }
     CONTRACTL_END;
 
-    // Retrieve the method desc to use for the current AD.
-    MethodDesc *pSystemColorToOleColorMD =
-        GetAppDomain()->GetLoaderAllocator()->GetMarshalingData()->GetOleColorMarshalingInfo()->GetSystemColorToOleColorMD();
-    MethodDescCallSite systemColorToOleColor(pSystemColorToOleColorMD);
+    OLE_COLOR result;
+    OBJECTREF sysColor = NULL;
 
-    // Set up the args and call the method.
-    SYSTEMCOLOR *pSrcSysColor = (SYSTEMCOLOR *)(*pSrcObj)->UnBox();
-    return systemColorToOleColor.CallWithValueTypes_RetOleColor((const ARG_SLOT *)&pSrcSysColor);
+    GCPROTECT_BEGIN(sysColor);
+
+    sysColor = *pSrcObj;
+
+    MethodDescCallSite sysColorToOleColor(METHOD__COLORMARSHALER__CONVERT_TO_NATIVE);
+
+    ARG_SLOT Args[] =
+    {
+        ObjToArgSlot(sysColor)
+    };
+
+    result = (OLE_COLOR)sysColorToOleColor.Call_RetI4(Args);
+
+    GCPROTECT_END();
+    return result;
 }
 
 //--------------------------------------------------------------------------------
@@ -2359,7 +2274,7 @@ ULONG GetStringizedClassItfDef(TypeHandle InterfaceType, CQuickArray<BYTE> &rDef
     // Get the name of the class.
     DefineFullyQualifiedNameForClassW();
     szName = GetFullyQualifiedNameForClassNestedAwareW(pIntfMT);
-    cchName = (ULONG)wcslen(szName);
+    cchName = (ULONG)u16_strlen(szName);
 
     // Start with the interface name.
     cbCur = cchName * sizeof(WCHAR);
@@ -2550,7 +2465,7 @@ HRESULT GetTypeLibVersionForAssembly(
     // Check to see if the TypeLibVersionAttribute is set.
     IfFailRet(pAssembly->GetMDImport()->GetCustomAttributeByName(TokenFromRid(1, mdtAssembly), INTEROP_TYPELIBVERSION_TYPE, (const void**)&pbData, &cbData));
 
-    // For attribute contents, see https://docs.microsoft.com/dotnet/api/system.runtime.interopservices.typelibversionattribute
+    // For attribute contents, see https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.typelibversionattribute
     if (cbData >= (2 + 2 * sizeof(UINT32)))
     {
         CustomAttributeParser cap(pbData, cbData);
@@ -2599,7 +2514,7 @@ BOOL IsMethodVisibleFromCom(MethodDesc *pMD)
     mdMethodDef md = pMD->GetMemberDef();
 
     // See if there is property information for this member.
-    hr = pMD->GetModule()->GetPropertyInfoForMethodDef(md, &pd, &pPropName, &uSemantic);
+    hr = pMD->GetMDImport()->GetPropertyInfoForMethodDef(md, &pd, &pPropName, &uSemantic);
     IfFailThrow(hr);
 
     if (hr == S_OK)
@@ -2794,12 +2709,12 @@ DISPID ExtractStandardDispId(_In_z_ LPWSTR strStdDispIdMemberName)
     CONTRACTL_END;
 
     // Find the first character after the = in the standard DISPID member name.
-    LPWSTR strDispId = wcsstr(&strStdDispIdMemberName[STANDARD_DISPID_PREFIX_LENGTH], W("=")) + 1;
+    LPWSTR strDispId = (LPWSTR)u16_strchr(&strStdDispIdMemberName[STANDARD_DISPID_PREFIX_LENGTH], W('=')) + 1;
     if (!strDispId)
         COMPlusThrow(kArgumentException, IDS_EE_INVALID_STD_DISPID_NAME);
 
     // Validate that the last character of the standard member name is a ].
-    LPWSTR strClosingBracket = wcsstr(strDispId, W("]"));
+    LPWSTR strClosingBracket = (LPWSTR)u16_strchr(strDispId, W(']'));
     if (!strClosingBracket || (strClosingBracket[1] != 0))
         COMPlusThrow(kArgumentException, IDS_EE_INVALID_STD_DISPID_NAME);
 
@@ -3067,11 +2982,11 @@ FORCEINLINE void DispParamHolderRelease(VARIANT* value)
     }
 }
 
-class DispParamHolder : public Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, NULL>
+class DispParamHolder : public Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, 0>
 {
 public:
     DispParamHolder(VARIANT* p = NULL)
-        : Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, NULL>(p)
+        : Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, 0>(p)
     {
         WRAPPER_NO_CONTRACT;
     }
@@ -3079,15 +2994,35 @@ public:
     FORCEINLINE void operator=(VARIANT* p)
     {
         WRAPPER_NO_CONTRACT;
-        Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, NULL>::operator=(p);
+        Wrapper<VARIANT*, DispParamHolderDoNothing, DispParamHolderRelease, 0>::operator=(p);
     }
 };
 
+//--------------------------------------------------------------------------------
+// This methods converts an IEnumVARIANT to a managed IEnumerator.
+static OBJECTREF ConvertEnumVariantToMngEnum(IEnumVARIANT* pNativeEnum)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_TRIGGERS;
+        MODE_COOPERATIVE;
+    }
+    CONTRACTL_END;
 
+    OBJECTREF retObjRef;
+
+    PREPARE_NONVIRTUAL_CALLSITE(METHOD__ENUMERATORTOENUMVARIANTMARSHALER__INTERNALMARSHALNATIVETOMANAGED);
+    DECLARE_ARGHOLDER_ARRAY(args, 1);
+    args[ARGNUM_0]  = PTR_TO_ARGHOLDER(pNativeEnum);
+    CALL_MANAGED_METHOD_RETREF(retObjRef, OBJECTREF, args);
+
+    return retObjRef;
+}
 
 //--------------------------------------------------------------------------------
 // InvokeDispMethod will convert a set of managed objects and call IDispatch.  The
-// result will be returned as a CLR Variant pointed to by pRetVal.
+// result will be returned as a CLR object pointed to by pRetVal.
 void IUInvokeDispMethod(
     REFLECTCLASSBASEREF* pRefClassObj,
     OBJECTREF* pTarget,
@@ -3123,6 +3058,7 @@ void IUInvokeDispMethod(
     DISPID              MemberID            = 0;
     ByrefArgumentInfo*  aByrefArgInfos      = NULL;
     BOOL                bSomeArgsAreByref   = FALSE;
+    SafeComHolder<IUnknown> pUnk            = NULL;
     SafeComHolder<IDispatch> pDisp          = NULL;
     SafeComHolder<IDispatchEx> pDispEx      = NULL;
     VariantPtrHolder    pVarResult          = NULL;
@@ -3155,14 +3091,14 @@ void IUInvokeDispMethod(
 
     // Validate that the target is valid for the specified type.
     if (!IsComTargetValidForType(pRefClassObj, pTarget))
-        COMPlusThrow(kTargetException, W("RFLCT.Targ_ITargMismatch"));
+        COMPlusThrow(kTargetException, W("RFLCT_Targ_ITargMismatch"));
 
     // If the invoked type is an interface, make sure it is IDispatch based.
     if (pInvokedMT->IsInterface())
     {
         CorIfaceAttr ifaceType = pInvokedMT->GetComInterfaceType();
         if (!IsDispatchBasedItf(ifaceType))
-            COMPlusThrow(kTargetInvocationException, IDS_EE_INTERFACE_NOT_DISPATCH_BASED);
+            COMPlusThrow(kTargetException, W("TargetInvocation_InterfaceNotIDispatch"));
     }
 
     // Validate that the target is a COM object.
@@ -3197,7 +3133,10 @@ void IUInvokeDispMethod(
     {
         // The invoked type is a dispatch or dual interface so we will make the
         // invocation on it.
-        pDisp = (IDispatch *)ComObject::GetComIPFromRCWThrowing(pTarget, pInvokedMT);
+        pUnk = ComObject::GetComIPFromRCWThrowing(pTarget, pInvokedMT);
+        hr = SafeQueryInterface(pUnk, IID_IDispatch, (IUnknown**)&pDisp);
+        if (FAILED(hr))
+            COMPlusThrow(kTargetException, W("TargetInvocation_TargetDoesNotImplementIDispatch"));
     }
     else
     {
@@ -3207,10 +3146,10 @@ void IUInvokeDispMethod(
         RCWHolder pRCW(GetThread());
         RCWPROTECT_BEGIN(pRCW, *pTarget);
 
-        // Retrieve the IDispath pointer from the wrapper.
-        pDisp = (IDispatch*)pRCW->GetIDispatch();
+        // Retrieve the IDispatch pointer from the wrapper.
+        pDisp = pRCW->GetIDispatch();
         if (!pDisp)
-            COMPlusThrow(kTargetInvocationException, IDS_EE_NO_IDISPATCH_ON_TARGET);
+            COMPlusThrow(kTargetException, W("TargetInvocation_TargetDoesNotImplementIDispatch"));
 
         // If we aren't ignoring case, then we need to try and QI for IDispatchEx to
         // be able to use IDispatchEx::GetDispID() which has a flag to control case
@@ -3449,7 +3388,7 @@ void IUInvokeDispMethod(
                 DispParams.cNamedArgs = cNamedArgs;
                 DispParams.rgdispidNamedArgs = (cNamedArgs == 0) ? NULL : &aDispID[1];
 
-                // Convert the named arguments from COM+ to OLE. These arguments are in the same order
+                // Convert the named arguments from CLR to OLE. These arguments are in the same order
                 // on both sides.
                 for (i = 0; i < cNamedArgs; i++)
                 {
@@ -3484,7 +3423,7 @@ void IUInvokeDispMethod(
                 TmpObj = ((OBJECTREF*)(*pArrArgs)->GetDataPtr())[iSrcArg];
                 DispInvokeConvertObjectToVariant(&TmpObj, &DispParams.rgvarg[iDestArg], &aByrefArgInfos[iSrcArg]);
 
-                // Convert the named arguments from COM+ to OLE. These arguments are in the same order
+                // Convert the named arguments from CLR to OLE. These arguments are in the same order
                 // on both sides.
                 for (i = 0; i < cNamedArgs; i++)
                 {
@@ -3570,7 +3509,7 @@ void IUInvokeDispMethod(
         }
         else
         {
-            // Convert the return variant to a COR variant.
+            // Convert the return variant to a CLR object.
             OleVariant::MarshalObjectForOleVariant(&VarResult, pRetVal);
         }
     }
@@ -3619,7 +3558,7 @@ static void GetComClassHelper(
         NewArrayHolder<WCHAR> wszRefServer = NULL;
         if (pClassFactInfo->m_strServerName)
         {
-            size_t len = wcslen(pClassFactInfo->m_strServerName)+1;
+            size_t len = u16_strlen(pClassFactInfo->m_strServerName)+1;
             wszRefServer = new WCHAR[len];
             wcscpy_s(wszRefServer, len, pClassFactInfo->m_strServerName);
         }
@@ -3699,7 +3638,7 @@ ClassFactoryBase *GetComClassFactory(MethodTable* pClassMT)
     }
     CONTRACT_END;
 
-    // Work our way up the hierachy until we find the first COM import type.
+    // Work our way up the hierarchy until we find the first COM import type.
     while (!pClassMT->IsComImport())
     {
         pClassMT = pClassMT->GetParentMethodTable();
@@ -3756,12 +3695,12 @@ void InitializeComInterop()
     InitializeSListHead(&RCW::s_RCWStandbyList);
     ComCall::Init();
 #ifdef TARGET_X86
-    ComPlusCall::Init();
+    CLRToCOMCall::Init();
 #endif
     CtxEntryCache::Init();
     ComCallWrapperTemplate::Init();
 #ifdef _DEBUG
-    IntializeInteropLogging();
+    InitializeInteropLogging();
 #endif //_DEBUG
 }
 
@@ -3774,7 +3713,7 @@ void InitializeComInterop()
 static int g_TraceCount = 0;
 static IUnknown* g_pTraceIUnknown = NULL;
 
-VOID IntializeInteropLogging()
+VOID InitializeInteropLogging()
 {
     WRAPPER_NO_CONTRACT;
 
@@ -3785,12 +3724,6 @@ VOID LogInterop(_In_z_ LPCSTR szMsg)
 {
     LIMITED_METHOD_CONTRACT;
     LOG( (LF_INTEROP, LL_INFO10, "%s\n",szMsg) );
-}
-
-VOID LogInterop(_In_z_ LPCWSTR wszMsg)
-{
-    LIMITED_METHOD_CONTRACT;
-    LOG( (LF_INTEROP, LL_INFO10, "%S\n", wszMsg) );
 }
 
 //-------------------------------------------------------------------
@@ -3981,7 +3914,7 @@ VOID LogInteropQI(IUnknown* pItf, REFIID iid, HRESULT hrArg, _In_z_ LPCSTR szMsg
     HRESULT             hr          = S_OK;
     SafeComHolder<IUnknown> pUnk        = NULL;
     int                 cch         = 0;
-    WCHAR               wszIID[64];
+    CHAR                szIID[GUID_STR_BUFFER_LEN];
 
     hr = SafeQueryInterface(pItf, IID_IUnknown, &pUnk);
 
@@ -3989,22 +3922,22 @@ VOID LogInteropQI(IUnknown* pItf, REFIID iid, HRESULT hrArg, _In_z_ LPCSTR szMsg
     {
         pCurrCtx = GetCurrentCtxCookie();
 
-        cch = StringFromGUID2(iid, wszIID, sizeof(wszIID) / sizeof(WCHAR));
+        cch = GuidToLPSTR(iid, szIID);
         _ASSERTE(cch > 0);
 
         if (SUCCEEDED(hrArg))
         {
             LOG((LF_INTEROP,
                 LL_EVERYTHING,
-                "Succeeded QI: Unk = %p, Itf = %p, CurrCtx = %p, IID = %S, Msg: %s\n",
-                (IUnknown*)pUnk, pItf, pCurrCtx, wszIID, szMsg));
+                "Succeeded QI: Unk = %p, Itf = %p, CurrCtx = %p, IID = %s, Msg: %s\n",
+                (IUnknown*)pUnk, pItf, pCurrCtx, szIID, szMsg));
         }
         else
         {
             LOG((LF_INTEROP,
                 LL_EVERYTHING,
-                "Failed QI: Unk = %p, Itf = %p, CurrCtx = %p, IID = %S, HR = %p, Msg: %s\n",
-                (IUnknown*)pUnk, pItf, pCurrCtx, wszIID, hrArg, szMsg));
+                "Failed QI: Unk = %p, Itf = %p, CurrCtx = %p, IID = %s, HR = %p, Msg: %s\n",
+                (IUnknown*)pUnk, pItf, pCurrCtx, szIID, hrArg, szMsg));
         }
     }
 }

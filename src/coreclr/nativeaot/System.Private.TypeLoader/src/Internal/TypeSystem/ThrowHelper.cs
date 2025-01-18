@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using CoreLibThrow = Internal.Runtime.CompilerHelpers.ThrowHelpers;
+using CoreLibThrow = Internal.Runtime.Augments.RuntimeAugments;
 
 namespace Internal.TypeSystem
 {
@@ -53,10 +53,7 @@ namespace Internal.TypeSystem
         {
             public static string OwningModule(TypeDesc type)
             {
-                if (type is NoMetadata.NoMetadataType)
-                    return ((NoMetadata.NoMetadataType)type).DiagnosticModuleName;
-
-                return Module((type as MetadataType)?.Module);
+                return (type as NoMetadata.NoMetadataType)?.DiagnosticModuleName ?? "Unknown";
             }
         }
     }

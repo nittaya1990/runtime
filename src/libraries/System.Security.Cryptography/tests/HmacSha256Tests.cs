@@ -9,13 +9,21 @@ using Xunit;
 
 namespace System.Security.Cryptography.Tests
 {
-    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
-    public class HmacSha256Tests : Rfc4231HmacTests
+    public class HmacSha256Tests : Rfc4231HmacTests<HmacSha256Tests.Traits>
     {
+        public sealed class Traits : IHmacTrait
+        {
+            public static bool IsSupported => true;
+            public static int HashSizeInBytes => HMACSHA256.HashSizeInBytes;
+        }
+
+        protected override HashAlgorithmName HashAlgorithm => HashAlgorithmName.SHA256;
+
         protected override int BlockSize => 64;
         protected override int MacSize => HMACSHA256.HashSizeInBytes;
 
         protected override HMAC Create() => new HMACSHA256();
+        protected override HMAC Create(byte[] key) => new HMACSHA256(key);
         protected override HashAlgorithm CreateHashAlgorithm() => SHA256.Create();
         protected override byte[] HashDataOneShot(byte[] key, byte[] source) =>
             HMACSHA256.HashData(key, source);
@@ -126,9 +134,19 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
+        public void HmacSha256_EmptyKey()
+        {
+            VerifyRepeating(
+                input: "Crypto is fun!",
+                1,
+                hexKey: "",
+                output: "DE26DD5A23A91021F61EACF8A8DD324AB5637977486A10D701C4DFA4AE33CB4F");
+        }
+
+        [Fact]
         public void HmacSha256_Stream_MultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -140,7 +158,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacSha256_Stream_NotMultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -152,7 +170,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacSha256_Stream_Empty()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "",
@@ -164,7 +182,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha256_Stream_MultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -176,7 +194,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha256_Stream_NotMultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -188,13 +206,20 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha256_Stream_Empty_Async()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl sha256 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "",
                 0,
                 hexKey: "000102030405060708090A0B0C0D0E0F",
                 output: "07EFF8B326B7798C9CCFCBDBE579489AC785A7995A04618B1A2813C26744777D");
+        }
+
+        [Fact]
+        public void HmacSha256_HashSizes()
+        {
+            Assert.Equal(256, HMACSHA256.HashSizeInBits);
+            Assert.Equal(32, HMACSHA256.HashSizeInBytes);
         }
     }
 }

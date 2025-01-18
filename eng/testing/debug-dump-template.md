@@ -33,7 +33,15 @@ Linux and macOS
 find %LOUTDIR% -name '*zip' -exec unzip -d %LOUTDIR% {} \;
 ```
 
-Now use the [dotnet-sos global tool](https://docs.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-sos) to install the SOS debugging extension.
+# If the dump is for NativeAOT
+
+Rest of the document discusses how to debug the dump using the SOS extension and DAC because native debuggers are lost without the extension. The SOS extension is not necessary (and doesn't work) for NativeAOT. NativeAOT debugs like a native app. Open the crash dump in your debugger of choice, including Visual Studio. To interpret the dump you'll need symbols - the symbols are in the ZIP file - a separate PDB file on Windows, and the executable itself outside Windows.
+
+You can read the rest of the document for information purposes (there is useful info on e.g. how to set up symbol path), but you can stop reading now if you already have experience with native debugging.
+
+# Install SOS debugging extension
+
+Now use the [dotnet-sos global tool](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-sos) to install the SOS debugging extension.
 ```cmd
 dotnet tool install --global dotnet-sos
 dotnet tool update --global dotnet-sos
@@ -53,7 +61,7 @@ dotnet sos install --architecture x64
 
 ## ... and you want to debug with WinDbg
 
-Install or update WinDbg if necessary ([external](https://docs.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools), [internal](https://osgwiki.com/wiki/Installing_WinDbg)). If you don't have a recent WinDbg you may have to do `.update sos`.
+Install or update WinDbg if necessary ([external](https://learn.microsoft.com/windows-hardware/drivers/debugger/debugger-download-tools), [internal](https://osgwiki.com/wiki/Installing_WinDbg)). If you don't have a recent WinDbg you may have to do `.update sos`.
 
 Open WinDbg and open the dump with `File>Open Dump`.
 ```
@@ -73,7 +81,7 @@ Currently this is not possible because mscordbi.dll is not signed.
 
 ## ... and you want to debug with dotnet-dump
 
-Install the [dotnet-dump global tool](https://docs.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump).
+Install the [dotnet-dump global tool](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-dump).
 ```cmd
 dotnet tool install --global dotnet-dump
 dotnet tool update --global dotnet-dump
@@ -95,7 +103,7 @@ dotnet tool uninstall --global dotnet-dump
 ---
 ## If it's a Linux dump on Windows...
 
-Download the [Cross DAC Binaries](https://dev.azure.com/dnceng/public/_apis/build/builds/%BUILDID%/artifacts?artifactName=CoreCLRCrossDacArtifacts&api-version=6.0&%24format=zip), open it and choose the flavor that matches the dump you are to debug, and copy those files to `%WOUTDIR%\shared\Microsoft.NETCore.App\%PRODUCTVERSION%`.
+Download the [Cross DAC Binaries](https://dev.azure.com/dnceng-public/public/_apis/build/builds/%BUILDID%/artifacts?artifactName=CoreCLRCrossDacArtifacts&api-version=6.0&%24format=zip), open it and choose the flavor that matches the dump you are to debug, and copy those files to `%WOUTDIR%\shared\Microsoft.NETCore.App\%PRODUCTVERSION%`.
 
 Now you can debug with WinDbg or `dotnet-dump` as if it was a Windows dump. See above.
 
@@ -104,7 +112,7 @@ Now you can debug with WinDbg or `dotnet-dump` as if it was a Windows dump. See 
 
 ## ... and you want to debug with LLDB
 
-Install or update LLDB if necessary ([instructions here](https://github.com/dotnet/diagnostics/blob/master/documentation/lldb/linux-instructions.md))
+Install or update LLDB if necessary ([instructions here](https://github.com/dotnet/diagnostics/blob/main/documentation/lldb/linux-instructions.md))
 
 Load the dump:
 ```sh
@@ -121,7 +129,7 @@ loadsymbols
 
 ## ... and you want to debug with dotnet-dump
 
-Install the [dotnet-dump global tool](https://docs.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump).
+Install the [dotnet-dump global tool](https://learn.microsoft.com/dotnet/core/diagnostics/dotnet-dump).
 ```sh
 dotnet tool install --global dotnet-dump
 dotnet tool update --global dotnet-dump
@@ -143,4 +151,4 @@ will start generating native Mach-O core files. dotnet-dump and ClrMD are still 
 ---
 # Other Helpful Information
 
-* [How to debug a Linux core dump with SOS](https://github.com/dotnet/diagnostics/blob/master/documentation/debugging-coredump.md)
+* [How to debug a Linux core dump with SOS](https://github.com/dotnet/diagnostics/blob/main/documentation/debugging-coredump.md)

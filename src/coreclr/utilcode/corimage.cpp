@@ -26,7 +26,7 @@
 #define PTR_IMAGE_FIRST_SECTION( ntheader )                            \
    PTR_IMAGE_SECTION_HEADER                                            \
     (dac_cast<TADDR>(ntheader) +                                       \
-     FIELD_OFFSET( IMAGE_NT_HEADERS, OptionalHeader ) +                \
+     offsetof( IMAGE_NT_HEADERS, OptionalHeader ) +                \
      VAL16((ntheader)->FileHeader.SizeOfOptionalHeader)                \
     )
 
@@ -255,5 +255,5 @@ EXTERN_C DWORD Cor_RtlImageRvaToOffset(PTR_IMAGE_NT_HEADERS NtHeaders,
         return ((Rva - VAL32(NtSection->VirtualAddress)) +
                 VAL32(NtSection->PointerToRawData));
     else
-        return NULL;
+        return 0;
 }

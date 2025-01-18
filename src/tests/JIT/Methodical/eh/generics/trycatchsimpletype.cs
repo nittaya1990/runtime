@@ -3,7 +3,9 @@
 
 using System;
 using System.IO;
+using Xunit;
 
+namespace JIT.Methodical.eh.generics.trycatchsimpletype;
 
 public class GenException<T> : Exception
 {
@@ -60,7 +62,8 @@ public class Test_trycatchsimpletype
 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         //Start recording
         testLog.StartRecording();

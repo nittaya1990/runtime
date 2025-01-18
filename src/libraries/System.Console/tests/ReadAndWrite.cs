@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -83,10 +84,14 @@ public class ReadAndWrite
         Console.Write("{0}", null, null);
         Console.Write("{0} {1} {2}", 32, "Hello", (uint)50);
         Console.Write("{0}", null, null, null);
-        Console.Write("{0} {1} {2} {3}", 32, "Hello", (uint)50, (ulong)5);
-        Console.Write("{0}", null, null, null, null);
-        Console.Write("{0} {1} {2} {3} {4}", 32, "Hello", (uint)50, (ulong)5, 'a');
-        Console.Write("{0}", null, null, null, null, null);
+        Console.Write("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 });
+        Console.Write("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 }.AsSpan());
+        Console.Write("{0}", new object[] { null, null, null, null });
+        Console.Write("{0}", new object[] { null, null, null, null }.AsSpan());
+        Console.Write("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' });
+        Console.Write("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' }.AsSpan());
+        Console.Write("{0}", new object[] { null, null, null, null, null });
+        Console.Write("{0}", new object[] { null, null, null, null, null }.AsSpan());
         Console.Write(true);
         Console.Write('a');
         Console.Write(new char[] { 'a', 'b', 'c', 'd', });
@@ -100,6 +105,7 @@ public class ReadAndWrite
         Console.Write(50UL);
         Console.Write(new object());
         Console.Write("Hello World");
+        Console.Write("Hello World".AsSpan());
     }
 
     private static void WriteLineCore()
@@ -119,10 +125,14 @@ public class ReadAndWrite
         Console.WriteLine("{0}", null, null);
         Console.WriteLine("{0} {1} {2}", 32, "Hello", (uint)50);
         Console.WriteLine("{0}", null, null, null);
-        Console.WriteLine("{0} {1} {2} {3}", 32, "Hello", (uint)50, (ulong)5);
-        Console.WriteLine("{0}", null, null, null, null);
-        Console.WriteLine("{0} {1} {2} {3} {4}", 32, "Hello", (uint)50, (ulong)5, 'a');
-        Console.WriteLine("{0}", null, null, null, null, null);
+        Console.WriteLine("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 });
+        Console.WriteLine("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 }.AsSpan());
+        Console.WriteLine("{0}", new object[] { null, null, null, null });
+        Console.WriteLine("{0}", new object[] { null, null, null, null }.AsSpan());
+        Console.WriteLine("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' });
+        Console.WriteLine("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' }.AsSpan());
+        Console.WriteLine("{0}", new object[] { null, null, null, null, null });
+        Console.WriteLine("{0}", new object[] { null, null, null, null, null }.AsSpan());
         Console.WriteLine(true);
         Console.WriteLine('a');
         Console.WriteLine(new char[] { 'a', 'b', 'c', 'd', });
@@ -136,6 +146,7 @@ public class ReadAndWrite
         Console.WriteLine(50UL);
         Console.WriteLine(new object());
         Console.WriteLine("Hello World");
+        Console.WriteLine("Hello World".AsSpan());
     }
 
     [Fact]
@@ -149,7 +160,11 @@ public class ReadAndWrite
                 Console.SetOut(sw);
                 TextWriter writer = Console.Out;
                 Assert.NotNull(writer);
-                Assert.NotEqual(writer, sw); // the writer we provide gets wrapped
+                // single-threaded WASM bypasses SyncTextWriter for faster startup
+                if (PlatformDetection.IsThreadingSupported)
+                    Assert.NotEqual(writer, sw); // the writer we provide gets wrapped
+                else
+                    Assert.Equal(writer, sw); // the writer we provide does not get wrapped
 
                 // We just want to ensure none of these throw exceptions, we don't actually validate
                 // what was written.
@@ -157,8 +172,10 @@ public class ReadAndWrite
                 writer.Write("{0}", 32);
                 writer.Write("{0} {1}", 32, "Hello");
                 writer.Write("{0} {1} {2}", 32, "Hello", (uint)50);
-                writer.Write("{0} {1} {2} {3}", 32, "Hello", (uint)50, (ulong)5);
-                writer.Write("{0} {1} {2} {3} {4}", 32, "Hello", (uint)50, (ulong)5, 'a');
+                writer.Write("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 });
+                writer.Write("{0} {1} {2} {3}", new object[] { 32, "Hello", (uint)50, (ulong)5 }.AsSpan());
+                writer.Write("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' });
+                writer.Write("{0} {1} {2} {3} {4}", new object[] { 32, "Hello", (uint)50, (ulong)5, 'a' }.AsSpan());
                 writer.Write(true);
                 writer.Write('a');
                 writer.Write(new char[] { 'a', 'b', 'c', 'd', });
@@ -172,6 +189,7 @@ public class ReadAndWrite
                 writer.Write(50UL);
                 writer.Write(new object());
                 writer.Write("Hello World");
+                writer.Write("Hello World".AsSpan());
 
                 writer.Flush();
 
@@ -432,5 +450,21 @@ public class ReadAndWrite
     public static void OpenStandardError_NegativeBufferSize_ThrowsArgumentOutOfRangeException()
     {
         AssertExtensions.Throws<ArgumentOutOfRangeException>("bufferSize", () => Console.OpenStandardError(-1));
+    }
+
+    [Fact]
+    [SkipOnPlatform(TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.MacCatalyst | TestPlatforms.tvOS, "Not supported on Browser, iOS, MacCatalyst, or tvOS.")]
+    public static async Task FlushOnStreams_Nop()
+    {
+        using Stream input = Console.OpenStandardInput();
+        using Stream output = Console.OpenStandardOutput();
+        using Stream error = Console.OpenStandardError();
+
+        foreach (Stream s in new[] { input, output, error })
+        {
+            s.Flush();
+            await s.FlushAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await s.FlushAsync(new CancellationToken(canceled: true)));
+        }
     }
 }

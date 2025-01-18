@@ -5,6 +5,7 @@ using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -13,7 +14,7 @@ using System.Reflection.PortableExecutable;
 
 namespace Build.Tasks
 {
-    public class ComputeManagedAssembliesToCompileToNative : DesktopCompatibleTask
+    public class ComputeManagedAssembliesToCompileToNative : Task
     {
         [Required]
         public ITaskItem[] Assemblies
@@ -23,7 +24,7 @@ namespace Build.Tasks
         }
 
         /// <summary>
-        /// The CoreRT-specific System.Private.* assemblies that must be used instead of the netcoreapp2.1 versions.
+        /// The NativeAOT-specific System.Private.* assemblies that must be used instead of the default CoreCLR versions.
         /// </summary>
         [Required]
         public ITaskItem[] SdkAssemblies
@@ -33,7 +34,7 @@ namespace Build.Tasks
         }
 
         /// <summary>
-        /// The set of AOT-specific framework assemblies we currently need to use which will replace the same-named ones
+        /// The set of NativeAOT-specific framework assemblies we currently need to use which will replace the same-named ones
         /// in the app's closure.
         /// </summary>
         [Required]
@@ -44,7 +45,7 @@ namespace Build.Tasks
         }
 
         /// <summary>
-        /// The native apphost (whose name ends up colliding with the CoreRT output binary)
+        /// The native apphost (whose name ends up colliding with the native output binary)
         /// </summary>
         [Required]
         public string DotNetAppHostExecutableName
@@ -81,6 +82,13 @@ namespace Build.Tasks
         }
 
         [Output]
+        public ITaskItem[] SatelliteAssemblies
+        {
+            get;
+            set;
+        }
+
+        [Output]
         public ITaskItem[] AssembliesToSkipPublish
         {
             get;
@@ -91,16 +99,21 @@ namespace Build.Tasks
         {
             var list = new List<ITaskItem>();
             var assembliesToSkipPublish = new List<ITaskItem>();
-            var coreRTFrameworkAssembliesToUse = new HashSet<string>();
+            var satelliteAssemblies = new List<ITaskItem>();
+            var nativeAotFrameworkAssembliesToUse = new Dictionary<string, ITaskItem>();
 
             foreach (ITaskItem taskItem in SdkAssemblies)
             {
-                coreRTFrameworkAssembliesToUse.Add(Path.GetFileName(taskItem.ItemSpec));
+                var fileName = Path.GetFileName(taskItem.ItemSpec);
+                if (!nativeAotFrameworkAssembliesToUse.ContainsKey(fileName))
+                    nativeAotFrameworkAssembliesToUse.Add(fileName, taskItem);
             }
 
             foreach (ITaskItem taskItem in FrameworkAssemblies)
             {
-                coreRTFrameworkAssembliesToUse.Add(Path.GetFileName(taskItem.ItemSpec));
+                var fileName = Path.GetFileName(taskItem.ItemSpec);
+                if (!nativeAotFrameworkAssembliesToUse.ContainsKey(fileName))
+                    nativeAotFrameworkAssembliesToUse.Add(fileName, taskItem);
             }
 
             foreach (ITaskItem taskItem in Assemblies)
@@ -108,7 +121,7 @@ namespace Build.Tasks
                 // In the case of disk-based assemblies, this holds the file path
                 string itemSpec = taskItem.ItemSpec;
 
-                // Skip the native apphost (whose name ends up colliding with the CoreRT output binary) and supporting libraries
+                // Skip the native apphost (whose name ends up colliding with the native output binary) and supporting libraries
                 if (itemSpec.EndsWith(DotNetAppHostExecutableName, StringComparison.OrdinalIgnoreCase) || itemSpec.Contains(DotNetHostFxrLibraryName) || itemSpec.Contains(DotNetHostPolicyLibraryName))
                 {
                     assembliesToSkipPublish.Add(taskItem);
@@ -116,7 +129,7 @@ namespace Build.Tasks
                 }
 
                 // Prototype aid - remove the native CoreCLR runtime pieces from the publish folder
-                if (itemSpec.Contains("microsoft.netcore.app") && (itemSpec.Contains("\\native\\") || itemSpec.Contains("/native/")))
+                if (itemSpec.IndexOf("microsoft.netcore.app", StringComparison.OrdinalIgnoreCase) != -1 && (itemSpec.Contains("\\native\\") || itemSpec.Contains("/native/")))
                 {
                     assembliesToSkipPublish.Add(taskItem);
                     continue;
@@ -143,10 +156,23 @@ namespace Build.Tasks
                     continue;
                 }
 
-                // Remove any assemblies whose implementation we want to come from CoreRT's package.
+                // Remove any assemblies whose implementation we want to come from NativeAOT's package.
                 // Currently that's System.Private.* SDK assemblies and a bunch of framework assemblies.
-                if (coreRTFrameworkAssembliesToUse.Contains(assemblyFileName))
+                if (nativeAotFrameworkAssembliesToUse.TryGetValue(assemblyFileName, out ITaskItem frameworkItem))
                 {
+                    if (GetFileVersion(itemSpec).CompareTo(GetFileVersion(frameworkItem.ItemSpec)) > 0)
+                    {
+                        if (assemblyFileName == "System.Private.CoreLib.dll")
+                        {
+                            Log.LogError($"Overriding System.Private.CoreLib.dll with a newer version is not supported. Attempted to use {itemSpec} instead of {frameworkItem.ItemSpec}.");
+                        }
+                        else
+                        {
+                            // Allow OOB references with higher version to take precedence over the framework assemblies.
+                            list.Add(taskItem);
+                        }
+                    }
+
                     assembliesToSkipPublish.Add(taskItem);
                     continue;
                 }
@@ -164,10 +190,15 @@ namespace Build.Tasks
                                 string culture = moduleMetadataReader.GetString(moduleMetadataReader.GetAssemblyDefinition().Culture);
 
                                 assembliesToSkipPublish.Add(taskItem);
+
+                                // Split satellite assemblies from normal assemblies
                                 if (culture == "" || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    // CoreRT doesn't consume resource assemblies yet so skip them
                                     list.Add(taskItem);
+                                }
+                                else
+                                {
+                                    satelliteAssemblies.Add(taskItem);
                                 }
                             }
                         }
@@ -180,8 +211,15 @@ namespace Build.Tasks
 
             ManagedAssemblies = list.ToArray();
             AssembliesToSkipPublish = assembliesToSkipPublish.ToArray();
+            SatelliteAssemblies = satelliteAssemblies.ToArray();
 
             return true;
+
+            static Version GetFileVersion(string path)
+            {
+                var versionInfo = FileVersionInfo.GetVersionInfo(path);
+                return new Version(versionInfo.FileMajorPart, versionInfo.FileMinorPart, versionInfo.FileBuildPart, versionInfo.FilePrivatePart);
+            }
         }
     }
 }

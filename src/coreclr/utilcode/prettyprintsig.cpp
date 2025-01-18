@@ -65,7 +65,7 @@ static HRESULT appendStrW(CQuickBytes *out, const WCHAR* str)
     }
     CONTRACTL_END
 
-    SIZE_T len = wcslen(str) * sizeof(WCHAR);
+    SIZE_T len = u16_strlen(str) * sizeof(WCHAR);
     SIZE_T oldSize = out->Size();
     if (FAILED(out->ReSizeNoThrow(oldSize + len)))
         return E_OUTOFMEMORY;
@@ -108,8 +108,8 @@ static HRESULT appendStrNumW(CQuickBytes *out, int num)
     }
     CONTRACTL_END
 
-    WCHAR buff[32];
-    swprintf_s(buff, 32, W("%d"), num);
+    WCHAR buff[MaxSigned32BitDecString + 1];
+    FormatInteger(buff, ARRAY_SIZE(buff), "%d", num);
     return appendStrW(out, buff);
 } // static HRESULT appendStrNumW()
 
@@ -136,8 +136,8 @@ static HRESULT appendStrHexW(CQuickBytes *out, int num)
     }
     CONTRACTL_END
 
-    WCHAR buff[32];
-    swprintf_s(buff, 32, W("%08X"), num);
+    WCHAR buff[Max32BitHexString + 1];
+    FormatInteger(buff, ARRAY_SIZE(buff), "%08X", num);
     return appendStrW(out, buff);
 } // static HRESULT appendStrHexW()
 
@@ -179,7 +179,7 @@ static PCCOR_SIGNATURE PrettyPrintType(
     const WCHAR *       str;
     WCHAR               rcname[MAX_CLASS_NAME];
     HRESULT             hr;
-    unsigned __int8     elt = *typePtr++;
+    uint8_t     elt = *typePtr++;
     PCCOR_SIGNATURE     typeEnd = typePtr + typeLen;
 
     switch(elt)
@@ -583,7 +583,7 @@ static HRESULT PrettyPrintTypeA(
     HRESULT     hr;                     // A result.
 
     PCCOR_SIGNATURE typeEnd = typePtr + typeLen;    // End of the signature.
-    unsigned __int8     elt = *typePtr++;
+    uint8_t     elt = *typePtr++;
 
     switch(elt)  {
     case ELEMENT_TYPE_VOID:
@@ -674,6 +674,18 @@ static HRESULT PrettyPrintTypeA(
         sprintf_s(tempBuffer, 64, "pMT: %p", pMT);
         IfFailGo(appendStrA(out, tempBuffer));
         break;
+    
+    case ELEMENT_TYPE_CMOD_INTERNAL:
+        {
+            bool required = *typePtr++ != 0;
+            void* pMT;
+            memcpy(&pMT, &typePtr, sizeof(pMT));
+            typePtr += sizeof(pMT);
+            CHAR tempBuffer[64];
+            sprintf_s(tempBuffer, 64, "pMT: %p", pMT);
+            IfFailGo(appendStrA(out, tempBuffer));
+            break;
+        }
 
     case ELEMENT_TYPE_VALUETYPE:
         str = "value class ";
@@ -788,8 +800,12 @@ static HRESULT PrettyPrintTypeA(
         break;
 
     case ELEMENT_TYPE_FNPTR:
-        IfFailGo(appendStrA(out, "fnptr "));
-        IfFailGo(PrettyPrintSigWorkerInternal(typePtr, (typeEnd - typePtr), "", out,pIMDI));
+        {
+            IfFailGo(appendStrA(out, "fnptr "));
+            CQuickBytes qbOut;
+            IfFailGo(PrettyPrintSigWorkerInternal(typePtr, (typeEnd - typePtr), "", &qbOut,pIMDI));
+            IfFailGo(appendStrA(out, (char *)qbOut.Ptr()));
+        }
         break;
 
     case ELEMENT_TYPE_NATIVE_VALUETYPE_ZAPSIG:
@@ -927,7 +943,7 @@ HRESULT PrettyPrintSigWorkerInternal(
     CONTRACTL_END
 
     HRESULT     hr = S_OK;
-    unsigned    numArgs;     // Count of arugments to function, or count of local vars.
+    unsigned    numArgs;     // Count of arguments to function, or count of local vars.
     unsigned numTyArgs = 0;
     PCCOR_SIGNATURE typeEnd = typePtr + typeLen;
     bool needComma = false;

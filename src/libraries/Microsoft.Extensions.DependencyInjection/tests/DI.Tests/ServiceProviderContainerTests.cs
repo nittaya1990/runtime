@@ -146,11 +146,11 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
         class CustomService6 : ICustomService { }
 
         [Theory]
-        // GenericTypeDefintion, Abstract GenericTypeDefintion
+        // GenericTypeDefinition, Abstract GenericTypeDefinition
         [InlineData(typeof(IFakeOpenGenericService<>), typeof(AbstractFakeOpenGenericService<>))]
-        // GenericTypeDefintion, Interface GenericTypeDefintion
+        // GenericTypeDefinition, Interface GenericTypeDefinition
         [InlineData(typeof(ICollection<>), typeof(IList<>))]
-        // Implementation type is GenericTypeDefintion
+        // Implementation type is GenericTypeDefinition
         [InlineData(typeof(IList<int>), typeof(List<>))]
         // Implementation type is Abstract
         [InlineData(typeof(IFakeService), typeof(AbstractClass))]
@@ -187,9 +187,9 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
             get
             {
                 Type serviceType = typeof(IFakeOpenGenericService<>);
-                // Service type is GenericTypeDefintion, implementation type is ConstructedGenericType
+                // Service type is GenericTypeDefinition, implementation type is ConstructedGenericType
                 yield return new object[] { serviceType, typeof(ClassWithNoConstraints<string>), $"Open generic service type '{serviceType}' requires registering an open generic implementation type." };
-                // Service type is GenericTypeDefintion, implementation type has different generic type definition arity
+                // Service type is GenericTypeDefinition, implementation type has different generic type definition arity
                 yield return new object[] { serviceType, typeof(FakeOpenGenericServiceWithTwoTypeArguments<,>), $"Arity of open generic service type '{serviceType}' does not equal arity of open generic implementation type '{typeof(FakeOpenGenericServiceWithTwoTypeArguments<,>)}'." };
             }
         }
@@ -392,10 +392,10 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
                         var service = sp.GetRequiredService<DisposeServiceProviderInCtorAsyncDisposable>();
                     });
                 });
-            }).Wait(TimeSpan.FromSeconds(10));
+            }).Wait(TimeSpan.FromSeconds(20));
 
-            Assert.True(doesNotHang);
-            Assert.True(asyncDisposableResource.DisposeAsyncCalled);
+            Assert.True(doesNotHang, "!doesNotHang");
+            Assert.True(asyncDisposableResource.DisposeAsyncCalled, "!DisposeAsyncCalled");
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
@@ -1125,6 +1125,32 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
             Assert.Equal(1, disposable.DisposeCount);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ValidateOnBuild_True_ResolvesConstrainedOpenGeneric(bool validateOnBuild)
+        {
+            var services = new ServiceCollection();
+
+            services.AddTransient<IBB<AA>, BB>();
+            services.AddTransient(typeof(IBB<>), typeof(GenericBB<>));
+            services.AddTransient(typeof(IBB<>), typeof(ConstrainedGenericBB<>));
+
+            var serviceProvider = services.BuildServiceProvider(new ServiceProviderOptions() { ValidateOnBuild = validateOnBuild });
+            var handlers = serviceProvider
+                .GetServices<IBB<AA>>()
+                .ToList();
+
+            Assert.Equal(3, handlers.Count);
+            var handlersTypes = handlers
+                .Select(h => h.GetType())
+                .ToList();
+
+            Assert.Contains(typeof(BB), handlersTypes);
+            Assert.Contains(typeof(GenericBB<AA>), handlersTypes);
+            Assert.Contains(typeof(ConstrainedGenericBB<AA>), handlersTypes);
+        }
+
         private class FakeDisposable : IDisposable
         {
             public bool IsDisposed { get; private set; }
@@ -1264,6 +1290,28 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
             Assert.Same(sp.GetRequiredService<IFakeOpenGenericService<Aa>>().Value.PropertyA, sp.GetRequiredService<A>());
         }
 
+        [Fact]
+        public void ResolveKeyedServiceWithKeyedParameter_MissingRegistrationButWithUnkeyedService()
+        {
+            var serviceCollection = new ServiceCollection();
+
+            // We are not registering "service1" and "service1" keyed IService services and OtherService requires them,
+            // but we are registering an unkeyed IService service which should not be injected into OtherService.
+            serviceCollection.AddSingleton<KeyedDependencyInjectionSpecificationTests.IService, KeyedDependencyInjectionSpecificationTests.Service>();
+
+            serviceCollection.AddSingleton<KeyedDependencyInjectionSpecificationTests.OtherService>();
+
+            AggregateException ex = Assert.Throws<AggregateException>(() => serviceCollection.BuildServiceProvider(new ServiceProviderOptions
+            {
+                ValidateOnBuild = true
+            }));
+
+            Assert.Equal(1, ex.InnerExceptions.Count);
+            Assert.StartsWith("Some services are not able to be constructed", ex.Message);
+            Assert.Contains("ServiceType: Microsoft.Extensions.DependencyInjection.Specification.KeyedDependencyInjectionSpecificationTests+OtherService", ex.ToString());
+            Assert.Contains("Microsoft.Extensions.DependencyInjection.Specification.KeyedDependencyInjectionSpecificationTests+IService", ex.ToString());
+        }
+
         private async Task<bool> ResolveUniqueServicesConcurrently()
         {
             var types = new Type[]
@@ -1319,5 +1367,11 @@ namespace Microsoft.Extensions.DependencyInjection.Tests
             }
             public A PropertyA { get; }
         }
+        private interface IAA { }
+        private interface IBB<T> { }
+        private class AA : IAA { }
+        private class BB : IBB<AA> { }
+        private class GenericBB<T> : IBB<T> { }
+        private class ConstrainedGenericBB<T> : IBB<T> where T : IAA { }
     }
 }

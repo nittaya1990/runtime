@@ -35,7 +35,19 @@ namespace System.IO.Pipelines
         /// <param name="minimumSize">The minimum length that needs to be buffered in order to for the call to return.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see langword="default" />.</param>
         /// <returns>A <see cref="System.Threading.Tasks.ValueTask{T}" /> representing the asynchronous read operation.</returns>
-        /// <remarks>The call returns if the <see cref="System.IO.Pipelines.PipeReader" /> has read the minimumLength specified, or is cancelled or completed.</remarks>
+        /// <remarks>
+        ///     <para>
+        ///     The call returns if the <see cref="System.IO.Pipelines.PipeReader" /> has read the minimumLength specified, or is cancelled or completed.
+        ///     </para>
+        ///     <para>
+        ///     Passing a value of 0 for <paramref name="minimumSize" /> will return a <see cref="System.Threading.Tasks.ValueTask{T}" /> that will not complete until
+        ///     further data is available. You should instead call <see cref="System.IO.Pipelines.PipeReader.TryRead" /> to avoid a blocking call.
+        ///     </para>
+        ///     <para>
+        ///     Subsequent calls to <see cref="System.IO.Pipelines.PipeReader.AdvanceTo(System.SequencePosition,System.SequencePosition)" /> should
+        ///     examine at least <paramref name="minimumSize" /> bytes in order to avoid an <see cref="System.InvalidOperationException" />.
+        ///     </para>
+        /// </remarks>
         public ValueTask<ReadResult> ReadAtLeastAsync(int minimumSize, CancellationToken cancellationToken = default)
         {
             if (minimumSize < 0)
@@ -74,7 +86,7 @@ namespace System.IO.Pipelines
         /// The <see cref="System.IO.Pipelines.ReadResult.Buffer" /> previously returned from <see cref="System.IO.Pipelines.PipeReader.ReadAsync(System.Threading.CancellationToken)" /> must not be accessed after this call.
         /// This is equivalent to calling <see cref="System.IO.Pipelines.PipeReader.AdvanceTo(System.SequencePosition,System.SequencePosition)" /> with identical examined and consumed positions.
         /// The examined data communicates to the pipeline when it should signal more data is available.
-        /// Because the consumed parameter doubles as the examined parameter, the consumed parameter should be greater than or equal to the examined position in the previous call to `AdvanceTo`. Otherwise, an <see cref="System.InvalidOperationException" /> is thrown.</remarks>
+        /// </remarks>
         public abstract void AdvanceTo(SequencePosition consumed);
 
         /// <summary>Moves forward the pipeline's read cursor to after the consumed data, marking the data as processed, read and examined.</summary>
@@ -82,8 +94,7 @@ namespace System.IO.Pipelines
         /// <param name="examined">Marks the extent of the data that has been read and examined.</param>
         /// <remarks>The memory for the consumed data will be released and no longer available.
         /// The <see cref="System.IO.Pipelines.ReadResult.Buffer" /> previously returned from <see cref="System.IO.Pipelines.PipeReader.ReadAsync(System.Threading.CancellationToken)" /> must not be accessed after this call.
-        /// The examined data communicates to the pipeline when it should signal more data is available.
-        /// The examined parameter should be greater than or equal to the examined position in the previous call to `AdvanceTo`. Otherwise, an <see cref="System.InvalidOperationException" /> is thrown.</remarks>
+        /// The examined data communicates to the pipeline when it should signal more data is available.</remarks>
         public abstract void AdvanceTo(SequencePosition consumed, SequencePosition examined);
 
         /// <summary>Returns a <see cref="System.IO.Stream" /> representation of the <see cref="System.IO.Pipelines.PipeReader" />.</summary>
@@ -163,8 +174,13 @@ namespace System.IO.Pipelines
         /// <param name="destination">The pipe writer to which the contents of the current stream will be copied.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="System.Threading.CancellationToken.None" />.</param>
         /// <returns>A task that represents the asynchronous copy operation.</returns>
-        public virtual Task CopyToAsync(PipeWriter destination!!, CancellationToken cancellationToken = default)
+        public virtual Task CopyToAsync(PipeWriter destination, CancellationToken cancellationToken = default)
         {
+            if (destination is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.destination);
+            }
+
             if (cancellationToken.IsCancellationRequested)
             {
                 return Task.FromCanceled(cancellationToken);
@@ -180,8 +196,13 @@ namespace System.IO.Pipelines
         /// <param name="destination">The stream to which the contents of the current stream will be copied.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="System.Threading.CancellationToken.None" />.</param>
         /// <returns>A task that represents the asynchronous copy operation.</returns>
-        public virtual Task CopyToAsync(Stream destination!!, CancellationToken cancellationToken = default)
+        public virtual Task CopyToAsync(Stream destination, CancellationToken cancellationToken = default)
         {
+            if (destination is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.destination);
+            }
+
             if (cancellationToken.IsCancellationRequested)
             {
                 return Task.FromCanceled(cancellationToken);
@@ -226,22 +247,31 @@ namespace System.IO.Pipelines
 
                     while (buffer.TryGet(ref position, out ReadOnlyMemory<byte> memory))
                     {
-                        FlushResult flushResult = await writeAsync(destination, memory, cancellationToken).ConfigureAwait(false);
-
-                        if (flushResult.IsCanceled)
+                        if (memory.IsEmpty)
                         {
-                            ThrowHelper.ThrowOperationCanceledException_FlushCanceled();
+                            // advance tracking only (to account for any boundary scenarios)
+                            consumed = position;
                         }
-
-                        consumed = position;
-
-                        if (flushResult.IsCompleted)
+                        else
                         {
-                            return;
+                            // write and advance
+                            FlushResult flushResult = await writeAsync(destination, memory, cancellationToken).ConfigureAwait(false);
+
+                            if (flushResult.IsCanceled)
+                            {
+                                ThrowHelper.ThrowOperationCanceledException_FlushCanceled();
+                            }
+
+                            consumed = position;
+
+                            if (flushResult.IsCompleted)
+                            {
+                                return;
+                            }
                         }
                     }
 
-                    // The while loop completed succesfully, so we've consumed the entire buffer.
+                    // The while loop completed successfully, so we've consumed the entire buffer.
                     consumed = buffer.End;
 
                     if (result.IsCompleted)

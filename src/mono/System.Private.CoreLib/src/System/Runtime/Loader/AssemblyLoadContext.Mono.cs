@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -24,14 +24,22 @@ namespace System.Runtime.Loader
         [DynamicDependency(nameof(_nativeAssemblyLoadContext))]
         private IntPtr InitializeAssemblyLoadContext(IntPtr thisHandlePtr, bool representsTPALoadContext, bool isCollectible)
         {
-            using (SafeStringMarshal handle = RuntimeMarshal.MarshalString(Name))
+            if (isCollectible)
+                KeepLoaderAllocator();
+            using (SafeStringMarshal handle = new SafeStringMarshal(Name))
             {
                 return InternalInitializeNativeALC(thisHandlePtr, handle.Value, representsTPALoadContext, isCollectible);
             }
         }
 
-        [MethodImplAttribute (MethodImplOptions.InternalCall)]
-        private static extern void PrepareForAssemblyLoadContextRelease (IntPtr nativeAssemblyLoadContext, IntPtr assemblyLoadContextStrong);
+        // Keep the type alive since instances are created by the runtime
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(LoaderAllocator))]
+        private static void KeepLoaderAllocator()
+        {
+        }
+
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        private static extern void PrepareForAssemblyLoadContextRelease(IntPtr nativeAssemblyLoadContext, IntPtr assemblyLoadContextStrong);
 
         [RequiresUnreferencedCode("Types and members the loaded assembly depends on might be removed")]
         [System.Security.DynamicSecurityMethod] // Methods containing StackCrawlMark local var has to be marked DynamicSecurityMethod
@@ -47,15 +55,14 @@ namespace System.Runtime.Loader
 #pragma warning restore IDE0060
 
         [RequiresUnreferencedCode("Types and members the loaded assembly depends on might be removed")]
-        internal Assembly InternalLoad(byte[] arrAssembly, byte[]? arrSymbols)
+        internal Assembly InternalLoad(ReadOnlySpan<byte> arrAssembly, ReadOnlySpan<byte> arrSymbols)
         {
             unsafe
             {
-                int symbolsLength = arrSymbols?.Length ?? 0;
                 fixed (byte* ptrAssembly = arrAssembly, ptrSymbols = arrSymbols)
                 {
                     return InternalLoadFromStream(NativeALC, new IntPtr(ptrAssembly), arrAssembly.Length,
-                                       new IntPtr(ptrSymbols), symbolsLength);
+                                       new IntPtr(ptrSymbols), arrSymbols.Length);
                 }
             }
         }
@@ -71,8 +78,7 @@ namespace System.Runtime.Loader
         // Returns the load context in which the specified assembly has been loaded
         public static AssemblyLoadContext? GetLoadContext(Assembly assembly)
         {
-            if (assembly == null)
-                throw new ArgumentNullException(nameof(assembly));
+            ArgumentNullException.ThrowIfNull(assembly);
 
             AssemblyLoadContext? loadContextForAssembly = null;
 
@@ -112,13 +118,8 @@ namespace System.Runtime.Loader
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern Assembly[] InternalGetLoadedAssemblies();
 
-        internal static Assembly? DoAssemblyResolve(string name)
-        {
-            return AssemblyResolve?.Invoke(null, new ResolveEventArgs(name));
-        }
-
         // Invoked by Mono to resolve using the load method.
-        private static Assembly? MonoResolveUsingLoad(IntPtr gchALC, string assemblyName)
+        private static RuntimeAssembly? MonoResolveUsingLoad(IntPtr gchALC, string assemblyName)
         {
             return Resolve(gchALC, new AssemblyName(assemblyName));
         }
@@ -126,14 +127,14 @@ namespace System.Runtime.Loader
         // Invoked by Mono to resolve using the Resolving event after
         // trying the Load override and default load context without
         // success.
-        private static Assembly? MonoResolveUsingResolvingEvent(IntPtr gchALC, string assemblyName)
+        private static RuntimeAssembly? MonoResolveUsingResolvingEvent(IntPtr gchALC, string assemblyName)
         {
             AssemblyLoadContext context = GetAssemblyLoadContext(gchALC);
             return context.ResolveUsingEvent(new AssemblyName(assemblyName));
         }
 
         // Invoked by Mono to resolve requests to load satellite assemblies.
-        private static Assembly? MonoResolveUsingResolveSatelliteAssembly(IntPtr gchALC, string assemblyName)
+        private static RuntimeAssembly? MonoResolveUsingResolveSatelliteAssembly(IntPtr gchALC, string assemblyName)
         {
             AssemblyLoadContext context = GetAssemblyLoadContext(gchALC);
             return context.ResolveSatelliteAssembly(new AssemblyName(assemblyName));

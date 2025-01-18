@@ -169,7 +169,7 @@ namespace System.Security.Cryptography
                 using (IncrementalHash hasher = IncrementalHash.CreateHash(digestAlgorithmName))
                 {
                     Span<byte> buf = stackalloc byte[128];
-                    ReadOnlySpan<byte> effectivePasswordBytes = stackalloc byte[0];
+                    scoped ReadOnlySpan<byte> effectivePasswordBytes = default;
                     byte[]? rented = null;
                     System.Text.Encoding? encoding = null;
 
@@ -393,17 +393,7 @@ namespace System.Security.Cryptography
                         Debug.Assert(pwdTmpBytes!.Length == 0);
                     }
 
-                    if (!Helpers.HasHMAC)
-                    {
-                        throw new CryptographicException(
-                            SR.Format(SR.Cryptography_AlgorithmNotSupported, "HMAC" + prf.Name));
-                    }
-
-                    using (var pbkdf2 = new Rfc2898DeriveBytes(pwdTmpBytes, salt.ToArray(), iterationCount, prf))
-                    {
-                        derivedKey = pbkdf2.GetBytes(keySizeBytes);
-                    }
-
+                    derivedKey = DeriveKey(pwdTmpBytes, salt, iterationCount, prf, keySizeBytes);
                     iv.CopyTo(ivDest);
                 }
 
@@ -464,7 +454,7 @@ namespace System.Security.Cryptography
             Span<byte> destination)
         {
             Span<byte> buf = stackalloc byte[128];
-            ReadOnlySpan<byte> effectivePasswordBytes = stackalloc byte[0];
+            scoped ReadOnlySpan<byte> effectivePasswordBytes = default;
             byte[]? rented = null;
             System.Text.Encoding? encoding = null;
 
@@ -539,8 +529,6 @@ namespace System.Security.Cryptography
 
             Rfc2898DeriveBytes pbkdf2 =
                 OpenPbkdf2(password, pbes2Params.KeyDerivationFunc.Parameters, out int? requestedKeyLength);
-
-            Debug.Assert(Helpers.HasHMAC);
 
             using (pbkdf2)
             {
@@ -777,12 +765,6 @@ namespace System.Security.Cryptography
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
             }
 
-            if (!Helpers.HasHMAC)
-            {
-                throw new CryptographicException(
-                    SR.Format(SR.Cryptography_AlgorithmNotSupported, "HMAC" + prf.Name));
-            }
-
             int iterationCount = NormalizeIterationCount(pbkdf2Params.IterationCount);
             ReadOnlyMemory<byte> saltMemory = pbkdf2Params.Salt.Specified.Value;
 
@@ -799,7 +781,7 @@ namespace System.Security.Cryptography
                 {
                     requestedKeyLength = pbkdf2Params.KeyLength;
 
-                    return new Rfc2898DeriveBytes(
+                    return OpenPbkdf2(
                         tmpPassword,
                         tmpSalt,
                         iterationCount,
@@ -1125,6 +1107,63 @@ namespace System.Security.Cryptography
             }
 
             return RC2.Create();
+        }
+
+        private static byte[] DeriveKey(
+            byte[] password,
+            ReadOnlySpan<byte> salt,
+            int iterationCount,
+            HashAlgorithmName prf,
+            int outputLength)
+        {
+#if NET
+            return Rfc2898DeriveBytes.Pbkdf2(password, salt, iterationCount, prf, outputLength);
+#else
+            using (Rfc2898DeriveBytes pbkdf2 = OpenPbkdf2(password, salt.ToArray(), iterationCount, prf))
+            {
+                return pbkdf2.GetBytes(outputLength);
+            }
+#endif
+        }
+
+        private static Rfc2898DeriveBytes OpenPbkdf2(
+            byte[] password,
+            byte[] salt,
+            int iterationCount,
+            HashAlgorithmName prf)
+        {
+#if NET || NETSTANDARD2_1_OR_GREATER || NET472_OR_GREATER
+#pragma warning disable CA5379
+            return new Rfc2898DeriveBytes(
+                password,
+                salt,
+                iterationCount,
+                prf);
+#pragma warning restore CA5379
+#else
+            if (prf == HashAlgorithmName.SHA1)
+            {
+#pragma warning disable CA5379
+                return new Rfc2898DeriveBytes(password, salt, iterationCount);
+#pragma warning restore CA5379
+            }
+
+            try
+            {
+                return (Rfc2898DeriveBytes)Activator.CreateInstance(
+                    typeof(Rfc2898DeriveBytes),
+                    password,
+                    salt,
+                    iterationCount,
+                    prf);
+            }
+            catch (MissingMethodException e)
+            {
+                throw new CryptographicException(
+                    SR.Format(SR.Cryptography_UnknownHashAlgorithm, prf.Name),
+                    e);
+            }
+#endif
         }
     }
 }

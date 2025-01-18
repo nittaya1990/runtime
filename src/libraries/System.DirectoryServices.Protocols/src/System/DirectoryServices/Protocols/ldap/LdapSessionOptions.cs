@@ -1,16 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
-using System.Security.Cryptography.X509Certificates;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using System.Collections;
-using System.Text;
-using System.Diagnostics;
-using System.Security.Authentication;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace System.DirectoryServices.Protocols
 {
@@ -71,9 +71,11 @@ namespace System.DirectoryServices.Protocols
     {
         // Not marked as readonly to enable passing to Unsafe.As in GetPinnableReference.
         private SecurityProtocol _securityProtocol;
+#pragma warning disable SYSLIB0058 // Use NegotiatedCipherSuite.
         private readonly CipherAlgorithmType _identifier;
         private readonly int _strength;
         private readonly HashAlgorithmType _hashAlgorithm;
+#pragma warning restore SYSLIB0058 // Use NegotiatedCipherSuite.
         private readonly int _hashStrength;
         private readonly int _keyExchangeAlgorithm;
         private readonly int _exchangeStrength;
@@ -83,17 +85,34 @@ namespace System.DirectoryServices.Protocols
         }
 
         public SecurityProtocol Protocol => _securityProtocol;
-
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public CipherAlgorithmType AlgorithmIdentifier => _identifier;
 
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public int CipherStrength => _strength;
 
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public HashAlgorithmType Hash => _hashAlgorithm;
 
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public int HashStrength => _hashStrength;
 
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public int KeyExchangeAlgorithm => _keyExchangeAlgorithm;
 
+#if NET10_0_OR_GREATER
+        [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+#endif
         public int ExchangeStrength => _exchangeStrength;
 
         internal ref readonly byte GetPinnableReference() => ref Unsafe.As<SecurityProtocol, byte>(ref _securityProtocol);
@@ -553,41 +572,37 @@ namespace System.DirectoryServices.Protocols
 
             try
             {
-                IntPtr tempPtr = IntPtr.Zero;
-
                 // build server control
-                managedServerControls = _connection.BuildControlArray(controls, true);
-                int structSize = Marshal.SizeOf(typeof(LdapControl));
+                managedServerControls = LdapConnection.BuildControlArray(controls, true);
+                int structSize = Marshal.SizeOf<LdapControl>();
                 if (managedServerControls != null)
                 {
                     serverControlArray = Utility.AllocHGlobalIntPtrArray(managedServerControls.Length + 1);
+                    void** pServerControlArray = (void**)serverControlArray;
                     for (int i = 0; i < managedServerControls.Length; i++)
                     {
                         IntPtr controlPtr = Marshal.AllocHGlobal(structSize);
                         Marshal.StructureToPtr(managedServerControls[i], controlPtr, false);
-                        tempPtr = (IntPtr)((long)serverControlArray + IntPtr.Size * i);
-                        Marshal.WriteIntPtr(tempPtr, controlPtr);
+                        pServerControlArray[i] = (void*)controlPtr;
                     }
 
-                    tempPtr = (IntPtr)((long)serverControlArray + IntPtr.Size * managedServerControls.Length);
-                    Marshal.WriteIntPtr(tempPtr, IntPtr.Zero);
+                    pServerControlArray[managedServerControls.Length] = null;
                 }
 
                 // Build client control.
-                managedClientControls = _connection.BuildControlArray(controls, false);
+                managedClientControls = LdapConnection.BuildControlArray(controls, false);
                 if (managedClientControls != null)
                 {
                     clientControlArray = Utility.AllocHGlobalIntPtrArray(managedClientControls.Length + 1);
+                    void** pClientControlArray = (void**)clientControlArray;
                     for (int i = 0; i < managedClientControls.Length; i++)
                     {
                         IntPtr controlPtr = Marshal.AllocHGlobal(structSize);
                         Marshal.StructureToPtr(managedClientControls[i], controlPtr, false);
-                        tempPtr = (IntPtr)((long)clientControlArray + IntPtr.Size * i);
-                        Marshal.WriteIntPtr(tempPtr, controlPtr);
+                        pClientControlArray[i] = (void*)controlPtr;
                     }
 
-                    tempPtr = (IntPtr)((long)clientControlArray + IntPtr.Size * managedClientControls.Length);
-                    Marshal.WriteIntPtr(tempPtr, IntPtr.Zero);
+                    pClientControlArray[managedClientControls.Length] = null;
                 }
 
                 int error = LdapPal.StartTls(_connection._ldapHandle, ref serverError, ref ldapResult, serverControlArray, clientControlArray);
@@ -852,7 +867,7 @@ namespace System.DirectoryServices.Protocols
         {
             LdapReferralCallback value = new LdapReferralCallback()
             {
-                sizeofcallback = Marshal.SizeOf(typeof(LdapReferralCallback)),
+                sizeofcallback = Marshal.SizeOf<LdapReferralCallback>(),
                 query = tempCallback.QueryForConnection == null ? null : _queryDelegate,
                 notify = tempCallback.NotifyNewConnection == null ? null : _notifiyDelegate,
                 dereference = tempCallback.DereferenceConnection == null ? null : _dereferenceDelegate
@@ -877,11 +892,8 @@ namespace System.DirectoryServices.Protocols
                     NewDN = LdapPal.PtrToString(NewDNPtr);
                 }
 
-                var target = new StringBuilder();
-                target.Append(Marshal.PtrToStringUni(HostNamePtr));
-                target.Append(':');
-                target.Append(PortNumber);
-                var identifier = new LdapDirectoryIdentifier(target.ToString());
+                string target = $"{Marshal.PtrToStringUni(HostNamePtr)}:{PortNumber}";
+                var identifier = new LdapDirectoryIdentifier(target);
 
                 NetworkCredential cred = ProcessSecAuthIdentity(SecAuthIdentity);
                 LdapConnection tempReferralConnection = null;
@@ -944,11 +956,8 @@ namespace System.DirectoryServices.Protocols
                     newDN = LdapPal.PtrToString(newDNPtr);
                 }
 
-                var target = new StringBuilder();
-                target.Append(Marshal.PtrToStringUni(hostNamePtr));
-                target.Append(':');
-                target.Append(portNumber);
-                var identifier = new LdapDirectoryIdentifier(target.ToString());
+                string target = $"{Marshal.PtrToStringUni(hostNamePtr)}:{portNumber}";
+                var identifier = new LdapDirectoryIdentifier(target);
 
                 NetworkCredential cred = ProcessSecAuthIdentity(SecAuthIdentity);
                 LdapConnection tempNewConnection = null;

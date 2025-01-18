@@ -3,21 +3,17 @@
 
 using System;
 using System.Collections.Generic;
-
-using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace Microsoft.Interop
 {
-    public sealed class BlittableMarshaller : IMarshallingGenerator
+    public sealed class BlittableMarshaller : IUnboundMarshallingGenerator
     {
-        public bool IsSupported(TargetFramework target, Version version) => true;
-
-        public TypeSyntax AsNativeType(TypePositionInfo info)
+        public ManagedTypeInfo AsNativeType(TypePositionInfo info)
         {
-            return info.ManagedType.Syntax;
+            return info.ManagedType;
         }
 
         public SignatureBehavior GetNativeSignatureBehavior(TypePositionInfo info)
@@ -31,27 +27,27 @@ namespace Microsoft.Interop
             {
                 return ValueBoundaryBehavior.ManagedIdentifier;
             }
-            else if (context.SingleFrameSpansNativeContext && !info.IsManagedReturnPosition)
+            else if (context.SingleFrameSpansNativeContext && !context.IsInStubReturnPosition(info))
             {
                 return ValueBoundaryBehavior.NativeIdentifier;
             }
             return ValueBoundaryBehavior.AddressOfNativeIdentifier;
         }
 
-        public IEnumerable<StatementSyntax> Generate(TypePositionInfo info, StubCodeContext context)
+        public IEnumerable<StatementSyntax> Generate(TypePositionInfo info, StubCodeContext codeContext, StubIdentifierContext context)
         {
-            if (!info.IsByRef || info.IsManagedReturnPosition)
+            if (!info.IsByRef || codeContext.IsInStubReturnPosition(info))
                 yield break;
 
             (string managedIdentifier, string nativeIdentifier) = context.GetIdentifiers(info);
 
-            if (context.SingleFrameSpansNativeContext)
+            if (codeContext.SingleFrameSpansNativeContext)
             {
-                if (context.CurrentStage == StubCodeContext.Stage.Pin)
+                if (context.CurrentStage == StubIdentifierContext.Stage.Pin)
                 {
                     yield return FixedStatement(
                         VariableDeclaration(
-                            PointerType(AsNativeType(info)),
+                            PointerType(AsNativeType(info).Syntax),
                             SingletonSeparatedList(
                                 VariableDeclarator(Identifier(nativeIdentifier))
                                     .WithInitializer(EqualsValueClause(
@@ -66,12 +62,14 @@ namespace Microsoft.Interop
                 yield break;
             }
 
+            MarshalDirection direction = MarshallerHelpers.GetMarshalDirection(info, codeContext);
+
             switch (context.CurrentStage)
             {
-                case StubCodeContext.Stage.Setup:
+                case StubIdentifierContext.Stage.Setup:
                     break;
-                case StubCodeContext.Stage.Marshal:
-                    if (info.RefKind == RefKind.Ref)
+                case StubIdentifierContext.Stage.Marshal:
+                    if (direction is MarshalDirection.ManagedToUnmanaged or MarshalDirection.Bidirectional && info.IsByRef)
                     {
                         yield return ExpressionStatement(
                             AssignmentExpression(
@@ -81,12 +79,15 @@ namespace Microsoft.Interop
                     }
 
                     break;
-                case StubCodeContext.Stage.Unmarshal:
-                    yield return ExpressionStatement(
-                        AssignmentExpression(
-                            SyntaxKind.SimpleAssignmentExpression,
-                            IdentifierName(managedIdentifier),
-                            IdentifierName(nativeIdentifier)));
+                case StubIdentifierContext.Stage.Unmarshal:
+                    if (direction is MarshalDirection.UnmanagedToManaged or MarshalDirection.Bidirectional && info.IsByRef)
+                    {
+                        yield return ExpressionStatement(
+                            AssignmentExpression(
+                                SyntaxKind.SimpleAssignmentExpression,
+                                IdentifierName(managedIdentifier),
+                                IdentifierName(nativeIdentifier)));
+                    }
                     break;
                 default:
                     break;
@@ -95,10 +96,10 @@ namespace Microsoft.Interop
 
         public bool UsesNativeIdentifier(TypePositionInfo info, StubCodeContext context)
         {
-            return info.IsByRef && !info.IsManagedReturnPosition && !context.SingleFrameSpansNativeContext;
+            return info.IsByRef && !context.IsInStubReturnPosition(info) && !context.SingleFrameSpansNativeContext;
         }
 
-        public bool SupportsByValueMarshalKind(ByValueContentsMarshalKind marshalKind, StubCodeContext context) => false;
+        public ByValueMarshalKindSupport SupportsByValueMarshalKind(ByValueContentsMarshalKind marshalKind, TypePositionInfo info, out GeneratorDiagnostic? diagnostic)
+            => ByValueMarshalKindSupportDescriptor.Default.GetSupport(marshalKind, info, out diagnostic);
     }
-
 }

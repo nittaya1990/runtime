@@ -50,7 +50,8 @@ when it comes to the handling of structs (aka value types).
 
 High-Level Proposed Design
 --------------------------
-This is a preliminary design, and is likely to change as the implementation proceeds:
+Note that much of the below work has already been carried out and further refactoring has replaced the side `fgArgInfo` table with `CallArgs`.
+The plan here is intended to provide some historical context and may not completely reflect JIT sources.
 
 First, the `fgArgInfo` is extended to contain all the information needed to determine
 how an argument is passed. Ideally, most of the `#ifdef`s relating to ABI differences
@@ -84,8 +85,7 @@ This method is responsible for the first part of what is currently `fgMorphArgs(
     - Note that the `isSplit` property would evaluate to false on targets where
       it is not supported, reducing the need for `ifdef`s (we can rely on the compiler
       to eliminate those dead paths).
-- Validate that each struct argument is either a `GT_LCL_VAR`, a `GT_OBJ`,
-  or a `GT_MKREFANY`.
+- Validate that each struct argument is either a `GT_LCL_VAR` or a `GT_OBJ`
 
 During the initial `fgMorph` phase, `fgMorphArgs()` does the following:
 

@@ -7,7 +7,7 @@ using System.IO;
 
 namespace Microsoft.Extensions.DependencyModel
 {
-    internal sealed class FileWrapper: IFile
+    internal sealed class FileWrapper : IFile
     {
         public bool Exists([NotNullWhen(true)] string? path)
         {
@@ -39,11 +39,7 @@ namespace Microsoft.Extensions.DependencyModel
         {
             try
             {
-                FileStream emptyFile = File.Create(path);
-                if (emptyFile != null)
-                {
-                    emptyFile.Dispose();
-                }
+                File.Create(path).Dispose();
             }
             catch { }
         }

@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Runtime;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace System.Threading
 {
@@ -49,11 +50,6 @@ namespace System.Threading
         /// The initial size of the table.  Must be positive and not greater than
         /// ObjectHeader.MASK_HASHCODE_INDEX + 1.
         /// </summary>
-        /// <remarks>
-        /// CLR uses 250 as the initial table size.  In contrast to CoreRT, CLR creates sync
-        /// entries less frequently since uncontended Monitor synchronization employs a thin lock
-        /// stored in the object header.
-        /// </remarks>
 #if DEBUG
         // Exercise table expansion more frequently in debug builds
         private const int InitialSize = 1;
@@ -67,9 +63,9 @@ namespace System.Threading
         private const int DoublingSizeThreshold = 1 << 20;
 
         /// <summary>
-        /// Protects all mutable operations on s_entrie, s_freeEntryList, s_unusedEntryIndex. Also protects growing the table.
+        /// Protects all mutable operations on s_entries, s_freeEntryList, s_unusedEntryIndex. Also protects growing the table.
         /// </summary>
-        internal static Lock s_lock = new Lock();
+        internal static readonly Lock s_lock = new Lock(useTrivialWaits: true);
 
         /// <summary>
         /// The dynamically growing array of sync entries.
@@ -88,6 +84,16 @@ namespace System.Threading
         /// </summary>
         private static int s_unusedEntryIndex = 1;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ref Entry UnsafeEntryRef(int i)
+        {
+#if DEBUG
+            return ref s_entries[i];
+#else
+            return ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(s_entries), i);
+#endif
+        }
+
         /// <summary>
         /// Assigns a sync table entry to the object in a thread-safe way.
         /// </summary>
@@ -100,15 +106,14 @@ namespace System.Threading
 
             try
             {
-                using (LockHolder.Hold(s_lock))
+                using (s_lock.EnterScope())
                 {
                     // After acquiring the lock check whether another thread already assigned the sync entry
-                    if (ObjectHeader.GetSyncEntryIndex(*pHeader, out int hashOrIndex))
+                    if (ObjectHeader.GetSyncEntryIndex(*pHeader, out int syncIndex))
                     {
-                        return hashOrIndex;
+                        return syncIndex;
                     }
 
-                    int syncIndex;
                     if (s_freeEntryList != 0)
                     {
                         // Grab a free entry from the list
@@ -135,7 +140,7 @@ namespace System.Threading
 
                     // Found a free entry to assign
                     Debug.Assert(!entry.Owner.IsAllocated);
-                    Debug.Assert(entry.Lock == null);
+                    Debug.Assert(entry.Lock is null);
                     Debug.Assert(entry.HashCode == 0);
 
                     // Set up the new entry.  We should not fail after this point.
@@ -167,7 +172,7 @@ namespace System.Threading
         /// </summary>
         private static void Grow()
         {
-            Debug.Assert(s_lock.IsAcquired);
+            Debug.Assert(s_lock.IsHeldByCurrentThread);
 
             int oldSize = s_entries.Length;
             int newSize = CalculateNewSize(oldSize);
@@ -224,7 +229,7 @@ namespace System.Threading
             // This thread may be looking at an old version of s_entries.  If the old version had
             // no hash code stored, GetHashCode returns zero and the subsequent SetHashCode call
             // will resolve the potential race.
-            return s_entries[syncIndex].HashCode;
+            return UnsafeEntryRef(syncIndex).HashCode;
         }
 
         /// <summary>
@@ -237,7 +242,7 @@ namespace System.Threading
             // Acquire the lock to ensure we are updating the latest version of s_entries.  This
             // lock may be avoided if we store the hash code and Monitor synchronization data in
             // the same object accessed by a reference.
-            using (LockHolder.Hold(s_lock))
+            using (s_lock.EnterScope())
             {
                 int currentHash = s_entries[syncIndex].HashCode;
                 if (currentHash != 0)
@@ -255,9 +260,21 @@ namespace System.Threading
         /// </summary>
         public static void MoveHashCodeToNewEntry(int syncIndex, int hashCode)
         {
-            Debug.Assert(s_lock.IsAcquired);
+            Debug.Assert(s_lock.IsHeldByCurrentThread);
             Debug.Assert((0 < syncIndex) && (syncIndex < s_unusedEntryIndex));
             s_entries[syncIndex].HashCode = hashCode;
+        }
+
+        /// <summary>
+        /// Initializes the Lock assuming the caller holds s_lock.  Use for not yet
+        /// published entries only.
+        /// </summary>
+        public static void MoveThinLockToNewEntry(int syncIndex, int threadId, uint recursionLevel)
+        {
+            Debug.Assert(s_lock.IsHeldByCurrentThread);
+            Debug.Assert((0 < syncIndex) && (syncIndex < s_unusedEntryIndex));
+
+            s_entries[syncIndex].Lock.ResetForMonitor(threadId, recursionLevel);
         }
 
         /// <summary>
@@ -267,7 +284,7 @@ namespace System.Threading
         {
             // Note that we do not take a lock here.  When we replace s_entries, we preserve all
             // indices and Lock references.
-            return s_entries[syncIndex].Lock;
+            return UnsafeEntryRef(syncIndex).Lock;
         }
 
         private sealed class DeadEntryCollector
@@ -286,9 +303,9 @@ namespace System.Threading
                     return;
 
                 Lock? lockToDispose = default;
-                DependentHandle dependentHadleToDispose = default;
+                DependentHandle dependentHandleToDispose = default;
 
-                using (LockHolder.Hold(s_lock))
+                using (s_lock.EnterScope())
                 {
                     ref Entry entry = ref s_entries[_index];
 
@@ -299,7 +316,7 @@ namespace System.Threading
                         return;
                     }
 
-                    dependentHadleToDispose = entry.Owner;
+                    dependentHandleToDispose = entry.Owner;
                     entry.Owner = default;
 
                     lockToDispose = entry.Lock;
@@ -310,7 +327,7 @@ namespace System.Threading
                 }
 
                 // Dispose outside the lock
-                dependentHadleToDispose.Dispose();
+                dependentHandleToDispose.Dispose();
                 lockToDispose?.Dispose();
             }
         }
@@ -335,6 +352,10 @@ namespace System.Threading
             /// for freeing the entry.
             /// </summary>
             public DependentHandle Owner;
+
+            // Unused field to make the entry even number of words.
+            // we will likely put something in here eventually.
+            internal nint _unusedPadding;
 
             /// <summary>
             /// For entries in use, this property gets or sets the hash code of the owner object.

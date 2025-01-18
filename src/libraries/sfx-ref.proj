@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.Build.Traversal">
 
   <PropertyGroup>
-    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <TargetFramework>$(NetCoreAppCurrent)-$(TargetOS)</TargetFramework>
     <!-- Filter ProjectReferences to build the best matching target framework only. -->
     <FilterTraversalProjectReferences>true</FilterTraversalProjectReferences>
   </PropertyGroup>
@@ -13,7 +13,8 @@
     <NonNetCoreAppProject Include="@(AnyProject)"
                           Exclude="@(NetCoreAppLibrary->'%(Identity)\ref\%(Identity).csproj')" />
     <ProjectReference Include="@(AnyProject)"
-                      Exclude="@(NonNetCoreAppProject)" />
+                      Exclude="@(NonNetCoreAppProject);
+                               System.Private.CoreLib\ref\System.Private.CoreLib.csproj" />
   </ItemGroup>
 
 </Project>

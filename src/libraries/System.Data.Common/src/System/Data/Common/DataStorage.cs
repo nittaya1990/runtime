@@ -206,7 +206,7 @@ namespace System.Data.Common
 
         public abstract int Compare(int recordNo1, int recordNo2);
 
-        // only does comparision, expect value to be of the correct type
+        // only does comparison, expect value to be of the correct type
         public abstract int CompareValueTo(int recordNo1, object? value);
 
         // only does conversion with support for reference null
@@ -271,18 +271,22 @@ namespace System.Data.Common
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public abstract object ConvertXmlToObject(string s);
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public virtual object ConvertXmlToObject(XmlReader xmlReader, XmlRootAttribute? xmlAttrib)
         {
             return ConvertXmlToObject(xmlReader.Value);
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public abstract string ConvertObjectToXml(object value);
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public virtual void ConvertObjectToXml(object value, XmlWriter xmlWriter, XmlRootAttribute? xmlAttrib)
         {
             xmlWriter.WriteString(ConvertObjectToXml(value)); // should it be NO OP?

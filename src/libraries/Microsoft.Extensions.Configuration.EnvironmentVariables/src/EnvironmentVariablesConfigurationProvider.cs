@@ -8,29 +8,36 @@ using System.Collections.Generic;
 namespace Microsoft.Extensions.Configuration.EnvironmentVariables
 {
     /// <summary>
-    /// An environment variable based <see cref="ConfigurationProvider"/>.
+    /// Provides configuration key-value pairs that are obtained from environment variables.
     /// </summary>
     public class EnvironmentVariablesConfigurationProvider : ConfigurationProvider
     {
         private const string MySqlServerPrefix = "MYSQLCONNSTR_";
         private const string SqlAzureServerPrefix = "SQLAZURECONNSTR_";
         private const string SqlServerPrefix = "SQLCONNSTR_";
-        private const string CustomPrefix = "CUSTOMCONNSTR_";
+        private const string CustomConnectionStringPrefix = "CUSTOMCONNSTR_";
 
         private readonly string _prefix;
+        private readonly string _normalizedPrefix;
 
         /// <summary>
         /// Initializes a new instance.
         /// </summary>
-        public EnvironmentVariablesConfigurationProvider() =>
+        public EnvironmentVariablesConfigurationProvider()
+        {
             _prefix = string.Empty;
+            _normalizedPrefix = string.Empty;
+        }
 
         /// <summary>
         /// Initializes a new instance with the specified prefix.
         /// </summary>
         /// <param name="prefix">A prefix used to filter the environment variables.</param>
-        public EnvironmentVariablesConfigurationProvider(string? prefix) =>
+        public EnvironmentVariablesConfigurationProvider(string? prefix)
+        {
             _prefix = prefix ?? string.Empty;
+            _normalizedPrefix = Normalize(_prefix);
+        }
 
         /// <summary>
         /// Loads the environment variables.
@@ -41,9 +48,16 @@ namespace Microsoft.Extensions.Configuration.EnvironmentVariables
         /// <summary>
         /// Generates a string representing this provider name and relevant details.
         /// </summary>
-        /// <returns> The configuration name. </returns>
+        /// <returns>The configuration name.</returns>
         public override string ToString()
-            => $"{GetType().Name} Prefix: '{_prefix}'";
+        {
+            string s = GetType().Name;
+            if (!string.IsNullOrEmpty(_prefix))
+            {
+                s += $" Prefix: '{_prefix}'";
+            }
+            return s;
+        }
 
         internal void Load(IDictionary envVariables)
         {
@@ -54,42 +68,28 @@ namespace Microsoft.Extensions.Configuration.EnvironmentVariables
             {
                 while (e.MoveNext())
                 {
-                    DictionaryEntry entry = e.Entry;
-                    string key = (string)entry.Key;
-                    string? provider = null;
-                    string prefix;
+                    string key = (string)e.Entry.Key;
+                    string? value = (string?)e.Entry.Value;
 
                     if (key.StartsWith(MySqlServerPrefix, StringComparison.OrdinalIgnoreCase))
                     {
-                        prefix = MySqlServerPrefix;
-                        provider = "MySql.Data.MySqlClient";
+                        HandleMatchedConnectionStringPrefix(data, MySqlServerPrefix, "MySql.Data.MySqlClient", key, value);
                     }
                     else if (key.StartsWith(SqlAzureServerPrefix, StringComparison.OrdinalIgnoreCase))
                     {
-                        prefix = SqlAzureServerPrefix;
-                        provider = "System.Data.SqlClient";
+                        HandleMatchedConnectionStringPrefix(data, SqlAzureServerPrefix, "System.Data.SqlClient", key, value);
                     }
                     else if (key.StartsWith(SqlServerPrefix, StringComparison.OrdinalIgnoreCase))
                     {
-                        prefix = SqlServerPrefix;
-                        provider = "System.Data.SqlClient";
+                        HandleMatchedConnectionStringPrefix(data, SqlServerPrefix, "System.Data.SqlClient", key, value);
                     }
-                    else if (key.StartsWith(CustomPrefix, StringComparison.OrdinalIgnoreCase))
+                    else if (key.StartsWith(CustomConnectionStringPrefix, StringComparison.OrdinalIgnoreCase))
                     {
-                        prefix = CustomPrefix;
+                        HandleMatchedConnectionStringPrefix(data, CustomConnectionStringPrefix, null, key, value);
                     }
                     else
                     {
-                        AddIfPrefixed(data, NormalizeKey(key), (string?)entry.Value);
-                        continue;
-                    }
-
-                    // Add the key-value pair for connection string, and optionally provider name
-                    key = NormalizeKey(key.Substring(prefix.Length));
-                    AddIfPrefixed(data, $"ConnectionStrings:{key}", (string?)entry.Value);
-                    if (provider != null)
-                    {
-                        AddIfPrefixed(data, $"ConnectionStrings:{key}_ProviderName", provider);
+                        AddIfNormalizedKeyMatchesPrefix(data, Normalize(key), value);
                     }
                 }
             }
@@ -101,15 +101,26 @@ namespace Microsoft.Extensions.Configuration.EnvironmentVariables
             Data = data;
         }
 
-        private void AddIfPrefixed(Dictionary<string, string?> data, string key, string? value)
+        private void HandleMatchedConnectionStringPrefix(Dictionary<string, string?> data, string connectionStringPrefix, string? provider, string fullKey, string? value)
         {
-            if (key.StartsWith(_prefix, StringComparison.OrdinalIgnoreCase))
+            string normalizedKeyWithoutConnectionStringPrefix = Normalize(fullKey.Substring(connectionStringPrefix.Length));
+
+            // Add the key-value pair for connection string, and optionally provider name
+            AddIfNormalizedKeyMatchesPrefix(data, $"ConnectionStrings:{normalizedKeyWithoutConnectionStringPrefix}", value);
+            if (provider != null)
             {
-                key = key.Substring(_prefix.Length);
-                data[key] = value;
+                AddIfNormalizedKeyMatchesPrefix(data, $"ConnectionStrings:{normalizedKeyWithoutConnectionStringPrefix}_ProviderName", provider);
             }
         }
 
-        private static string NormalizeKey(string key) => key.Replace("__", ConfigurationPath.KeyDelimiter);
+        private void AddIfNormalizedKeyMatchesPrefix(Dictionary<string, string?> data, string normalizedKey, string? value)
+        {
+            if (normalizedKey.StartsWith(_normalizedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                data[normalizedKey.Substring(_normalizedPrefix.Length)] = value;
+            }
+        }
+
+        private static string Normalize(string key) => key.Replace("__", ConfigurationPath.KeyDelimiter);
     }
 }

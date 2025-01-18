@@ -19,11 +19,8 @@ internal static partial class Interop
         [LibraryImport(Libraries.CryptoNative, EntryPoint = "CryptoNative_HmacReset")]
         internal static partial int HmacReset(SafeHmacCtxHandle ctx);
 
-        internal static int HmacUpdate(SafeHmacCtxHandle ctx, ReadOnlySpan<byte> data, int len) =>
-            HmacUpdate(ctx, ref MemoryMarshal.GetReference(data), len);
-
         [LibraryImport(Libraries.CryptoNative, EntryPoint = "CryptoNative_HmacUpdate")]
-        private static partial int HmacUpdate(SafeHmacCtxHandle ctx, ref byte data, int len);
+        internal static partial int HmacUpdate(SafeHmacCtxHandle ctx, ReadOnlySpan<byte> data, int len);
 
         [LibraryImport(Libraries.CryptoNative, EntryPoint = "CryptoNative_HmacFinal")]
         internal static partial int HmacFinal(SafeHmacCtxHandle ctx, ref byte data, ref int len);
@@ -33,6 +30,9 @@ internal static partial class Interop
 
         [LibraryImport(Libraries.CryptoNative, EntryPoint = "CryptoNative_HmacOneShot")]
         private static unsafe partial int HmacOneShot(IntPtr type, byte* key, int keySize, byte* source, int sourceSize, byte* md, int* mdSize);
+
+        [LibraryImport(Libraries.CryptoNative, EntryPoint = "CryptoNative_HmacCopy")]
+        internal static partial SafeHmacCtxHandle HmacCopy(SafeHmacCtxHandle ctx);
 
         internal static unsafe int HmacOneShot(IntPtr type, ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination)
         {

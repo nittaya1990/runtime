@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
 using System.Text;
@@ -16,7 +17,7 @@ namespace System.IO
 {
     // Class for creating FileStream objects, and some basic file management
     // routines such as Delete, etc.
-    public static class File
+    public static partial class File
     {
         private const int ChunkSize = 8192;
         private static Encoding? s_UTF8NoBOM;
@@ -26,13 +27,13 @@ namespace System.IO
 
         internal const int DefaultBufferSize = 4096;
 
-        public static StreamReader OpenText(string path!!)
+        public static StreamReader OpenText(string path)
             => new StreamReader(path);
 
-        public static StreamWriter CreateText(string path!!)
+        public static StreamWriter CreateText(string path)
             => new StreamWriter(path, append: false);
 
-        public static StreamWriter AppendText(string path!!)
+        public static StreamWriter AppendText(string path)
             => new StreamWriter(path, append: true);
 
         /// <summary>
@@ -78,13 +79,16 @@ namespace System.IO
         //
         // On Windows, Delete will fail for a file that is open for normal I/O
         // or a file that is memory mapped.
-        public static void Delete(string path!!)
-            => FileSystem.DeleteFile(Path.GetFullPath(path));
+        public static void Delete(string path)
+        {
+            ArgumentNullException.ThrowIfNull(path);
+            FileSystem.DeleteFile(Path.GetFullPath(path));
+        }
 
         // Tests whether a file exists. The result is true if the file
         // given by the specified path exists; otherwise, the result is
         // false.  Note that if path describes a directory,
-        // Exists will return true.
+        // Exists will return false.
         public static bool Exists([NotNullWhen(true)] string? path)
         {
             try
@@ -100,7 +104,7 @@ namespace System.IO
                 // Otherwise, FillAttributeInfo removes it and we may return a false positive.
                 // GetFullPath should never return null
                 Debug.Assert(path != null, "File.Exists: GetFullPath returned null");
-                if (path.Length > 0 && PathInternal.IsDirectorySeparator(path[path.Length - 1]))
+                if (path.Length > 0 && PathInternal.IsDirectorySeparator(path[^1]))
                 {
                     return false;
                 }
@@ -117,7 +121,7 @@ namespace System.IO
         /// <summary>
         /// Initializes a new instance of the <see cref="FileStream" /> class with the specified path, creation mode, read/write and sharing permission, the access other FileStreams can have to the same file, the buffer size, additional file options and the allocation size.
         /// </summary>
-        /// <remarks><see cref="FileStream(string,System.IO.FileStreamOptions)"/> for information about exceptions.</remarks>
+        /// <remarks><see cref="FileStream(string,FileStreamOptions)"/> for information about exceptions.</remarks>
         public static FileStream Open(string path, FileStreamOptions options) => new FileStream(path, options);
 
         public static FileStream Open(string path, FileMode mode)
@@ -130,15 +134,15 @@ namespace System.IO
             => new FileStream(path, mode, access, share);
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Microsoft.Win32.SafeHandles.SafeFileHandle" /> class with the specified path, creation mode, read/write and sharing permission, the access other SafeFileHandles can have to the same file, additional file options and the allocation size.
+        /// Initializes a new instance of the <see cref="SafeFileHandle" /> class with the specified path, creation mode, read/write and sharing permission, the access other SafeFileHandles can have to the same file, additional file options and the allocation size.
         /// </summary>
-        /// <param name="path">A relative or absolute path for the file that the current <see cref="Microsoft.Win32.SafeHandles.SafeFileHandle" /> instance will encapsulate.</param>
+        /// <param name="path">A relative or absolute path for the file that the current <see cref="SafeFileHandle" /> instance will encapsulate.</param>
         /// <param name="mode">One of the enumeration values that determines how to open or create the file. The default value is <see cref="FileMode.Open" /></param>
         /// <param name="access">A bitwise combination of the enumeration values that determines how the file can be accessed. The default value is <see cref="FileAccess.Read" /></param>
         /// <param name="share">A bitwise combination of the enumeration values that determines how the file will be shared by processes. The default value is <see cref="FileShare.Read" />.</param>
         /// <param name="preallocationSize">The initial allocation size in bytes for the file. A positive value is effective only when a regular file is being created, overwritten, or replaced.
         /// Negative values are not allowed. In other cases (including the default 0 value), it's ignored.</param>
-        /// <param name="options">An object that describes optional <see cref="Microsoft.Win32.SafeHandles.SafeFileHandle" /> parameters to use.</param>
+        /// <param name="options">An object that describes optional <see cref="SafeFileHandle" /> parameters to use.</param>
         /// <exception cref="T:System.ArgumentNullException"><paramref name="path" /> is <see langword="null" />.</exception>
         /// <exception cref="T:System.ArgumentException"><paramref name="path" /> is an empty string (""), contains only white space, or contains one or more invalid characters.
         /// -or-
@@ -170,51 +174,446 @@ namespace System.IO
         // File and Directory UTC APIs treat a DateTimeKind.Unspecified as UTC whereas
         // ToUniversalTime treats this as local.
         internal static DateTimeOffset GetUtcDateTimeOffset(DateTime dateTime)
-            => dateTime.Kind == DateTimeKind.Unspecified
-                ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
-                : dateTime.ToUniversalTime();
+        {
+            if (dateTime.Kind == DateTimeKind.Local)
+                dateTime = dateTime.ToUniversalTime();
+
+            return new DateTimeOffset(dateTime.Ticks, default);
+        }
 
         public static void SetCreationTime(string path, DateTime creationTime)
             => FileSystem.SetCreationTime(Path.GetFullPath(path), creationTime, asDirectory: false);
 
+        /// <summary>
+        /// Sets the date and time the file or directory was created.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the creation date and time information.
+        /// </param>
+        /// <param name="creationTime">
+        /// A <see cref="DateTime"/> containing the value to set for the creation date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in local time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="creationTime"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetCreationTime(SafeFileHandle fileHandle, DateTime creationTime)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetCreationTime(fileHandle, creationTime);
+        }
+
         public static void SetCreationTimeUtc(string path, DateTime creationTimeUtc)
             => FileSystem.SetCreationTime(Path.GetFullPath(path), GetUtcDateTimeOffset(creationTimeUtc), asDirectory: false);
+
+
+        /// <summary>
+        /// Sets the date and time, in coordinated universal time (UTC), that the file or directory was created.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the creation date and time information.
+        /// </param>
+        /// <param name="creationTimeUtc">
+        /// A <see cref="DateTime"/> containing the value to set for the creation date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in UTC time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="creationTimeUtc"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetCreationTimeUtc(SafeFileHandle fileHandle, DateTime creationTimeUtc)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetCreationTime(fileHandle, GetUtcDateTimeOffset(creationTimeUtc));
+        }
 
         public static DateTime GetCreationTime(string path)
             => FileSystem.GetCreationTime(Path.GetFullPath(path)).LocalDateTime;
 
+        /// <summary>
+        /// Returns the creation date and time of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain creation date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the creation date and time for the specified file or
+        /// directory. This value is expressed in local time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetCreationTime(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetCreationTime(fileHandle).LocalDateTime;
+        }
+
         public static DateTime GetCreationTimeUtc(string path)
             => FileSystem.GetCreationTime(Path.GetFullPath(path)).UtcDateTime;
 
+        /// <summary>
+        /// Returns the creation date and time, in coordinated universal time (UTC), of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain creation date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the creation date and time for the specified file or
+        /// directory. This value is expressed in UTC time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetCreationTimeUtc(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetCreationTime(fileHandle).UtcDateTime;
+        }
+
         public static void SetLastAccessTime(string path, DateTime lastAccessTime)
-            => FileSystem.SetLastAccessTime(Path.GetFullPath(path), lastAccessTime, asDirectory: false);
+            => FileSystem.SetLastAccessTime(Path.GetFullPath(path), lastAccessTime, false);
+
+        /// <summary>
+        /// Sets the date and time the specified file or directory was last accessed.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the last access date and time information.
+        /// </param>
+        /// <param name="lastAccessTime">
+        /// A <see cref="DateTime"/> containing the value to set for the last access date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in local time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="lastAccessTime"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetLastAccessTime(SafeFileHandle fileHandle, DateTime lastAccessTime)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetLastAccessTime(fileHandle, lastAccessTime);
+        }
 
         public static void SetLastAccessTimeUtc(string path, DateTime lastAccessTimeUtc)
-            => FileSystem.SetLastAccessTime(Path.GetFullPath(path), GetUtcDateTimeOffset(lastAccessTimeUtc), asDirectory: false);
+            => FileSystem.SetLastAccessTime(Path.GetFullPath(path), GetUtcDateTimeOffset(lastAccessTimeUtc), false);
+
+        /// <summary>
+        /// Sets the date and time, in coordinated universal time (UTC), that the specified file or directory was last accessed.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the last access date and time information.
+        /// </param>
+        /// <param name="lastAccessTimeUtc">
+        /// A <see cref="DateTime"/> containing the value to set for the last access date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in UTC time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="lastAccessTimeUtc"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetLastAccessTimeUtc(SafeFileHandle fileHandle, DateTime lastAccessTimeUtc)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetLastAccessTime(fileHandle, GetUtcDateTimeOffset(lastAccessTimeUtc));
+        }
 
         public static DateTime GetLastAccessTime(string path)
             => FileSystem.GetLastAccessTime(Path.GetFullPath(path)).LocalDateTime;
 
+        /// <summary>
+        /// Returns the last access date and time of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain last access date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the last access date and time for the specified file or
+        /// directory. This value is expressed in local time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetLastAccessTime(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetLastAccessTime(fileHandle).LocalDateTime;
+        }
+
         public static DateTime GetLastAccessTimeUtc(string path)
             => FileSystem.GetLastAccessTime(Path.GetFullPath(path)).UtcDateTime;
 
+        /// <summary>
+        /// Returns the last access date and time, in coordinated universal time (UTC), of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain last access date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the last access date and time for the specified file or
+        /// directory. This value is expressed in UTC time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetLastAccessTimeUtc(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetLastAccessTime(fileHandle).UtcDateTime;
+        }
+
         public static void SetLastWriteTime(string path, DateTime lastWriteTime)
-            => FileSystem.SetLastWriteTime(Path.GetFullPath(path), lastWriteTime, asDirectory: false);
+            => FileSystem.SetLastWriteTime(Path.GetFullPath(path), lastWriteTime, false);
+
+        /// <summary>
+        /// Sets the date and time that the specified file or directory was last written to.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the last write date and time information.
+        /// </param>
+        /// <param name="lastWriteTime">
+        /// A <see cref="DateTime"/> containing the value to set for the last write date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in local time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="lastWriteTime"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetLastWriteTime(SafeFileHandle fileHandle, DateTime lastWriteTime)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetLastWriteTime(fileHandle, lastWriteTime);
+        }
 
         public static void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc)
-            => FileSystem.SetLastWriteTime(Path.GetFullPath(path), GetUtcDateTimeOffset(lastWriteTimeUtc), asDirectory: false);
+            => FileSystem.SetLastWriteTime(Path.GetFullPath(path), GetUtcDateTimeOffset(lastWriteTimeUtc), false);
+
+        /// <summary>
+        /// Sets the date and time, in coordinated universal time (UTC), that the specified file or directory was last written to.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to set the last write date and time information.
+        /// </param>
+        /// <param name="lastWriteTimeUtc">
+        /// A <see cref="DateTime"/> containing the value to set for the last write date and time of <paramref name="fileHandle"/>.
+        /// This value is expressed in UTC time.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="lastWriteTimeUtc"/> specifies a value outside the range of dates, times, or both permitted for this operation.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <exception cref="IOException">
+        /// An I/O error occurred while performing the operation.
+        /// </exception>
+        public static void SetLastWriteTimeUtc(SafeFileHandle fileHandle, DateTime lastWriteTimeUtc)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetLastWriteTime(fileHandle, GetUtcDateTimeOffset(lastWriteTimeUtc));
+        }
 
         public static DateTime GetLastWriteTime(string path)
             => FileSystem.GetLastWriteTime(Path.GetFullPath(path)).LocalDateTime;
 
+        /// <summary>
+        /// Returns the last write date and time of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain last write date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the last write date and time for the specified file or
+        /// directory. This value is expressed in local time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetLastWriteTime(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetLastWriteTime(fileHandle).LocalDateTime;
+        }
+
         public static DateTime GetLastWriteTimeUtc(string path)
             => FileSystem.GetLastWriteTime(Path.GetFullPath(path)).UtcDateTime;
+
+        /// <summary>
+        /// Returns the last write date and time, in coordinated universal time (UTC), of the specified file or directory.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which to obtain last write date and time information.
+        /// </param>
+        /// <returns>
+        /// A <see cref="DateTime" /> structure set to the last write date and time for the specified file or
+        /// directory. This value is expressed in UTC time.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static DateTime GetLastWriteTimeUtc(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetLastWriteTime(fileHandle).UtcDateTime;
+        }
 
         public static FileAttributes GetAttributes(string path)
             => FileSystem.GetAttributes(Path.GetFullPath(path));
 
+        /// <summary>
+        /// Gets the specified <see cref="FileAttributes"/> of the file or directory associated to <paramref name="fileHandle"/>
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which the attributes are to be retrieved.
+        /// </param>
+        /// <returns>
+        /// The <see cref="FileAttributes"/> of the file or directory.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        public static FileAttributes GetAttributes(SafeFileHandle fileHandle)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            return FileSystem.GetAttributes(fileHandle);
+        }
+
         public static void SetAttributes(string path, FileAttributes fileAttributes)
             => FileSystem.SetAttributes(Path.GetFullPath(path), fileAttributes);
+
+        /// <summary>
+        /// Sets the specified <see cref="FileAttributes"/> of the file or directory associated to <paramref name="fileHandle"/>.
+        /// </summary>
+        /// <param name="fileHandle">
+        /// A <see cref="SafeFileHandle" /> to the file or directory for which <paramref name="fileAttributes"/> should be set.
+        /// </param>
+        /// <param name="fileAttributes">
+        /// A bitwise combination of the enumeration values.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="fileHandle"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="UnauthorizedAccessException">
+        /// The caller does not have the required permission.
+        /// </exception>
+        /// <remarks>
+        /// It is not possible to change the compression status of a <see cref="File"/> object
+        /// using the <see cref="SetAttributes(SafeFileHandle, FileAttributes)"/> method.
+        /// </remarks>
+        public static void SetAttributes(SafeFileHandle fileHandle, FileAttributes fileAttributes)
+        {
+            ArgumentNullException.ThrowIfNull(fileHandle);
+            FileSystem.SetAttributes(fileHandle, fileAttributes);
+        }
+
+        /// <summary>Gets the <see cref="T:System.IO.UnixFileMode" /> of the file on the path.</summary>
+        /// <param name="path">The path to the file.</param>
+        /// <returns>The <see cref="T:System.IO.UnixFileMode" /> of the file on the path.</returns>
+        /// <exception cref="T:System.ArgumentException"><paramref name="path" /> is a zero-length string, or contains one or more invalid characters. You can query for invalid characters by using the <see cref="M:System.IO.Path.GetInvalidPathChars" /> method.</exception>
+        /// <exception cref="T:System.ArgumentNullException"><paramref name="path" /> is <see langword="null" />.</exception>
+        /// <exception cref="T:System.UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="T:System.IO.PathTooLongException">The specified path exceeds the system-defined maximum length.</exception>
+        /// <exception cref="T:System.IO.DirectoryNotFoundException">A component of the <paramref name="path" /> is not a directory.</exception>
+        /// <exception cref="T:System.IO.FileNotFoundException">The file cannot be found.</exception>
+        [UnsupportedOSPlatform("windows")]
+        public static UnixFileMode GetUnixFileMode(string path)
+            => GetUnixFileModeCore(path);
+
+        /// <summary>Gets the <see cref="T:System.IO.UnixFileMode" /> of the specified file handle.</summary>
+        /// <param name="fileHandle">The file handle.</param>
+        /// <returns>The <see cref="T:System.IO.UnixFileMode" /> of the file handle.</returns>
+        /// <exception cref="T:System.ObjectDisposedException">The file is closed.</exception>
+        [UnsupportedOSPlatform("windows")]
+        public static UnixFileMode GetUnixFileMode(SafeFileHandle fileHandle)
+            => GetUnixFileModeCore(fileHandle);
+
+        /// <summary>Sets the specified <see cref="T:System.IO.UnixFileMode" /> of the file on the specified path.</summary>
+        /// <param name="path">The path to the file.</param>
+        /// <param name="mode">The unix file mode.</param>
+        /// <exception cref="T:System.ArgumentException"><paramref name="path" /> is a zero-length string, or contains one or more invalid characters. You can query for invalid characters by using the <see cref="M:System.IO.Path.GetInvalidPathChars" /> method.</exception>
+        /// <exception cref="T:System.ArgumentNullException"><paramref name="path" /> is <see langword="null" />.</exception>
+        /// <exception cref="T:System.ArgumentException">The caller attempts to use an invalid file mode.</exception>
+        /// <exception cref="T:System.UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="T:System.IO.PathTooLongException">The specified path exceeds the system-defined maximum length.</exception>
+        /// <exception cref="T:System.IO.DirectoryNotFoundException">A component of the <paramref name="path" /> is not a directory.</exception>
+        /// <exception cref="T:System.IO.FileNotFoundException">The file cannot be found.</exception>
+        [UnsupportedOSPlatform("windows")]
+        public static void SetUnixFileMode(string path, UnixFileMode mode)
+            => SetUnixFileModeCore(path, mode);
+
+        /// <summary>Sets the specified <see cref="T:System.IO.UnixFileMode" /> of the specified file handle.</summary>
+        /// <param name="fileHandle">The file handle.</param>
+        /// <param name="mode">The unix file mode.</param>
+        /// <exception cref="T:System.ArgumentException">The caller attempts to use an invalid file mode.</exception>
+        /// <exception cref="T:System.UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="T:System.ObjectDisposedException">The file is closed.</exception>
+        [UnsupportedOSPlatform("windows")]
+        public static void SetUnixFileMode(SafeFileHandle fileHandle, UnixFileMode mode)
+            => SetUnixFileModeCore(fileHandle, mode);
 
         public static FileStream OpenRead(string path)
             => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -236,7 +635,57 @@ namespace System.IO
         public static void WriteAllText(string path, string? contents)
             => WriteAllText(path, contents, UTF8NoBOM);
 
+        /// <summary>
+        /// Creates a new file, writes the specified string to the file, and then closes the file.
+        /// If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        /// <remarks>
+        /// This method uses UTF-8 encoding without a Byte-Order Mark (BOM), so using the GetPreamble method will return an empty byte array. If it is necessary to
+        /// include a UTF-8 identifier, such as a byte order mark, at the beginning of a file, use the <see cref="WriteAllText(string, ReadOnlySpan{char}, Encoding)"/> method.
+        /// </remarks>
+        public static void WriteAllText(string path, ReadOnlySpan<char> contents)
+            => WriteAllText(path, contents, UTF8NoBOM);
+
         public static void WriteAllText(string path, string? contents, Encoding encoding)
+        {
+            Validate(path, encoding);
+
+            WriteToFile(path, FileMode.Create, contents, encoding);
+        }
+
+        /// <summary>
+        /// Creates a new file, writes the specified string to the file using the specified encoding, and then closes the file.
+        /// If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <param name="encoding">The encoding to apply to the string.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="encoding"/> is <see langword="null"/>.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        public static void WriteAllText(string path, ReadOnlySpan<char> contents, Encoding encoding)
         {
             Validate(path, encoding);
 
@@ -286,11 +735,130 @@ namespace System.IO
 
         public static void WriteAllBytes(string path, byte[] bytes)
         {
-            ArgumentException.ThrowIfNullOrEmpty(path);
             ArgumentNullException.ThrowIfNull(bytes);
+
+            WriteAllBytes(path, new ReadOnlySpan<byte>(bytes));
+        }
+
+        /// <summary>
+        /// Creates a new file, writes the specified byte array to the file, and then closes the file. If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="bytes">The bytes to write to the file.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        public static void WriteAllBytes(string path, ReadOnlySpan<byte> bytes)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
 
             using SafeFileHandle sfh = OpenHandle(path, FileMode.Create, FileAccess.Write, FileShare.Read);
             RandomAccess.WriteAtOffset(sfh, bytes, 0);
+        }
+
+        /// <summary>
+        /// Appends the specified byte array to the end of the file at the given path.
+        /// If the file doesn't exist, this method creates a new file.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="bytes">The bytes to append to the file.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="bytes"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        public static void AppendAllBytes(string path, byte[] bytes)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+
+            AppendAllBytes(path, new ReadOnlySpan<byte>(bytes));
+        }
+
+        /// <summary>
+        /// Appends the specified byte array to the end of the file at the given path.
+        /// If the file doesn't exist, this method creates a new file.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="bytes">The bytes to append to the file.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        public static void AppendAllBytes(string path, ReadOnlySpan<byte> bytes)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+
+            using SafeFileHandle fileHandle = OpenHandle(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            long fileOffset = RandomAccess.GetLength(fileHandle);
+            RandomAccess.WriteAtOffset(fileHandle, bytes, fileOffset);
+        }
+
+        /// <summary>
+        /// Asynchronously appends the specified byte array to the end of the file at the given path.
+        /// If the file doesn't exist, this method creates a new file. If the operation is canceled, the task will return in a canceled state.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="bytes">The bytes to append to the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous append operation.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="bytes"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task AppendAllBytesAsync(string path, byte[] bytes, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+
+            return AppendAllBytesAsync(path, new ReadOnlyMemory<byte>(bytes), cancellationToken);
+        }
+
+        /// <summary>
+        /// Asynchronously appends the specified byte array to the end of the file at the given path.
+        /// If the file doesn't exist, this method creates a new file. If the operation is canceled, the task will return in a canceled state.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="bytes">The bytes to append to the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous append operation.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task AppendAllBytesAsync(string path, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+
+            return cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled(cancellationToken)
+                : Core(path, bytes, cancellationToken);
+
+            static async Task Core(string path, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
+            {
+                using SafeFileHandle fileHandle = OpenHandle(path, FileMode.Append, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous);
+                long fileOffset = RandomAccess.GetLength(fileHandle);
+                await RandomAccess.WriteAtOffsetAsync(fileHandle, bytes, fileOffset, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         public static string[] ReadAllLines(string path)
@@ -322,6 +890,30 @@ namespace System.IO
             return ReadLinesIterator.CreateIterator(path, encoding);
         }
 
+        /// <summary>
+        /// Asynchronously reads the lines of a file.
+        /// </summary>
+        /// <param name="path">The file to read.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>The async enumerable that represents all the lines of the file, or the lines that are the result of a query.</returns>
+        public static IAsyncEnumerable<string> ReadLinesAsync(string path, CancellationToken cancellationToken = default)
+            => ReadLinesAsync(path, Encoding.UTF8, cancellationToken);
+
+        /// <summary>
+        /// Asynchronously reads the lines of a file that has a specified encoding.
+        /// </summary>
+        /// <param name="path">The file to read.</param>
+        /// <param name="encoding">The encoding that is applied to the contents of the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>The async enumerable that represents all the lines of the file, or the lines that are the result of a query.</returns>
+        public static IAsyncEnumerable<string> ReadLinesAsync(string path, Encoding encoding, CancellationToken cancellationToken = default)
+        {
+            Validate(path, encoding);
+
+            StreamReader sr = AsyncStreamReader(path, encoding); // Move first streamReader allocation here so to throw related file exception upfront, which will cause known leaking if user never actually foreach's over the enumerable
+            return IterateFileLinesAsync(sr, path, encoding, cancellationToken);
+        }
+
         public static void WriteAllLines(string path, string[] contents)
             => WriteAllLines(path, (IEnumerable<string>)contents);
 
@@ -338,7 +930,7 @@ namespace System.IO
             InternalWriteAllLines(new StreamWriter(path, false, encoding), contents);
         }
 
-        private static void InternalWriteAllLines(TextWriter writer, IEnumerable<string> contents)
+        private static void InternalWriteAllLines(StreamWriter writer, IEnumerable<string> contents)
         {
             Debug.Assert(writer != null);
             Debug.Assert(contents != null);
@@ -355,7 +947,61 @@ namespace System.IO
         public static void AppendAllText(string path, string? contents)
             => AppendAllText(path, contents, UTF8NoBOM);
 
+        /// <summary>
+        /// Appends the specified string to the file, creating the file if it does not already exist.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        /// <remarks>
+        /// Given a string and a file path, this method opens the specified file, appends the string to the end of the file using the specified encoding,
+        /// and then closes the file. The file handle is guaranteed to be closed by this method, even if exceptions are raised. The method creates the file
+        /// if it doesn't exist, but it doesn't create new directories. Therefore, the value of the path parameter must contain existing directories.
+        /// </remarks>
+        public static void AppendAllText(string path, ReadOnlySpan<char> contents)
+            => AppendAllText(path, contents, UTF8NoBOM);
+
         public static void AppendAllText(string path, string? contents, Encoding encoding)
+        {
+            Validate(path, encoding);
+
+            WriteToFile(path, FileMode.Append, contents, encoding);
+        }
+
+        /// <summary>
+        /// Appends the specified string to the file, creating the file if it does not already exist.
+        /// </summary>
+        /// <param name="path">The file to append to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <param name="encoding">The encoding to apply to the string.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="encoding"/> is <see langword="null"/>.</exception>
+        /// <exception cref="PathTooLongException">The specified path, file name, or both exceed the system-defined maximum length.</exception>
+        /// <exception cref="DirectoryNotFoundException">The specified path is invalid (for example, it is on an unmapped drive).</exception>
+        /// <exception cref="IOException">An I/O error occurred while opening the file.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is read-only.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a file that is hidden.</exception>
+        /// <exception cref="UnauthorizedAccessException"><paramref name="path"/> specified a directory.</exception>
+        /// <exception cref="UnauthorizedAccessException">This operation is not supported on the current platform.</exception>
+        /// <exception cref="UnauthorizedAccessException">The caller does not have the required permission.</exception>
+        /// <exception cref="NotSupportedException"><paramref name="path"/> is in an invalid format.</exception>
+        /// <remarks>
+        /// Given a string and a file path, this method opens the specified file, appends the string to the end of the file using the specified encoding,
+        /// and then closes the file. The file handle is guaranteed to be closed by this method, even if exceptions are raised. The method creates the file
+        /// if it doesn't exist, but it doesn't create new directories. Therefore, the value of the path parameter must contain existing directories.
+        /// </remarks>
+        public static void AppendAllText(string path, ReadOnlySpan<char> contents, Encoding encoding)
         {
             Validate(path, encoding);
 
@@ -375,8 +1021,11 @@ namespace System.IO
         public static void Replace(string sourceFileName, string destinationFileName, string? destinationBackupFileName)
             => Replace(sourceFileName, destinationFileName, destinationBackupFileName, ignoreMetadataErrors: false);
 
-        public static void Replace(string sourceFileName!!, string destinationFileName!!, string? destinationBackupFileName, bool ignoreMetadataErrors)
+        public static void Replace(string sourceFileName, string destinationFileName, string? destinationBackupFileName, bool ignoreMetadataErrors)
         {
+            ArgumentNullException.ThrowIfNull(sourceFileName);
+            ArgumentNullException.ThrowIfNull(destinationFileName);
+
             FileSystem.ReplaceFile(
                 Path.GetFullPath(sourceFileName),
                 Path.GetFullPath(destinationFileName),
@@ -412,12 +1061,18 @@ namespace System.IO
         }
 
         [SupportedOSPlatform("windows")]
-        public static void Encrypt(string path!!)
-            => FileSystem.Encrypt(path);
+        public static void Encrypt(string path)
+        {
+            ArgumentNullException.ThrowIfNull(path);
+            FileSystem.Encrypt(path);
+        }
 
         [SupportedOSPlatform("windows")]
-        public static void Decrypt(string path!!)
-            => FileSystem.Decrypt(path);
+        public static void Decrypt(string path)
+        {
+            ArgumentNullException.ThrowIfNull(path);
+            FileSystem.Decrypt(path);
+        }
 
         // If we use the path-taking constructors we will not have FileOptions.Asynchronous set and
         // we will have asynchronous file access faked by the thread pool. We want the real thing.
@@ -426,15 +1081,10 @@ namespace System.IO
                 new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultBufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan),
                 encoding, detectEncodingFromByteOrderMarks: true);
 
-        private static StreamWriter AsyncStreamWriter(string path, Encoding encoding, bool append)
-            => new StreamWriter(
-                new FileStream(path, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read, DefaultBufferSize, FileOptions.Asynchronous),
-                encoding);
-
-        public static Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default)
             => ReadAllTextAsync(path, Encoding.UTF8, cancellationToken);
 
-        public static Task<string> ReadAllTextAsync(string path, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task<string> ReadAllTextAsync(string path, Encoding encoding, CancellationToken cancellationToken = default)
         {
             Validate(path, encoding);
 
@@ -476,10 +1126,35 @@ namespace System.IO
             }
         }
 
-        public static Task WriteAllTextAsync(string path, string? contents, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task WriteAllTextAsync(string path, string? contents, CancellationToken cancellationToken = default)
             => WriteAllTextAsync(path, contents, UTF8NoBOM, cancellationToken);
 
-        public static Task WriteAllTextAsync(string path, string? contents, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
+        /// <summary>
+        /// Asynchronously creates a new file, writes the specified string to the file, and then closes the file.
+        /// If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous write operation.</returns>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task WriteAllTextAsync(string path, ReadOnlyMemory<char> contents, CancellationToken cancellationToken = default)
+            => WriteAllTextAsync(path, contents, UTF8NoBOM, cancellationToken);
+
+        public static Task WriteAllTextAsync(string path, string? contents, Encoding encoding, CancellationToken cancellationToken = default)
+            => WriteAllTextAsync(path, contents.AsMemory(), encoding, cancellationToken);
+
+        /// <summary>
+        /// Asynchronously creates a new file, writes the specified string to the file using the specified encoding, and then closes the file.
+        /// If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="contents">The characters to write to the file.</param>
+        /// <param name="encoding">The encoding to apply to the string.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous write operation.</returns>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task WriteAllTextAsync(string path, ReadOnlyMemory<char> contents, Encoding encoding, CancellationToken cancellationToken = default)
         {
             Validate(path, encoding);
 
@@ -491,7 +1166,7 @@ namespace System.IO
             return WriteToFileAsync(path, FileMode.Create, contents, encoding, cancellationToken);
         }
 
-        public static Task<byte[]> ReadAllBytesAsync(string path, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task<byte[]> ReadAllBytesAsync(string path, CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -580,26 +1255,42 @@ namespace System.IO
             }
         }
 
-        public static Task WriteAllBytesAsync(string path, byte[] bytes, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task WriteAllBytesAsync(string path, byte[] bytes, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+
+            return WriteAllBytesAsync(path, new ReadOnlyMemory<byte>(bytes), cancellationToken);
+        }
+
+        /// <summary>
+        /// Asynchronously creates a new file, writes the specified byte array to the file, and then closes the file. If the target file already exists, it is truncated and overwritten.
+        /// </summary>
+        /// <param name="path">The file to write to.</param>
+        /// <param name="bytes">The bytes to write to the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous write operation.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+        /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task WriteAllBytesAsync(string path, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
-            ArgumentNullException.ThrowIfNull(bytes);
 
             return cancellationToken.IsCancellationRequested
                 ? Task.FromCanceled(cancellationToken)
                 : Core(path, bytes, cancellationToken);
 
-            static async Task Core(string path, byte[] bytes, CancellationToken cancellationToken)
+            static async Task Core(string path, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
             {
                 using SafeFileHandle sfh = OpenHandle(path, FileMode.Create, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous);
                 await RandomAccess.WriteAtOffsetAsync(sfh, bytes, 0, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        public static Task<string[]> ReadAllLinesAsync(string path, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task<string[]> ReadAllLinesAsync(string path, CancellationToken cancellationToken = default)
             => ReadAllLinesAsync(path, Encoding.UTF8, cancellationToken);
 
-        public static Task<string[]> ReadAllLinesAsync(string path, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task<string[]> ReadAllLinesAsync(string path, Encoding encoding, CancellationToken cancellationToken = default)
         {
             Validate(path, encoding);
 
@@ -628,19 +1319,37 @@ namespace System.IO
             }
         }
 
-        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, CancellationToken cancellationToken = default)
             => WriteAllLinesAsync(path, contents, UTF8NoBOM, cancellationToken);
 
-        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, CancellationToken cancellationToken = default) =>
+            WriteAllLinesAsync(path, contents, encoding, append: false, cancellationToken);
+
+        private static Task WriteAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, bool append, CancellationToken cancellationToken)
         {
             Validate(path, encoding);
             ArgumentNullException.ThrowIfNull(contents);
-            return cancellationToken.IsCancellationRequested
-                ? Task.FromCanceled(cancellationToken)
-                : InternalWriteAllLinesAsync(AsyncStreamWriter(path, encoding, append: false), contents, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled(cancellationToken);
+            }
+
+            StreamWriter writer;
+            try
+            {
+                writer = new StreamWriter(
+                    new FileStream(path, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read, DefaultBufferSize, FileOptions.Asynchronous),
+                    encoding);
+            }
+            catch (Exception e)
+            {
+                return Task.FromException(e);
+            }
+
+            return InternalWriteAllLinesAsync(writer, contents, cancellationToken);
         }
 
-        private static async Task InternalWriteAllLinesAsync(TextWriter writer, IEnumerable<string> contents, CancellationToken cancellationToken)
+        private static async Task InternalWriteAllLinesAsync(StreamWriter writer, IEnumerable<string> contents, CancellationToken cancellationToken)
         {
             Debug.Assert(writer != null);
             Debug.Assert(contents != null);
@@ -649,19 +1358,40 @@ namespace System.IO
             {
                 foreach (string line in contents)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await writer.WriteLineAsync(line).ConfigureAwait(false);
+                    await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                 }
 
-                cancellationToken.ThrowIfCancellationRequested();
-                await writer.FlushAsync().ConfigureAwait(false);
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
         }
 
-        public static Task AppendAllTextAsync(string path, string? contents, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task AppendAllTextAsync(string path, string? contents, CancellationToken cancellationToken = default)
             => AppendAllTextAsync(path, contents, UTF8NoBOM, cancellationToken);
 
-        public static Task AppendAllTextAsync(string path, string? contents, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
+        /// <summary>
+        /// Asynchronously opens a file or creates a file if it does not already exist, appends the specified string to the file, and then closes the file.
+        /// </summary>
+        /// <param name="path">The file to append the specified string to.</param>
+        /// <param name="contents">The characters to append to the file.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous append operation.</returns>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task AppendAllTextAsync(string path, ReadOnlyMemory<char> contents, CancellationToken cancellationToken = default)
+            => AppendAllTextAsync(path, contents, UTF8NoBOM, cancellationToken);
+
+        public static Task AppendAllTextAsync(string path, string? contents, Encoding encoding, CancellationToken cancellationToken = default)
+            => AppendAllTextAsync(path, contents.AsMemory(), encoding, cancellationToken);
+
+        /// <summary>
+        /// Asynchronously opens a file or creates the file if it does not already exist, appends the specified string to the file using the specified encoding, and then closes the file.
+        /// </summary>
+        /// <param name="path">The file to append the specified string to.</param>
+        /// <param name="contents">The characters to append to the file.</param>
+        /// <param name="encoding">The character encoding to use.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests. The default value is <see cref="CancellationToken.None"/>.</param>
+        /// <returns>A task that represents the asynchronous append operation.</returns>
+        /// <exception cref="OperationCanceledException">The cancellation token was canceled. This exception is stored into the returned task.</exception>
+        public static Task AppendAllTextAsync(string path, ReadOnlyMemory<char> contents, Encoding encoding, CancellationToken cancellationToken = default)
         {
             Validate(path, encoding);
 
@@ -673,17 +1403,11 @@ namespace System.IO
             return WriteToFileAsync(path, FileMode.Append, contents, encoding, cancellationToken);
         }
 
-        public static Task AppendAllLinesAsync(string path, IEnumerable<string> contents, CancellationToken cancellationToken = default(CancellationToken))
+        public static Task AppendAllLinesAsync(string path, IEnumerable<string> contents, CancellationToken cancellationToken = default)
             => AppendAllLinesAsync(path, contents, UTF8NoBOM, cancellationToken);
 
-        public static Task AppendAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, CancellationToken cancellationToken = default(CancellationToken))
-        {
-            Validate(path, encoding);
-            ArgumentNullException.ThrowIfNull(contents);
-            return cancellationToken.IsCancellationRequested
-                ? Task.FromCanceled(cancellationToken)
-                : InternalWriteAllLinesAsync(AsyncStreamWriter(path, encoding, append: true), contents, cancellationToken);
-        }
+        public static Task AppendAllLinesAsync(string path, IEnumerable<string> contents, Encoding encoding, CancellationToken cancellationToken = default) =>
+            WriteAllLinesAsync(path, contents, encoding, append: true, cancellationToken);
 
         /// <summary>
         /// Creates a file symbolic link identified by <paramref name="path"/> that points to <paramref name="pathToTarget"/>.
@@ -776,7 +1500,7 @@ namespace System.IO
             }
         }
 
-        private static void WriteToFile(string path, FileMode mode, string? contents, Encoding encoding)
+        private static void WriteToFile(string path, FileMode mode, ReadOnlySpan<char> contents, Encoding encoding)
         {
             ReadOnlySpan<byte> preamble = encoding.GetPreamble();
             int preambleSize = preamble.Length;
@@ -784,7 +1508,7 @@ namespace System.IO
             using SafeFileHandle fileHandle = OpenHandle(path, mode, FileAccess.Write, FileShare.Read, FileOptions.None, GetPreallocationSize(mode, contents, encoding, preambleSize));
             long fileOffset = mode == FileMode.Append && fileHandle.CanSeek ? RandomAccess.GetLength(fileHandle) : 0;
 
-            if (string.IsNullOrEmpty(contents))
+            if (contents.IsEmpty)
             {
                 if (preambleSize > 0 // even if the content is empty, we want to store the preamble
                     && fileOffset == 0) // if we're appending to a file that already has data, don't write the preamble.
@@ -794,9 +1518,9 @@ namespace System.IO
                 return;
             }
 
-            int bytesNeeded = preambleSize + encoding.GetMaxByteCount(Math.Min(contents.Length, ChunkSize));
+            int bytesNeeded = checked(preambleSize + encoding.GetMaxByteCount(Math.Min(contents.Length, ChunkSize)));
             byte[]? rentedBytes = null;
-            Span<byte> bytes = bytesNeeded <= 1024 ? stackalloc byte[1024] : (rentedBytes = ArrayPool<byte>.Shared.Rent(bytesNeeded));
+            Span<byte> bytes = (uint)bytesNeeded <= 1024 ? stackalloc byte[1024] : (rentedBytes = ArrayPool<byte>.Shared.Rent(bytesNeeded));
 
             try
             {
@@ -810,12 +1534,11 @@ namespace System.IO
                 }
 
                 Encoder encoder = encoding.GetEncoder();
-                ReadOnlySpan<char> remaining = contents;
-                while (!remaining.IsEmpty)
+                while (!contents.IsEmpty)
                 {
-                    ReadOnlySpan<char> toEncode = remaining.Slice(0, Math.Min(remaining.Length, ChunkSize));
-                    remaining = remaining.Slice(toEncode.Length);
-                    int encoded = encoder.GetBytes(toEncode, bytes.Slice(preambleSize), flush: remaining.IsEmpty);
+                    ReadOnlySpan<char> toEncode = contents.Slice(0, Math.Min(contents.Length, ChunkSize));
+                    contents = contents.Slice(toEncode.Length);
+                    int encoded = encoder.GetBytes(toEncode, bytes.Slice(preambleSize), flush: contents.IsEmpty);
                     Span<byte> toStore = bytes.Slice(0, preambleSize + encoded);
 
                     RandomAccess.WriteAtOffset(fileHandle, toStore, fileOffset);
@@ -833,15 +1556,15 @@ namespace System.IO
             }
         }
 
-        private static async Task WriteToFileAsync(string path, FileMode mode, string? contents, Encoding encoding, CancellationToken cancellationToken)
+        private static async Task WriteToFileAsync(string path, FileMode mode, ReadOnlyMemory<char> contents, Encoding encoding, CancellationToken cancellationToken)
         {
             ReadOnlyMemory<byte> preamble = encoding.GetPreamble();
             int preambleSize = preamble.Length;
 
-            using SafeFileHandle fileHandle = OpenHandle(path, mode, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous, GetPreallocationSize(mode, contents, encoding, preambleSize));
+            using SafeFileHandle fileHandle = OpenHandle(path, mode, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous, GetPreallocationSize(mode, contents.Span, encoding, preambleSize));
             long fileOffset = mode == FileMode.Append && fileHandle.CanSeek ? RandomAccess.GetLength(fileHandle) : 0;
 
-            if (string.IsNullOrEmpty(contents))
+            if (contents.IsEmpty)
             {
                 if (preambleSize > 0 // even if the content is empty, we want to store the preamble
                     && fileOffset == 0) // if we're appending to a file that already has data, don't write the preamble.
@@ -865,12 +1588,11 @@ namespace System.IO
                 }
 
                 Encoder encoder = encoding.GetEncoder();
-                ReadOnlyMemory<char> remaining = contents.AsMemory();
-                while (!remaining.IsEmpty)
+                while (!contents.IsEmpty)
                 {
-                    ReadOnlyMemory<char> toEncode = remaining.Slice(0, Math.Min(remaining.Length, ChunkSize));
-                    remaining = remaining.Slice(toEncode.Length);
-                    int encoded = encoder.GetBytes(toEncode.Span, bytes.AsSpan(preambleSize), flush: remaining.IsEmpty);
+                    ReadOnlyMemory<char> toEncode = contents.Slice(0, Math.Min(contents.Length, ChunkSize));
+                    contents = contents.Slice(toEncode.Length);
+                    int encoded = encoder.GetBytes(toEncode.Span, bytes.AsSpan(preambleSize), flush: contents.IsEmpty);
                     ReadOnlyMemory<byte> toStore = new ReadOnlyMemory<byte>(bytes, 0, preambleSize + encoded);
 
                     await RandomAccess.WriteAtOffsetAsync(fileHandle, toStore, fileOffset, cancellationToken).ConfigureAwait(false);
@@ -885,10 +1607,10 @@ namespace System.IO
             }
         }
 
-        private static long GetPreallocationSize(FileMode mode, string? contents, Encoding encoding, int preambleSize)
+        private static long GetPreallocationSize(FileMode mode, ReadOnlySpan<char> contents, Encoding encoding, int preambleSize)
         {
             // for a single write operation, setting preallocationSize has no perf benefit, as it requires an additional sys-call
-            if (contents is null || contents.Length < ChunkSize)
+            if (contents.Length < ChunkSize)
             {
                 return 0;
             }
@@ -900,6 +1622,24 @@ namespace System.IO
             }
 
             return preambleSize + encoding.GetByteCount(contents);
+        }
+
+        private static async IAsyncEnumerable<string> IterateFileLinesAsync(StreamReader sr, string path, Encoding encoding, CancellationToken ctEnumerable, [EnumeratorCancellation] CancellationToken ctEnumerator = default)
+        {
+            if (!sr.BaseStream.CanRead)
+            {
+                sr = AsyncStreamReader(path, encoding);
+            }
+
+            using (sr)
+            {
+                using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ctEnumerable, ctEnumerator);
+                string? line;
+                while ((line = await sr.ReadLineAsync(cts.Token).ConfigureAwait(false)) is not null)
+                {
+                    yield return line;
+                }
+            }
         }
     }
 }

@@ -40,38 +40,6 @@
  *     which colors. The color graph then becomes the reduced SCC graph.
  */
 
-// Is this class bridged or not, and should its dependencies be scanned or not?
-// The result of this callback will be cached for use by is_opaque_object later.
-static MonoGCBridgeObjectKind
-class_kind (MonoClass *klass)
-{
-	MonoGCBridgeObjectKind res = mono_bridge_callbacks.bridge_class_kind (klass);
-
-	/* If it's a bridge, nothing we can do about it. */
-	if (res == GC_BRIDGE_TRANSPARENT_BRIDGE_CLASS || res == GC_BRIDGE_OPAQUE_BRIDGE_CLASS)
-		return res;
-
-	/* Non bridge classes with no pointers will never point to a bridge, so we can savely ignore them. */
-	if (!m_class_has_references (klass)) {
-		SGEN_LOG (6, "class %s is opaque\n", m_class_get_name (klass));
-		return GC_BRIDGE_OPAQUE_CLASS;
-	}
-
-	/* Some arrays can be ignored */
-	if (m_class_get_rank (klass) == 1) {
-		MonoClass *elem_class = m_class_get_element_class (klass);
-
-		/* FIXME the bridge check can be quite expensive, cache it at the class level. */
-		/* An array of a sealed type that is not a bridge will never get to a bridge */
-		if ((mono_class_get_flags (elem_class) & TYPE_ATTRIBUTE_SEALED) && !m_class_has_references (elem_class) && !mono_bridge_callbacks.bridge_class_kind (elem_class)) {
-			SGEN_LOG (6, "class %s is opaque\n", m_class_get_name (klass));
-			return GC_BRIDGE_OPAQUE_CLASS;
-		}
-	}
-
-	return GC_BRIDGE_TRANSPARENT_CLASS;
-}
-
 //enable usage logging
 // #define DUMP_GRAPH 1
 
@@ -443,7 +411,7 @@ static gboolean scc_precise_merge;
 static unsigned int
 mix_hash (uintptr_t source)
 {
-	unsigned int hash = source;
+	unsigned int hash = GUINTPTR_TO_UINT (source);
 
 	// The full hash determines whether two colors can be merged-- sometimes exclusively.
 	// This value changes every GC, so XORing it in before performing the hash will make the
@@ -453,9 +421,11 @@ mix_hash (uintptr_t source)
 	// Actual hash
 	hash = (((hash * 215497) >> 16) ^ ((hash * 1823231) + hash));
 
+MONO_DISABLE_WARNING(4127) /* conditional expression is constant */
 	// Mix in highest bits on 64-bit systems only
 	if (sizeof (source) > 4)
-		hash = hash ^ ((source >> 31) >> 1);
+		hash = hash ^ GUINTPTR_TO_UINT ((source >> 31) >> 1);
+MONO_RESTORE_WARNING
 
 	return hash;
 }
@@ -679,7 +649,7 @@ push_all (ScanData *data)
 {
 	GCObject *obj = data->obj;
 	char *start = (char*)obj;
-	mword desc = sgen_obj_get_descriptor_safe (obj);
+	SgenDescriptor desc = sgen_obj_get_descriptor_safe (obj);
 
 #if DUMP_GRAPH
 	printf ("+scanning %s (%p) index %d color %p\n", safe_name_bridge (data->obj), data->obj, data->index, data->color);
@@ -739,7 +709,7 @@ compute_low (ScanData *data)
 {
 	GCObject *obj = data->obj;
 	char *start = (char*)obj;
-	mword desc = sgen_obj_get_descriptor_safe (obj);
+	SgenDescriptor desc = sgen_obj_get_descriptor_safe (obj);
 
 	#include "sgen/sgen-scan-object.h"
 }
@@ -817,8 +787,10 @@ create_scc (ScanData *data)
 			g_error ("Invalid state when building SCC %d", other->state);
 		}
 
-		if (other->is_bridge)
+		if (other->is_bridge) {
+			g_assert (color_data);
 			dyn_array_ptr_add (&color_data->bridges, other->obj);
+		}
 
 		// Maybe we should make sure we are not adding duplicates here. It is not really a problem
 		// since we will get rid of duplicates before submitting the SCCs to the client in gather_xrefs
@@ -1006,7 +978,7 @@ processing_stw_step (void)
 	for (i = 0; i < bridge_count ; ++i)
 		register_bridge_object ((GCObject *)dyn_array_ptr_get (&registered_bridges, i));
 
-	setup_time = step_timer (&curtime);
+	setup_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 	for (i = 0; i < bridge_count; ++i) {
 		ScanData *sd = find_data ((GCObject *)dyn_array_ptr_get (&registered_bridges, i));
@@ -1018,7 +990,7 @@ processing_stw_step (void)
 		}
 	}
 
-	tarjan_time = step_timer (&curtime);
+	tarjan_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 #if defined (DUMP_GRAPH)
 	printf ("----summary----\n");
@@ -1124,7 +1096,7 @@ processing_build_callback_data (int generation)
 		}
 	}
 
-	scc_setup_time = step_timer (&curtime);
+	scc_setup_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 	// Eliminate non-visible SCCs from the SCC list and redistribute xrefs
 	for (cur = root_color_bucket; cur; cur = cur->next) {
@@ -1141,7 +1113,7 @@ processing_build_callback_data (int generation)
 		}
 	}
 
-	gather_xref_time = step_timer (&curtime);
+	gather_xref_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 #if defined (DUMP_GRAPH)
 	printf ("TOTAL XREFS %d\n", xref_count);
@@ -1170,7 +1142,7 @@ processing_build_callback_data (int generation)
 	}
 
 	g_assertf (xref_count == xref_index, "xref_count is %d but we added %d xrefs", xref_count, xref_index);
-	xref_setup_time = step_timer (&curtime);
+	xref_setup_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 #if defined (DUMP_GRAPH)
 	printf ("---xrefs:\n");
@@ -1199,7 +1171,7 @@ processing_after_callback (int generation)
 	/* cleanup */
 	cleanup ();
 
-	cleanup_time = step_timer (&curtime);
+	cleanup_time = GINT64_TO_SIZE (step_timer (&curtime));
 
 	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_GC, "GC_TAR_BRIDGE bridges %d objects %d opaque %d colors %d colors-bridged %d colors-visible %d xref %d cache-hit %d cache-%s %d cache-miss %d setup %.2fms tarjan %.2fms scc-setup %.2fms gather-xref %.2fms xref-setup %.2fms cleanup %.2fms",
 		bridge_count, object_count, ignored_objects,
@@ -1256,7 +1228,6 @@ sgen_tarjan_bridge_init (SgenBridgeProcessor *collector)
 	collector->processing_stw_step = processing_stw_step;
 	collector->processing_build_callback_data = processing_build_callback_data;
 	collector->processing_after_callback = processing_after_callback;
-	collector->class_kind = class_kind;
 	collector->register_finalized_object = register_finalized_object;
 	collector->describe_pointer = describe_pointer;
 	collector->set_config = set_config;

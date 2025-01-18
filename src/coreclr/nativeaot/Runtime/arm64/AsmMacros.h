@@ -60,17 +60,10 @@ PTFF_SAVE_ALL_SCRATCH   equ 0x3FFFF800  ;; NOTE: X0-X18
 PTFF_SAVE_FP            equ 0x40000000
 PTFF_SAVE_LR            equ 0x80000000
 
-;; NOTE: The following flags represent the upper 32 bits of the PInvokeTransitionFrameFlags.
-;; Since the assembler doesn't support 64 bit constants in any way, we need to define just
-;; the upper bits here
-PTFF_X0_IS_GCREF_HI     equ 0x00000001 ;; iff PTFF_SAVE_X0 : set->x0 is Object, clear->x0 is scalar
-PTFF_X0_IS_BYREF_HI     equ 0x00000002 ;; iff PTFF_SAVE_X0 : set->x0 is ByRef, clear->x0 is Object or scalar
-PTFF_X1_IS_GCREF_HI     equ 0x00000004 ;; iff PTFF_SAVE_X1 : set->x1 is Object, clear->x1 is scalar
-PTFF_X1_IS_BYREF_HI     equ 0x00000008 ;; iff PTFF_SAVE_X1 : set->x1 is ByRef, clear->x1 is Object or scalar
-PTFF_THREAD_ABORT_HI    equ 0x00000010 ;; indicates that ThreadAbortException should be thrown when returning from the transition
+PTFF_THREAD_HIJACK_HI   equ 0x00000002           // upper 32 bits of the PTFF_THREAD_HIJACK
 
 ;; Bit position for the flags above, to be used with tbz / tbnz instructions
-PTFF_THREAD_ABORT_BIT   equ 36
+PTFF_THREAD_ABORT_BIT   equ 32
 
 ;; These must match the TrapThreadsFlags enum
 TrapThreadsFlags_None            equ 0
@@ -87,8 +80,8 @@ STATUS_REDHAWK_THREAD_ABORT      equ 0x43
 ;;
 ;; Rename fields of nested structs
 ;;
-OFFSETOF__Thread__m_alloc_context__alloc_ptr        equ OFFSETOF__Thread__m_rgbAllocContextBuffer + OFFSETOF__gc_alloc_context__alloc_ptr
-OFFSETOF__Thread__m_alloc_context__alloc_limit      equ OFFSETOF__Thread__m_rgbAllocContextBuffer + OFFSETOF__gc_alloc_context__alloc_limit
+OFFSETOF__Thread__m_alloc_context__alloc_ptr        equ OFFSETOF__Thread__m_eeAllocContext + OFFSETOF__ee_alloc_context__m_rgbAllocContextBuffer + OFFSETOF__gc_alloc_context__alloc_ptr
+OFFSETOF__Thread__m_eeAllocContext__combined_limit  equ OFFSETOF__Thread__m_eeAllocContext + OFFSETOF__ee_alloc_context__combined_limit
 
 ;;
 ;; IMPORTS
@@ -96,9 +89,7 @@ OFFSETOF__Thread__m_alloc_context__alloc_limit      equ OFFSETOF__Thread__m_rgbA
     EXTERN RhpGcAlloc
     EXTERN RhExceptionHandling_FailedAllocation
     EXTERN RhDebugBreak
-    EXTERN RhpWaitForSuspend2
     EXTERN RhpWaitForGC2
-    EXTERN RhpReversePInvokeAttachOrTrapThread2
     EXTERN RhThrowHwEx
     EXTERN RhThrowEx
     EXTERN RhRethrow
@@ -110,6 +101,15 @@ OFFSETOF__Thread__m_alloc_context__alloc_limit      equ OFFSETOF__Thread__m_rgbA
     EXTERN g_ephemeral_high
     EXTERN g_card_table
 
+#ifdef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES
+    EXTERN g_card_bundle_table
+#endif
+
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+    EXTERN g_write_watch_table
+#endif
+
+    EXTERN g_cpuFeatures
 
 ;; -----------------------------------------------------------------------------
 ;; Macro used to assign an alternate name to a symbol containing characters normally disallowed in a symbol
@@ -148,22 +148,22 @@ MovInstr SETS "movk"
         $MovInstr $Reg, #(($ConstantLo):AND:0xffff)
     MEND
 
-;; -----------------------------------------------------------------------------
-;;
-;; Macro to export a pointer to an address inside a stub as a 64-bit variable
-;;
+;;-----------------------------------------------------------------------------
+;; Macro for loading a 64bit value of a global variable into a register
     MACRO
-        EXPORT_POINTER_TO_ADDRESS $Name
-        LCLS CodeLbl
-CodeLbl SETS "$Name":CC:"Lbl"
-$CodeLbl
-        AREA | .rdata | , ALIGN = 8, DATA, READONLY
-$Name
-        DCQ         $CodeLbl
-        EXPORT      $Name
-        TEXTAREA
-        ROUT
+        PREPARE_EXTERNAL_VAR_INDIRECT $Name, $Reg
 
+        adrp $Reg, $Name
+        ldr  $Reg, [$Reg, $Name]
+    MEND
+
+;; ---------------------------------------------------------------------------- -
+;; Macro for loading a 32bit value of a global variable into a register
+    MACRO
+        PREPARE_EXTERNAL_VAR_INDIRECT_W $Name, $RegNum
+
+        adrp x$RegNum, $Name
+        ldr  w$RegNum, [x$RegNum, $Name]
     MEND
 
 ;; -----------------------------------------------------------------------------
@@ -185,18 +185,16 @@ $ReturnAddressName
 
 ;; -----------------------------------------------------------------------------
 ;;
-;; Macro to get a pointer to the Thread* object for the currently executing thread
+;; Macro to get a pointer to a threadlocal symbol for the currently executing thread
 ;;
 
 __tls_array     equ 0x58    ;; offsetof(TEB, ThreadLocalStoragePointer)
 
-    EXTERN _tls_index
-
-    GBLS __SECTIONREL_tls_CurrentThread
-__SECTIONREL_tls_CurrentThread SETS "SECTIONREL_tls_CurrentThread"
-
     MACRO
-        INLINE_GETTHREAD $destReg, $trashReg
+        INLINE_GET_TLS_VAR $destReg, $trashReg, $variable
+
+        EXTERN _tls_index
+        EXTERN $variable
 
         ;; The following macro variables are just some assembler magic to get the name of the 32-bit version
         ;; of $trashReg. It does it by string manipulation. Replaces something like x3 with w3.
@@ -204,31 +202,26 @@ __SECTIONREL_tls_CurrentThread SETS "SECTIONREL_tls_CurrentThread"
 TrashRegister32Bit SETS "$trashReg"
 TrashRegister32Bit SETS "w":CC:("$TrashRegister32Bit":RIGHT:((:LEN:TrashRegister32Bit) - 1))
 
-        ldr         $trashReg, =_tls_index
-        ldr         $TrashRegister32Bit, [$trashReg]
+        adrp        $destReg, _tls_index
+        ldr         $TrashRegister32Bit, [$destReg, _tls_index]
         ldr         $destReg, [xpr, #__tls_array]
-        ldr         $destReg, [$destReg, $trashReg lsl #3]
-        ldr         $trashReg, =$__SECTIONREL_tls_CurrentThread
-        ldr         $trashReg, [$trashReg]
-        add         $destReg, $destReg, $trashReg
+        ldr         $destReg, [$destReg, $TrashRegister32Bit uxtw #3]
+        add         $destReg, $destReg, #0, lsl #0xC
+        RELOC       0xA, $variable                          ;; IMAGE_REL_ARM64_SECREL_HIGH12A
+        add         $destReg, $destReg, #0, lsl #0
+        RELOC       0x9, $variable                          ;; IMAGE_REL_ARM64_SECREL_LOW12A
     MEND
 
-    ;; INLINE_GETTHREAD_CONSTANT_POOL macro has to be used after the last function in the .asm file that used
-    ;; INLINE_GETTHREAD. Optionally, it can be also used after any function that used INLINE_GETTHREAD
-    ;; to improve density, or to reduce distance betweeen the constant pool and its use.
+;; -----------------------------------------------------------------------------
+;;
+;; Macro to get a pointer to the Thread* object for the currently executing thread
+;;
     MACRO
-        INLINE_GETTHREAD_CONSTANT_POOL
-        EXTERN tls_CurrentThread
+        INLINE_GETTHREAD $destReg, $trashReg
 
-    ;; Section relocs are 32 bits. Using an extra DCD initialized to zero for 8-byte alignment.
-$__SECTIONREL_tls_CurrentThread
-        DCD tls_CurrentThread
-        RELOC 8, tls_CurrentThread      ;; SECREL
-        DCD 0
-
-__SECTIONREL_tls_CurrentThread SETS "$__SECTIONREL_tls_CurrentThread":CC:"_"
-
+        INLINE_GET_TLS_VAR $destReg, $trashReg, tls_CurrentThread
     MEND
+
 
     MACRO
         INLINE_THREAD_UNHIJACK $threadReg, $trashReg1, $trashReg2
@@ -251,7 +244,7 @@ __SECTIONREL_tls_CurrentThread SETS "$__SECTIONREL_tls_CurrentThread":CC:"_"
 ;;
 
     MACRO
-        ArmInterlockedOperationBarrier
+        InterlockedOperationBarrier
 
         dmb         ish
     MEND
@@ -318,8 +311,7 @@ DEFAULT_FRAME_SAVE_FLAGS equ PTFF_SAVE_ALL_PRESERVED + PTFF_SAVE_SP
 
 #ifdef FEATURE_GC_STRESS
     SETALIAS THREAD__HIJACKFORGCSTRESS, ?HijackForGcStress@Thread@@SAXPEAUPAL_LIMITED_CONTEXT@@@Z
-    SETALIAS REDHAWKGCINTERFACE__STRESSGC, ?StressGc@RedhawkGCInterface@@SAXXZ
 
-    EXTERN $REDHAWKGCINTERFACE__STRESSGC
+    EXTERN RhpStressGc
     EXTERN $THREAD__HIJACKFORGCSTRESS
 #endif ;; FEATURE_GC_STRESS

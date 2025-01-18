@@ -8,19 +8,18 @@ using System.Linq.Expressions;
 
 namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 {
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
     internal sealed class IDispatchMetaObject : ComFallbackMetaObject
     {
         private readonly IDispatchComObject _self;
+        private static readonly bool[] s_false = new bool[] { false };
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         internal IDispatchMetaObject(Expression expression, IDispatchComObject self)
             : base(expression, BindingRestrictions.Empty, self)
         {
             _self = self;
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindInvokeMember(InvokeMemberBinder binder, DynamicMetaObject[] args)
         {
             Requires.NotNull(binder);
@@ -36,8 +35,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return base.BindInvokeMember(binder, args);
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindInvoke(InvokeBinder binder, DynamicMetaObject[] args)
         {
             Requires.NotNull(binder);
@@ -51,7 +48,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return base.BindInvoke(binder, args);
         }
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private DynamicMetaObject BindComInvoke(DynamicMetaObject[] args, ComMethodDesc method, CallInfo callInfo, bool[] isByRef)
         {
             return new ComInvokeBinder(
@@ -68,8 +64,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             ).Invoke();
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindGetMember(GetMemberBinder binder)
         {
             ComBinder.ComGetMemberBinder comBinder = binder as ComBinder.ComGetMemberBinder;
@@ -100,7 +94,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return base.BindGetMember(binder);
         }
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private DynamicMetaObject BindGetMember(ComMethodDesc method, bool canReturnCallables)
         {
             if (method.IsDataMember)
@@ -127,7 +120,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             );
         }
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private DynamicMetaObject BindEvent(ComEventDesc eventDesc)
         {
             // BoundDispEvent CreateComEvent(object rcw, Guid sourceIid, int dispid)
@@ -145,8 +137,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             );
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindGetIndex(GetIndexBinder binder, DynamicMetaObject[] indexes)
         {
             Requires.NotNull(binder);
@@ -160,8 +150,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return base.BindGetIndex(binder, indexes);
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindSetIndex(SetIndexBinder binder, DynamicMetaObject[] indexes, DynamicMetaObject value)
         {
             Requires.NotNull(binder);
@@ -184,8 +172,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return base.BindSetIndex(binder, indexes, value);
         }
 
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "This whole class is unsafe. Constructors are marked as such.")]
         public override DynamicMetaObject BindSetMember(SetMemberBinder binder, DynamicMetaObject value)
         {
             Requires.NotNull(binder);
@@ -201,7 +187,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 base.BindSetMember(binder, value);
         }
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private DynamicMetaObject TryPropertyPut(SetMemberBinder binder, DynamicMetaObject value)
         {
             bool holdsNull = value.Value == null && value.HasValue;
@@ -218,7 +203,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 DynamicMetaObject result = new ComInvokeBinder(
                     new CallInfo(1),
                     new[] { value },
-                    new bool[] { false },
+                    s_false,
                     restrictions,
                     Expression.Constant(method),
                     dispatch,
@@ -235,7 +220,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return null;
         }
 
-        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private DynamicMetaObject TryEventHandlerNoop(SetMemberBinder binder, DynamicMetaObject value)
         {
             if (_self.TryGetMemberEvent(binder.Name, out _) && value.LimitType == typeof(BoundDispEvent))

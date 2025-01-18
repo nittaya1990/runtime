@@ -1,9 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
 using System.Collections;
-using System.DirectoryServices.Interop;
+using System.Runtime.InteropServices;
 
 namespace System.DirectoryServices
 {
@@ -126,10 +125,7 @@ namespace System.DirectoryServices
                     if (_enumVariant == null)
                         throw new InvalidOperationException(SR.DSNoCurrentChild);
 
-                    if (_currentEntry == null)
-                        _currentEntry = new DirectoryEntry(_enumVariant.GetValue(), _container.UsePropertyCache, _container.GetUsername(), _container.GetPassword(), _container.AuthenticationType);
-
-                    return _currentEntry;
+                    return _currentEntry ??= new DirectoryEntry(_enumVariant.GetValue(), _container.UsePropertyCache, _container.GetUsername(), _container.GetPassword(), _container.AuthenticationType);
                 }
             }
 

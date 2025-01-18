@@ -20,27 +20,55 @@ namespace System.Diagnostics
             return Interop.libproc.proc_pidpath(processId);
         }
 
-        private static ProcessInfo CreateProcessInfo(int pid)
+        internal static ProcessInfo? CreateProcessInfo(int pid, string? processNameFilter = null)
         {
             // Negative PIDs aren't valid
-            if (pid < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(pid));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(pid);
 
-            ProcessInfo procInfo = new ProcessInfo()
+            string? processName = null;
+
+            try
             {
-                ProcessId = pid
-            };
+                // Extract the process name from its path, because other alternatives such as
+                // reading proc_taskallinfo.pbsd.pbi_comm are limited in length
+                string processPath = GetProcPath(pid);
+                processName = Path.GetFileName(processPath);
+            }
+            catch
+            {
+                // Ignored
+            }
 
             // Try to get the task info. This can fail if the user permissions don't permit
             // this user context to query the specified process
             Interop.libproc.proc_taskallinfo? info = Interop.libproc.GetProcessInfoById(pid);
+
+            // If we could not get the process name from its path, attempt to use the old 15-char
+            // limited process name
+            if (string.IsNullOrEmpty(processName) && info != null)
+            {
+                Interop.libproc.proc_taskallinfo temp = info.Value;
+                unsafe { processName = Marshal.PtrToStringUTF8(new IntPtr(temp.pbsd.pbi_comm)); }
+            }
+
+            // Fallback to empty string if the process name could not be retrieved in any way
+            processName ??= "";
+
+            if (!string.IsNullOrEmpty(processNameFilter) && !string.Equals(processName, processNameFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var procInfo = new ProcessInfo()
+            {
+                ProcessId = pid,
+                ProcessName = processName,
+            };
+
             if (info.HasValue)
             {
                 // Set the values we have; all the other values don't have meaning or don't exist on OSX
                 Interop.libproc.proc_taskallinfo temp = info.Value;
-                unsafe { procInfo.ProcessName = Marshal.PtrToStringAnsi(new IntPtr(temp.pbsd.pbi_comm))!; }
                 procInfo.BasePriority = temp.pbsd.pbi_nice;
                 procInfo.VirtualBytes = (long)temp.ptinfo.pti_virtual_size;
                 procInfo.WorkingSet = (long)temp.ptinfo.pti_resident_size;
@@ -49,7 +77,9 @@ namespace System.Diagnostics
             // Get the sessionId for the given pid, getsid returns -1 on error
             int sessionId = Interop.Sys.GetSid(pid);
             if (sessionId != -1)
+            {
                 procInfo.SessionId = sessionId;
+            }
 
             // Create a threadinfo for each thread in the process
             List<KeyValuePair<ulong, Interop.libproc.proc_threadinfo?>> lstThreads = Interop.libproc.GetAllThreadsInProcess(pid);
@@ -60,7 +90,7 @@ namespace System.Diagnostics
                     _processId = pid,
                     _threadId = t.Key,
                     _basePriority = procInfo.BasePriority,
-                    _startAddress = IntPtr.Zero
+                    _startAddress = null
                 };
 
                 // Fill in additional info if we were able to retrieve such data about the thread
@@ -86,15 +116,15 @@ namespace System.Diagnostics
             switch (state)
             {
                 case Interop.libproc.ThreadRunState.TH_STATE_RUNNING:
-                    return System.Diagnostics.ThreadState.Running;
+                    return ThreadState.Running;
                 case Interop.libproc.ThreadRunState.TH_STATE_STOPPED:
-                    return System.Diagnostics.ThreadState.Terminated;
+                    return ThreadState.Terminated;
                 case Interop.libproc.ThreadRunState.TH_STATE_HALTED:
-                    return System.Diagnostics.ThreadState.Wait;
+                    return ThreadState.Wait;
                 case Interop.libproc.ThreadRunState.TH_STATE_UNINTERRUPTIBLE:
-                    return System.Diagnostics.ThreadState.Running;
+                    return ThreadState.Running;
                 case Interop.libproc.ThreadRunState.TH_STATE_WAITING:
-                    return System.Diagnostics.ThreadState.Standby;
+                    return ThreadState.Standby;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(state));
             }
@@ -104,9 +134,9 @@ namespace System.Diagnostics
         {
             // Since ThreadWaitReason isn't a flag, we have to do a mapping and will lose some information.
             if ((flags & Interop.libproc.ThreadFlags.TH_FLAGS_SWAPPED) == Interop.libproc.ThreadFlags.TH_FLAGS_SWAPPED)
-                return System.Diagnostics.ThreadWaitReason.PageOut;
+                return ThreadWaitReason.PageOut;
             else
-                return System.Diagnostics.ThreadWaitReason.Unknown; // There isn't a good mapping for anything else
+                return ThreadWaitReason.Unknown; // There isn't a good mapping for anything else
         }
     }
 }

@@ -27,8 +27,8 @@
         CorTypeAttr exptAttr;
         CorManifestResourceFlags manresAttr;
         double*  float64;
-        __int64* int64;
-        __int32  int32;
+        int64_t* int64;
+        int32_t  int32;
         char*    string;
         BinStr*  binstr;
         Labels*  labels;
@@ -42,13 +42,13 @@
 };
 
         /* These are returned by the LEXER and have values */
-%token ERROR_ BAD_COMMENT_ BAD_LITERAL_                         /* bad strings,    */
+%token BAD_COMMENT_ BAD_LITERAL_                         /* bad strings,    */
 %token <string>  ID             /* testing343 */
 %token <string>  DOTTEDNAME     /* System.Object */
 %token <binstr>  QSTRING        /* "Hello World\n" */
 %token <string>  SQSTRING       /* 'Hello World\n' */
-%token <int32>   INT32          /* 3425 0x34FA  0352  */
-%token <int64>   INT64          /* 342534523534534      0x34FA434644554 */
+%token <int32>   INT32_V        /* 3425 0x34FA  0352  */
+%token <int64>   INT64_V        /* 342534523534534      0x34FA434644554 */
 %token <float64> FLOAT64        /* -334234 24E-34 */
 %token <int32>   HEXBYTE        /* 05 1A FA */
 %token <tdd>     TYPEDEF_T
@@ -61,14 +61,14 @@
 
         /* multi-character punctuation */
 %token DCOLON                   /* :: */
-%token ELIPSIS                  /* ... */
+%token ELLIPSIS                  /* ... */
 
         /* Keywords   Note the undersores are to avoid collisions as these are common names */
 %token VOID_ BOOL_ CHAR_ UNSIGNED_ INT_ INT8_ INT16_ INT32_ INT64_ FLOAT_ FLOAT32_ FLOAT64_ BYTEARRAY_
 %token UINT_ UINT8_ UINT16_ UINT32_ UINT64_  FLAGS_ CALLCONV_ MDTOKEN_
 %token OBJECT_ STRING_ NULLREF_
         /* misc keywords */
-%token DEFAULT_ CDECL_ VARARG_ STDCALL_ THISCALL_ FASTCALL_ CLASS_
+%token DEFAULT_ CDECL_ VARARG_ STDCALL_ THISCALL_ FASTCALL_ CLASS_ BYREFLIKE_
 %token TYPEDREF_ UNMANAGED_ FINALLY_ HANDLER_ CATCH_ FILTER_ FAULT_
 %token EXTENDS_ IMPLEMENTS_ TO_ AT_ TLS_ TRUE_ FALSE_ _INTERFACEIMPL
 
@@ -87,7 +87,7 @@
         /* PInvoke-specific keywords */
 %token _IMPORT NOMANGLE_ LASTERR_ WINAPI_ AS_ BESTFIT_ ON_ OFF_ CHARMAPERROR_
 
-        /* intruction tokens (actually instruction groupings) */
+        /* instruction tokens (actually instruction groupings) */
 %token <opcode> INSTR_NONE INSTR_VAR INSTR_I INSTR_I8 INSTR_R INSTR_BRTARGET INSTR_METHOD INSTR_FIELD
 %token <opcode> INSTR_TYPE INSTR_STRING INSTR_SIG INSTR_TOK
 %token <opcode> INSTR_SWITCH
@@ -96,7 +96,7 @@
 %token _CLASS _NAMESPACE _METHOD _FIELD _DATA _THIS _BASE _NESTER
 %token _EMITBYTE _TRY _MAXSTACK _LOCALS _ENTRYPOINT _ZEROINIT
 %token _EVENT _ADDON _REMOVEON _FIRE _OTHER
-%token _PROPERTY _SET _GET DEFAULT_
+%token _PROPERTY _SET _GET
 %token _PERMISSION _PERMISSIONSET
 
                 /* security actions */
@@ -259,15 +259,15 @@ dottedName              : id                                  { $$ = $1; }
                         | dottedName '.' dottedName           { $$ = newStringWDel($1, '.', $3); }
                         ;
 
-int32                   : INT32                               { $$ = $1; }
+int32                   : INT32_V                             { $$ = $1; }
                         ;
 
-int64                   : INT64                               { $$ = $1; }
-                        | INT32                               { $$ = neg ? new __int64($1) : new __int64((unsigned)$1); }
+int64                   : INT64_V                             { $$ = $1; }
+                        | INT32_V                             { $$ = neg ? new int64_t($1) : new int64_t((unsigned)$1); }
                         ;
 
 float64                 : FLOAT64                             { $$ = $1; }
-                        | FLOAT32_ '(' int32 ')'              { float f; *((__int32*) (&f)) = $3; $$ = new double(f); }
+                        | FLOAT32_ '(' int32 ')'              { float f; *((int32_t*) (&f)) = $3; $$ = new double(f); }
                         | FLOAT64_ '(' int64 ')'              { $$ = (double*) $3; }
                         ;
 
@@ -486,7 +486,9 @@ typarAttrib             : '+'                               { $$ = gpCovariant; 
                         | '-'                               { $$ = gpContravariant; }
                         | CLASS_                            { $$ = gpReferenceTypeConstraint; }
                         | VALUETYPE_                        { $$ = gpNotNullableValueTypeConstraint; }
+                        | BYREFLIKE_                        { $$ = gpAllowByRefLike; }
                         | _CTOR                             { $$ = gpDefaultConstructorConstraint; }
+                        | FLAGS_ '(' int32 ')'              { $$ = (CorGenericParamAttr)$3; }
                         ;
 
 typarAttribs            : /* EMPTY */                       { $$ = 0; }
@@ -691,7 +693,7 @@ memberRef               : methodSpec methodRef               { $$ = $2;
                                                                PASM->SetMemberRefFixup($$,iOpcodeLen); }
                         | FIELD_ type dottedName
                                                              { $2->insertInt8(IMAGE_CEE_CS_CALLCONV_FIELD);
-                                                               $$ = PASM->MakeMemberRef(NULL, $3, $2);
+                                                               $$ = PASM->MakeMemberRef(mdTokenNil, $3, $2);
                                                                PASM->SetMemberRefFixup($$,iOpcodeLen); }
                         | FIELD_ TYPEDEF_F                   { $$ = $2->m_tkTypeSpec;
                                                                PASM->SetMemberRefFixup($$,iOpcodeLen); }
@@ -896,7 +898,7 @@ methodDecl              : _EMITBYTE int32                   { PASM->EmitByte($2)
                                                                 PASM->m_pCurMethod->m_dwExportOrdinal = $3;
                                                                 PASM->m_pCurMethod->m_szExportAlias = NULL;
                                                                 if(PASM->m_pCurMethod->m_wVTEntry == 0) PASM->m_pCurMethod->m_wVTEntry = 1;
-                                                                if(PASM->m_pCurMethod->m_wVTSlot  == 0) PASM->m_pCurMethod->m_wVTSlot = $3 + 0x8000;
+                                                                if(PASM->m_pCurMethod->m_wVTSlot  == 0) PASM->m_pCurMethod->m_wVTSlot = (WORD)($3 + 0x8000);
                                                               }
                                                               else
                                                                 PASM->report->warn("Duplicate .export directive, ignored\n");
@@ -906,7 +908,7 @@ methodDecl              : _EMITBYTE int32                   { PASM->EmitByte($2)
                                                                 PASM->m_pCurMethod->m_dwExportOrdinal = $3;
                                                                 PASM->m_pCurMethod->m_szExportAlias = $6;
                                                                 if(PASM->m_pCurMethod->m_wVTEntry == 0) PASM->m_pCurMethod->m_wVTEntry = 1;
-                                                                if(PASM->m_pCurMethod->m_wVTSlot  == 0) PASM->m_pCurMethod->m_wVTSlot = $3 + 0x8000;
+                                                                if(PASM->m_pCurMethod->m_wVTSlot  == 0) PASM->m_pCurMethod->m_wVTSlot = (WORD)($3 + 0x8000);
                                                               }
                                                               else
                                                                 PASM->report->warn("Duplicate .export directive, ignored\n");
@@ -914,13 +916,13 @@ methodDecl              : _EMITBYTE int32                   { PASM->EmitByte($2)
                         | _VTENTRY int32 ':' int32          { PASM->m_pCurMethod->m_wVTEntry = (WORD)$2;
                                                               PASM->m_pCurMethod->m_wVTSlot = (WORD)$4; }
                         | _OVERRIDE typeSpec DCOLON methodName
-                                                            { PASM->AddMethodImpl($2,$4,NULL,NULL,NULL,NULL); }
+                                                            { PASM->AddMethodImpl($2,$4,NULL,mdTokenNil,NULL,NULL); }
 
                         | _OVERRIDE METHOD_ callConv type typeSpec DCOLON methodName genArity '(' sigArgs0 ')'
                                                             { PASM->AddMethodImpl($5,$7,
                                                               ($8==0 ? parser->MakeSig($3,$4,$10) :
                                                               parser->MakeSig($3| IMAGE_CEE_CS_CALLCONV_GENERIC,$4,$10,$8))
-                                                              ,NULL,NULL,NULL);
+                                                              ,mdTokenNil,NULL,NULL);
                                                               PASM->ResetArgNameList();
                                                             }
                         | scopeBlock
@@ -1066,55 +1068,55 @@ ddItem                  : CHAR_ '*' '(' compQstring ')'      { PASM->EmitDataStr
                                                                } else PASM->report->error("Out of memory emitting data block %d bytes\n",
                                                                      sizeof(double)*$5); }
                         | INT64_ '(' int64 ')' ddItemCount
-                                                             { __int64* p = new (nothrow) __int64[$5];
+                                                             { int64_t* p = new (nothrow) int64_t[$5];
                                                                if(p != NULL) {
                                                                  for(int i=0; i<$5; i++) p[i] = *($3);
-                                                                 PASM->EmitData(p, sizeof(__int64)*$5); delete $3; delete [] p;
+                                                                 PASM->EmitData(p, sizeof(int64_t)*$5); delete $3; delete [] p;
                                                                } else PASM->report->error("Out of memory emitting data block %d bytes\n",
-                                                                     sizeof(__int64)*$5); }
+                                                                     sizeof(int64_t)*$5); }
                         | INT32_ '(' int32 ')' ddItemCount
-                                                             { __int32* p = new (nothrow) __int32[$5];
+                                                             { int32_t* p = new (nothrow) int32_t[$5];
                                                                if(p != NULL) {
                                                                  for(int i=0; i<$5; i++) p[i] = $3;
-                                                                 PASM->EmitData(p, sizeof(__int32)*$5); delete [] p;
+                                                                 PASM->EmitData(p, sizeof(int32_t)*$5); delete [] p;
                                                                } else PASM->report->error("Out of memory emitting data block %d bytes\n",
-                                                                     sizeof(__int32)*$5); }
+                                                                     sizeof(int32_t)*$5); }
                         | INT16_ '(' int32 ')' ddItemCount
-                                                             { __int16 i = (__int16) $3; FAIL_UNLESS(i == $3, ("Value %d too big\n", $3));
-                                                               __int16* p = new (nothrow) __int16[$5];
+                                                             { int16_t i = (int16_t) $3; FAIL_UNLESS(i == $3, ("Value %d too big\n", $3));
+                                                               int16_t* p = new (nothrow) int16_t[$5];
                                                                if(p != NULL) {
                                                                  for(int j=0; j<$5; j++) p[j] = i;
-                                                                 PASM->EmitData(p, sizeof(__int16)*$5); delete [] p;
+                                                                 PASM->EmitData(p, sizeof(int16_t)*$5); delete [] p;
                                                                } else PASM->report->error("Out of memory emitting data block %d bytes\n",
-                                                                     sizeof(__int16)*$5); }
+                                                                     sizeof(int16_t)*$5); }
                         | INT8_ '(' int32 ')' ddItemCount
-                                                             { __int8 i = (__int8) $3; FAIL_UNLESS(i == $3, ("Value %d too big\n", $3));
-                                                               __int8* p = new (nothrow) __int8[$5];
+                                                             { int8_t i = (int8_t) $3; FAIL_UNLESS(i == $3, ("Value %d too big\n", $3));
+                                                               int8_t* p = new (nothrow) int8_t[$5];
                                                                if(p != NULL) {
                                                                  for(int j=0; j<$5; j++) p[j] = i;
-                                                                 PASM->EmitData(p, sizeof(__int8)*$5); delete [] p;
+                                                                 PASM->EmitData(p, sizeof(int8_t)*$5); delete [] p;
                                                                } else PASM->report->error("Out of memory emitting data block %d bytes\n",
-                                                                     sizeof(__int8)*$5); }
+                                                                     sizeof(int8_t)*$5); }
                         | FLOAT32_ ddItemCount               { PASM->EmitData(NULL, sizeof(float)*$2); }
                         | FLOAT64_ ddItemCount               { PASM->EmitData(NULL, sizeof(double)*$2); }
-                        | INT64_ ddItemCount                 { PASM->EmitData(NULL, sizeof(__int64)*$2); }
-                        | INT32_ ddItemCount                 { PASM->EmitData(NULL, sizeof(__int32)*$2); }
-                        | INT16_ ddItemCount                 { PASM->EmitData(NULL, sizeof(__int16)*$2); }
-                        | INT8_ ddItemCount                  { PASM->EmitData(NULL, sizeof(__int8)*$2); }
+                        | INT64_ ddItemCount                 { PASM->EmitData(NULL, sizeof(int64_t)*$2); }
+                        | INT32_ ddItemCount                 { PASM->EmitData(NULL, sizeof(int32_t)*$2); }
+                        | INT16_ ddItemCount                 { PASM->EmitData(NULL, sizeof(int16_t)*$2); }
+                        | INT8_ ddItemCount                  { PASM->EmitData(NULL, sizeof(int8_t)*$2); }
                         ;
 
 /*  Default values declaration for fields, parameters and verbal form of CA blob description  */
 fieldSerInit            : FLOAT32_ '(' float64 ')'           { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_R4);
                                                                float f = (float)(*$3);
-                                                               $$->appendInt32(*((__int32*)&f)); delete $3; }
+                                                               $$->appendInt32(*((int32_t*)&f)); delete $3; }
                         | FLOAT64_ '(' float64 ')'           { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_R8);
-                                                               $$->appendInt64((__int64 *)$3); delete $3; }
+                                                               $$->appendInt64((int64_t *)$3); delete $3; }
                         | FLOAT32_ '(' int32 ')'             { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_R4);
                                                                $$->appendInt32($3); }
                         | FLOAT64_ '(' int64 ')'             { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_R8);
-                                                               $$->appendInt64((__int64 *)$3); delete $3; }
+                                                               $$->appendInt64((int64_t *)$3); delete $3; }
                         | INT64_ '(' int64 ')'               { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_I8);
-                                                               $$->appendInt64((__int64 *)$3); delete $3; }
+                                                               $$->appendInt64((int64_t *)$3); delete $3; }
                         | INT32_ '(' int32 ')'               { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_I4);
                                                                $$->appendInt32($3); }
                         | INT16_ '(' int32 ')'               { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_I2);
@@ -1122,7 +1124,7 @@ fieldSerInit            : FLOAT32_ '(' float64 ')'           { $$ = new BinStr()
                         | INT8_ '(' int32 ')'                { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_I1);
                                                                $$->appendInt8($3); }
                         | UNSIGNED_ INT64_ '(' int64 ')'     { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U8);
-                                                               $$->appendInt64((__int64 *)$4); delete $4; }
+                                                               $$->appendInt64((int64_t *)$4); delete $4; }
                         | UNSIGNED_ INT32_ '(' int32 ')'     { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U4);
                                                                $$->appendInt32($4); }
                         | UNSIGNED_ INT16_ '(' int32 ')'     { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U2);
@@ -1130,7 +1132,7 @@ fieldSerInit            : FLOAT32_ '(' float64 ')'           { $$ = new BinStr()
                         | UNSIGNED_ INT8_ '(' int32 ')'      { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U1);
                                                                $$->appendInt8($4); }
                         | UINT64_ '(' int64 ')'              { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U8);
-                                                               $$->appendInt64((__int64 *)$3); delete $3; }
+                                                               $$->appendInt64((int64_t *)$3); delete $3; }
                         | UINT32_ '(' int32 ')'              { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U4);
                                                                $$->appendInt32($3); }
                         | UINT16_ '(' int32 ')'              { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U2);
@@ -1152,8 +1154,8 @@ bytes                   : /* EMPTY */                        { $$ = new BinStr()
                         | hexbytes                           { $$ = $1; }
                         ;
 
-hexbytes                : HEXBYTE                            { __int8 i = (__int8) $1; $$ = new BinStr(); $$->appendInt8(i); }
-                        | hexbytes HEXBYTE                   { __int8 i = (__int8) $2; $$ = $1; $$->appendInt8(i); }
+hexbytes                : HEXBYTE                            { int8_t i = (int8_t) $1; $$ = new BinStr(); $$->appendInt8(i); }
+                        | hexbytes HEXBYTE                   { int8_t i = (int8_t) $2; $$ = $1; $$->appendInt8(i); }
                         ;
 
 /*  Field/parameter initialization  */
@@ -1255,21 +1257,21 @@ serInit                 : fieldSerInit                       { $$ = $1; }
 
 f32seq                  : /* EMPTY */                        { $$ = new BinStr(); }
                         | f32seq float64                     { $$ = $1;
-                                                               float f = (float) (*$2); $$->appendInt32(*((__int32*)&f)); delete $2; }
+                                                               float f = (float) (*$2); $$->appendInt32(*((int32_t*)&f)); delete $2; }
                         | f32seq int32                       { $$ = $1;
                                                                $$->appendInt32($2); }
                         ;
 
 f64seq                  : /* EMPTY */                        { $$ = new BinStr(); }
                         | f64seq float64                     { $$ = $1;
-                                                               $$->appendInt64((__int64 *)$2); delete $2; }
+                                                               $$->appendInt64((int64_t *)$2); delete $2; }
                         | f64seq int64                       { $$ = $1;
-                                                               $$->appendInt64((__int64 *)$2); delete $2; }
+                                                               $$->appendInt64((int64_t *)$2); delete $2; }
                         ;
 
 i64seq                  : /* EMPTY */                        { $$ = new BinStr(); }
                         | i64seq int64                       { $$ = $1;
-                                                               $$->appendInt64((__int64 *)$2); delete $2; }
+                                                               $$->appendInt64((int64_t *)$2); delete $2; }
                         ;
 
 i32seq                  : /* EMPTY */                        { $$ = new BinStr(); }
@@ -1472,7 +1474,7 @@ sigArgs1                : sigArg                             { $$ = $1; }
                         | sigArgs1 ',' sigArg                { $$ = $1; $$->append($3); delete $3; }
                         ;
 
-sigArg                  : ELIPSIS                             { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_SENTINEL); }
+sigArg                  : ELLIPSIS                             { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_SENTINEL); }
                         | paramAttr type marshalClause        { $$ = new BinStr(); $$->append($2); PASM->addArgName(NULL, $2, $3, $1); }
                         | paramAttr type marshalClause id     { $$ = new BinStr(); $$->append($2); PASM->addArgName($4, $2, $3, $1);}
                         ;
@@ -1746,7 +1748,7 @@ type                    : CLASS_ className                    { if($2 == PASM->m
                         | NATIVE_ UNSIGNED_ INT_              { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U); }
                         | NATIVE_ UINT_                       { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_U); }
                         | simpleType                          { $$ = $1; }
-                        | ELIPSIS type                        { $$ = $2; $$->insertInt8(ELEMENT_TYPE_SENTINEL); }
+                        | ELLIPSIS type                        { $$ = $2; $$->insertInt8(ELEMENT_TYPE_SENTINEL); }
                         ;
 
 simpleType              : CHAR_                               { $$ = new BinStr(); $$->appendInt8(ELEMENT_TYPE_CHAR); }
@@ -1774,12 +1776,12 @@ bounds1                 : bound                               { $$ = $1; }
                         ;
 
 bound                   : /* EMPTY */                         { $$ = new BinStr(); $$->appendInt32(0x7FFFFFFF); $$->appendInt32(0x7FFFFFFF);  }
-                        | ELIPSIS                             { $$ = new BinStr(); $$->appendInt32(0x7FFFFFFF); $$->appendInt32(0x7FFFFFFF);  }
+                        | ELLIPSIS                             { $$ = new BinStr(); $$->appendInt32(0x7FFFFFFF); $$->appendInt32(0x7FFFFFFF);  }
                         | int32                               { $$ = new BinStr(); $$->appendInt32(0); $$->appendInt32($1); }
-                        | int32 ELIPSIS int32                 { FAIL_UNLESS($1 <= $3, ("lower bound %d must be <= upper bound %d\n", $1, $3));
+                        | int32 ELLIPSIS int32                 { FAIL_UNLESS($1 <= $3, ("lower bound %d must be <= upper bound %d\n", $1, $3));
                                                                 if ($1 > $3) { YYERROR; };
                                                                 $$ = new BinStr(); $$->appendInt32($1); $$->appendInt32($3-$1+1); }
-                        | int32 ELIPSIS                       { $$ = new BinStr(); $$->appendInt32($1); $$->appendInt32(0x7FFFFFFF); }
+                        | int32 ELLIPSIS                       { $$ = new BinStr(); $$->appendInt32($1); $$->appendInt32(0x7FFFFFFF); }
                         ;
 
 /*  Security declarations  */

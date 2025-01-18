@@ -1,14 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Reflection;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
-using System.Runtime.CompilerServices;
 
+using Internal.Reflection.Augments;
 using Internal.Runtime.Augments;
 using Internal.Runtime.CompilerServices;
-using Internal.Reflection.Augments;
 
 namespace System
 {
@@ -17,7 +16,12 @@ namespace System
     {
         private IntPtr _value;
 
-        public unsafe IntPtr Value => _value;
+        private RuntimeMethodHandle(IntPtr value)
+        {
+            _value = value;
+        }
+
+        public IntPtr Value => _value;
 
         public override bool Equals(object? obj)
         {
@@ -62,12 +66,6 @@ namespace System
             return true;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int _rotl(int value, int shift)
-        {
-            return (int)(((uint)value << shift) | ((uint)value >> (32 - shift)));
-        }
-
         public override int GetHashCode()
         {
             if (_value == IntPtr.Zero)
@@ -79,18 +77,22 @@ namespace System
             RuntimeAugments.TypeLoaderCallbacks.GetRuntimeMethodHandleComponents(this, out declaringType, out nameAndSignature, out genericArgs);
 
             int hashcode = declaringType.GetHashCode();
-            hashcode = (hashcode + _rotl(hashcode, 13)) ^ nameAndSignature.Name.GetHashCode();
+            hashcode = (hashcode + int.RotateLeft(hashcode, 13)) ^ nameAndSignature.Name.GetHashCode();
             if (genericArgs != null)
             {
                 for (int i = 0; i < genericArgs.Length; i++)
                 {
                     int argumentHashCode = genericArgs[i].GetHashCode();
-                    hashcode = (hashcode + _rotl(hashcode, 13)) ^ argumentHashCode;
+                    hashcode = (hashcode + int.RotateLeft(hashcode, 13)) ^ argumentHashCode;
                 }
             }
 
             return hashcode;
         }
+
+        public static RuntimeMethodHandle FromIntPtr(IntPtr value) => new RuntimeMethodHandle(value);
+
+        public static IntPtr ToIntPtr(RuntimeMethodHandle value) => value.Value;
 
         public static bool operator ==(RuntimeMethodHandle left, RuntimeMethodHandle right)
         {
@@ -107,9 +109,11 @@ namespace System
             RuntimeTypeHandle declaringType;
             RuntimeAugments.TypeLoaderCallbacks.GetRuntimeMethodHandleComponents(this, out declaringType, out _, out _);
 
-            return ReflectionAugments.ReflectionCoreCallbacks.GetFunctionPointer(this, declaringType);
+            return ReflectionAugments.GetFunctionPointer(this, declaringType);
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             throw new PlatformNotSupportedException();

@@ -7,7 +7,6 @@ using System.IO;
 using System.Reflection.Internal;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace System.Reflection.Metadata
 {
@@ -48,9 +47,10 @@ namespace System.Reflection.Metadata
         private uint _length;
 
         private const uint IsFrozenMask = 0x80000000;
-        private bool IsHead => (_length & IsFrozenMask) == 0;
+        internal bool IsHead => (_length & IsFrozenMask) == 0;
         private int Length => (int)(_length & ~IsFrozenMask);
         private uint FrozenLength => _length | IsFrozenMask;
+        private Span<byte> Span => _buffer.AsSpan(0, Length);
 
         public BlobBuilder(int capacity = DefaultChunkSize)
         {
@@ -97,8 +97,7 @@ namespace System.Reflection.Metadata
             {
                 if (chunk != this)
                 {
-                    chunk.ClearChunk();
-                    chunk.FreeChunk();
+                    chunk.ClearAndFreeChunk();
                 }
             }
 
@@ -119,9 +118,9 @@ namespace System.Reflection.Metadata
             _nextOrPrevious = this;
         }
 
+        [Conditional("DEBUG")]
         private void CheckInvariants()
         {
-#if DEBUG
             Debug.Assert(_buffer != null);
             Debug.Assert(Length >= 0 && Length <= _buffer.Length);
             Debug.Assert(_nextOrPrevious != null);
@@ -140,7 +139,6 @@ namespace System.Reflection.Metadata
 
                 Debug.Assert(totalLength == Count);
             }
-#endif
         }
 
         public int Count => _previousLengthOrFrozenSuffixLengthDelta + Length;
@@ -236,7 +234,7 @@ namespace System.Reflection.Metadata
                 var right = rightEnumerator.Current;
 
                 int minLength = Math.Min(left.Length - leftStart, right.Length - rightStart);
-                if (!ByteSequenceComparer.Equals(left._buffer, leftStart, right._buffer, rightStart, minLength))
+                if (!left._buffer.AsSpan(leftStart, minLength).SequenceEqual(right._buffer.AsSpan(rightStart, minLength)))
                 {
                     return false;
                 }
@@ -317,13 +315,31 @@ namespace System.Reflection.Metadata
         public ImmutableArray<byte> ToImmutableArray(int start, int byteCount)
         {
             byte[]? array = ToArray(start, byteCount);
-            return ImmutableByteArrayInterop.DangerousCreateFromUnderlyingArray(ref array);
+            return ImmutableCollectionsMarshal.AsImmutableArray(array);
+        }
+
+        internal bool TryGetSpan(out ReadOnlySpan<byte> buffer)
+        {
+            if (_nextOrPrevious == this)
+            {
+                // If the blob builder has one chunk, we can just return it and avoid copies.
+                buffer = Span;
+                return true;
+            }
+
+            buffer = default;
+            return false;
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="destination"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Content is not available, the builder has been linked with another one.</exception>
-        public void WriteContentTo(Stream destination!!)
+        public void WriteContentTo(Stream destination)
         {
+            if (destination is null)
+            {
+                Throw.ArgumentNull(nameof(destination));
+            }
+
             foreach (var chunk in GetChunks())
             {
                 destination.Write(chunk._buffer, 0, chunk.Length);
@@ -341,24 +357,34 @@ namespace System.Reflection.Metadata
 
             foreach (var chunk in GetChunks())
             {
-                destination.WriteBytes(chunk._buffer, 0, chunk.Length);
+                destination.WriteBytes(chunk.Span);
             }
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="destination"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Content is not available, the builder has been linked with another one.</exception>
-        public void WriteContentTo(BlobBuilder destination!!)
+        public void WriteContentTo(BlobBuilder destination)
         {
+            if (destination is null)
+            {
+                Throw.ArgumentNull(nameof(destination));
+            }
+
             foreach (var chunk in GetChunks())
             {
-                destination.WriteBytes(chunk._buffer, 0, chunk.Length);
+                destination.WriteBytes(chunk.Span);
             }
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="prefix"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public void LinkPrefix(BlobBuilder prefix!!)
+        public void LinkPrefix(BlobBuilder prefix)
         {
+            if (prefix is null)
+            {
+                Throw.ArgumentNull(nameof(prefix));
+            }
+
             // TODO: consider copying data from right to left while there is space
 
             if (!prefix.IsHead || !IsHead)
@@ -369,6 +395,7 @@ namespace System.Reflection.Metadata
             // avoid chaining empty chunks:
             if (prefix.Count == 0)
             {
+                prefix.ClearAndFreeChunk();
                 return;
             }
 
@@ -412,8 +439,13 @@ namespace System.Reflection.Metadata
 
         /// <exception cref="ArgumentNullException"><paramref name="suffix"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public void LinkSuffix(BlobBuilder suffix!!)
+        public void LinkSuffix(BlobBuilder suffix)
         {
+            if (suffix is null)
+            {
+                Throw.ArgumentNull(nameof(suffix));
+            }
+
             // TODO: consider copying data from right to left while there is space
 
             if (!IsHead || !suffix.IsHead)
@@ -424,6 +456,7 @@ namespace System.Reflection.Metadata
             // avoid chaining empty chunks:
             if (suffix.Count == 0)
             {
+                suffix.ClearAndFreeChunk();
                 return;
             }
 
@@ -616,8 +649,13 @@ namespace System.Reflection.Metadata
         /// <exception cref="ArgumentNullException"><paramref name="buffer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="byteCount"/> is negative.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public unsafe void WriteBytes(byte* buffer!!, int byteCount)
+        public unsafe void WriteBytes(byte* buffer, int byteCount)
         {
+            if (buffer is null)
+            {
+                Throw.ArgumentNull(nameof(buffer));
+            }
+
             if (byteCount < 0)
             {
                 Throw.ArgumentOutOfRange(nameof(byteCount));
@@ -628,24 +666,24 @@ namespace System.Reflection.Metadata
                 Throw.InvalidOperationBuilderAlreadyLinked();
             }
 
-            WriteBytesUnchecked(buffer, byteCount);
+            WriteBytesUnchecked(new ReadOnlySpan<byte>(buffer, byteCount));
         }
 
-        private unsafe void WriteBytesUnchecked(byte* buffer, int byteCount)
+        private void WriteBytesUnchecked(ReadOnlySpan<byte> buffer)
         {
-            int bytesToCurrent = Math.Min(FreeBytes, byteCount);
+            int bytesToCurrent = Math.Min(FreeBytes, buffer.Length);
 
-            Marshal.Copy((IntPtr)buffer, _buffer, Length, bytesToCurrent);
+            buffer.Slice(0, bytesToCurrent).CopyTo(_buffer.AsSpan(Length));
 
             AddLength(bytesToCurrent);
 
-            int remaining = byteCount - bytesToCurrent;
-            if (remaining > 0)
+            ReadOnlySpan<byte> remaining = buffer.Slice(bytesToCurrent);
+            if (!remaining.IsEmpty)
             {
-                Expand(remaining);
+                Expand(remaining.Length);
 
-                Marshal.Copy((IntPtr)(buffer + bytesToCurrent), _buffer, 0, remaining);
-                AddLength(remaining);
+                remaining.CopyTo(_buffer);
+                AddLength(remaining.Length);
             }
         }
 
@@ -653,8 +691,13 @@ namespace System.Reflection.Metadata
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="byteCount"/> is negative.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
         /// <returns>Bytes successfully written from the <paramref name="source" />.</returns>
-        public int TryWriteBytes(Stream source!!, int byteCount)
+        public int TryWriteBytes(Stream source, int byteCount)
         {
+            if (source is null)
+            {
+                Throw.ArgumentNull(nameof(source));
+            }
+
             if (byteCount < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(byteCount));
@@ -696,7 +739,12 @@ namespace System.Reflection.Metadata
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
         public void WriteBytes(ImmutableArray<byte> buffer)
         {
-            WriteBytes(buffer, 0, buffer.IsDefault ? 0 : buffer.Length);
+            if (buffer.IsDefault)
+            {
+                Throw.ArgumentNull(nameof(buffer));
+            }
+
+            WriteBytes(buffer.AsSpan());
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="buffer"/> is null.</exception>
@@ -704,38 +752,51 @@ namespace System.Reflection.Metadata
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
         public void WriteBytes(ImmutableArray<byte> buffer, int start, int byteCount)
         {
-            WriteBytes(ImmutableByteArrayInterop.DangerousGetUnderlyingArray(buffer)!, start, byteCount);
+            if (buffer.IsDefault)
+            {
+                Throw.ArgumentNull(nameof(buffer));
+            }
+
+            BlobUtilities.ValidateRange(buffer.Length, start, byteCount, nameof(byteCount));
+
+            WriteBytes(buffer.AsSpan(start, byteCount));
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="buffer"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
         public void WriteBytes(byte[] buffer)
         {
-            WriteBytes(buffer, 0, buffer?.Length ?? 0);
+            if (buffer is null)
+            {
+                Throw.ArgumentNull(nameof(buffer));
+            }
+
+            WriteBytes(buffer.AsSpan());
         }
 
         /// <exception cref="ArgumentNullException"><paramref name="buffer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Range specified by <paramref name="start"/> and <paramref name="byteCount"/> falls outside of the bounds of the <paramref name="buffer"/>.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public unsafe void WriteBytes(byte[] buffer!!, int start, int byteCount)
+        public void WriteBytes(byte[] buffer, int start, int byteCount)
         {
+            if (buffer is null)
+            {
+                Throw.ArgumentNull(nameof(buffer));
+            }
+
             BlobUtilities.ValidateRange(buffer.Length, start, byteCount, nameof(byteCount));
 
+            WriteBytes(buffer.AsSpan(start, byteCount));
+        }
+
+        internal void WriteBytes(ReadOnlySpan<byte> buffer)
+        {
             if (!IsHead)
             {
                 Throw.InvalidOperationBuilderAlreadyLinked();
             }
 
-            // an empty array has no element pointer:
-            if (buffer.Length == 0)
-            {
-                return;
-            }
-
-            fixed (byte* ptr = &buffer[0])
-            {
-                WriteBytesUnchecked(ptr + start, byteCount);
-            }
+            WriteBytesUnchecked(buffer);
         }
 
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
@@ -891,44 +952,46 @@ namespace System.Reflection.Metadata
         }
 
         /// <summary>
-        /// Writes UTF16 (little-endian) encoded string at the current position.
+        /// Writes UTF-16 (little-endian) encoded string at the current position.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public unsafe void WriteUTF16(char[] value!!)
+        public void WriteUTF16(char[] value)
         {
+            if (value is null)
+            {
+                Throw.ArgumentNull(nameof(value));
+            }
+
             if (!IsHead)
             {
                 Throw.InvalidOperationBuilderAlreadyLinked();
             }
 
-            if (value.Length == 0)
-            {
-                return;
-            }
-
-            if (BitConverter.IsLittleEndian)
-            {
-                fixed (char* ptr = &value[0])
-                {
-                    WriteBytesUnchecked((byte*)ptr, value.Length * sizeof(char));
-                }
-            }
-            else
-            {
-                for (int i = 0; i < value.Length; i++)
-                {
-                    WriteUInt16((ushort)value[i]);
-                }
-            }
+            WriteUTF16(value.AsSpan());
         }
 
         /// <summary>
-        /// Writes UTF16 (little-endian) encoded string at the current position.
+        /// Writes UTF-16 (little-endian) encoded string at the current position.
         /// </summary>
         /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public unsafe void WriteUTF16(string value!!)
+        public void WriteUTF16(string value)
+        {
+            if (value is null)
+            {
+                Throw.ArgumentNull(nameof(value));
+            }
+
+            if (!IsHead)
+            {
+                Throw.InvalidOperationBuilderAlreadyLinked();
+            }
+
+            WriteUTF16(value.AsSpan());
+        }
+
+        private void WriteUTF16(ReadOnlySpan<char> value)
         {
             if (!IsHead)
             {
@@ -937,16 +1000,13 @@ namespace System.Reflection.Metadata
 
             if (BitConverter.IsLittleEndian)
             {
-                fixed (char* ptr = value)
-                {
-                    WriteBytesUnchecked((byte*)ptr, value.Length * sizeof(char));
-                }
+                WriteBytesUnchecked(MemoryMarshal.AsBytes(value));
             }
             else
             {
-                for (int i = 0; i < value.Length; i++)
+                foreach (char c in value)
                 {
-                    WriteUInt16((ushort)value[i]);
+                    WriteUInt16(c);
                 }
             }
         }
@@ -955,7 +1015,7 @@ namespace System.Reflection.Metadata
         /// Writes string in SerString format (see ECMA-335-II 23.3 Custom attributes).
         /// </summary>
         /// <remarks>
-        /// The string is UTF8 encoded and prefixed by the its size in bytes.
+        /// The string is UTF-8 encoded and prefixed by the its size in bytes.
         /// Null string is represented as a single byte 0xFF.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
@@ -974,22 +1034,27 @@ namespace System.Reflection.Metadata
         /// Writes string in User String (#US) heap format (see ECMA-335-II 24.2.4 #US and #Blob heaps):
         /// </summary>
         /// <remarks>
-        /// The string is UTF16 encoded and prefixed by the its size in bytes.
+        /// The string is UTF-16 encoded and prefixed by the its size in bytes.
         ///
-        /// This final byte holds the value 1 if and only if any UTF16 character within the string has any bit set in its top byte,
+        /// This final byte holds the value 1 if and only if any UTF-16 character within the string has any bit set in its top byte,
         /// or its low byte is any of the following: 0x01-0x08, 0x0E-0x1F, 0x27, 0x2D, 0x7F. Otherwise, it holds 0.
         /// The 1 signifies Unicode characters that require handling beyond that normally provided for 8-bit encoding sets.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public void WriteUserString(string value!!)
+        public void WriteUserString(string value)
         {
+            if (value is null)
+            {
+                Throw.ArgumentNull(nameof(value));
+            }
+
             WriteCompressedInteger(BlobUtilities.GetUserStringByteLength(value.Length));
             WriteUTF16(value);
             WriteByte(BlobUtilities.GetUserStringTrailingByte(value));
         }
 
         /// <summary>
-        /// Writes UTF8 encoded string at the current position.
+        /// Writes UTF-8 encoded string at the current position.
         /// </summary>
         /// <param name="value">Constant value.</param>
         /// <param name="allowUnpairedSurrogates">
@@ -997,8 +1062,13 @@ namespace System.Reflection.Metadata
         /// </param>
         /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Builder is not writable, it has been linked with another one.</exception>
-        public void WriteUTF8(string value!!, bool allowUnpairedSurrogates = true)
+        public void WriteUTF8(string value, bool allowUnpairedSurrogates = true)
         {
+            if (value is null)
+            {
+                Throw.ArgumentNull(nameof(value));
+            }
+
             WriteUTF8(value, 0, value.Length, allowUnpairedSurrogates, prependSize: false);
         }
 
@@ -1107,6 +1177,12 @@ namespace System.Reflection.Metadata
             return (length <= MaxDisplaySize) ?
                 BitConverter.ToString(bytes, 0, length) :
                 BitConverter.ToString(bytes, 0, MaxDisplaySize / 2) + "-...-" + BitConverter.ToString(bytes, length - MaxDisplaySize / 2, MaxDisplaySize / 2);
+        }
+
+        private void ClearAndFreeChunk()
+        {
+            ClearChunk();
+            FreeChunk();
         }
     }
 }

@@ -346,7 +346,7 @@ BOOL EEHashTableBase<KeyType, Helper, bDefaultCopyIsDeep>::DeleteValue(KeyType p
     _ASSERTE (OwnLock());
 
     Thread *pThread = GetThreadNULLOk();
-    GCX_MAYBE_COOP_NO_THREAD_BROKEN(pThread ? !(pThread->m_StateNC & Thread::TSNC_UnsafeSkipEnterCooperative) : FALSE);
+    GCX_MAYBE_COOP_NO_THREAD_BROKEN(pThread != NULL);
 
     _ASSERTE(m_pVolatileBucketTable->m_dwNumBuckets != 0);
 
@@ -749,7 +749,7 @@ BOOL EEHashTableBase<KeyType, Helper, bDefaultCopyIsDeep>::GrowHashTable()
     // we are doing this, as there can be concurrent readers!  Note that
     // it is OK if the concurrent reader misses out on a match, though -
     // they will have to acquire the lock on a miss & try again.
-    FastInterlockExchange( (LONG *) &m_bGrowing, 1);
+    InterlockedExchange( (LONG *) &m_bGrowing, 1);
     for (DWORD i = 0; i < m_pVolatileBucketTable->m_dwNumBuckets; i++)
     {
         EEHashEntry_t * pEntry = m_pVolatileBucketTable->m_pBuckets[i];
@@ -800,7 +800,7 @@ BOOL EEHashTableBase<KeyType, Helper, bDefaultCopyIsDeep>::GrowHashTable()
     //
     m_pVolatileBucketTable = pNewBucketTable;
 
-    FastInterlockExchange( (LONG *) &m_bGrowing, 0);
+    InterlockedExchange( (LONG *) &m_bGrowing, 0);
 
     return TRUE;
 }
@@ -850,7 +850,7 @@ BOOL EEHashTableBase<KeyType, Helper, bDefaultCopyIsDeep>::
     _ASSERTE_IMPL(OwnLock());
 
     Thread *pThread = GetThreadNULLOk();
-    GCX_MAYBE_COOP_NO_THREAD_BROKEN(pThread ? !(pThread->m_StateNC & Thread::TSNC_UnsafeSkipEnterCooperative) : FALSE);
+    GCX_MAYBE_COOP_NO_THREAD_BROKEN(pThread != NULL);
 
     _ASSERTE(pIter->m_pTable == (void *) this);
 

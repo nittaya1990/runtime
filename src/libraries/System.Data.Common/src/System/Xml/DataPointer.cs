@@ -54,7 +54,7 @@ namespace System.Xml
                 return rowElem;
             }
 
-            _doc.Mapper.GetRegion(_node, out rowElem);
+            DataSetMapper.GetRegion(_node, out rowElem);
             return rowElem;
         }
 
@@ -499,7 +499,7 @@ namespace System.Xml
             }
         }
 
-        private bool IsLocalNameEmpty(XmlNodeType nt)
+        private static bool IsLocalNameEmpty(XmlNodeType nt)
         {
             switch (nt)
             {
@@ -552,6 +552,7 @@ namespace System.Xml
         internal string? Value
         {
             [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+            [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
             get
             {
                 RealFoliate();
@@ -852,7 +853,7 @@ namespace System.Xml
                 Debug.Assert(!Convert.IsDBNull(row[_column, rowVersion]));
 
                 // If we are on the Text column, we should always have fOnValue == true
-                Debug.Assert((_column.ColumnMapping == MappingType.SimpleContent) ? (_fOnValue == true) : true);
+                Debug.Assert((_column.ColumnMapping == MappingType.SimpleContent) ? _fOnValue : true);
             }
         }
 

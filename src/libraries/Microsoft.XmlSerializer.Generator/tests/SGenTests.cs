@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-
 using Xunit;
 using Microsoft.XmlSerializer.Generator;
 using System.IO;
@@ -13,6 +12,7 @@ namespace Microsoft.XmlSerializer.Generator.Tests
     public static class SgenTests
     {
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/96796", typeof(PlatformDetection), nameof(PlatformDetection.IsReadyToRunCompiled))]
         public static void SgenCommandTest()
         {
             /*
@@ -31,6 +31,7 @@ namespace Microsoft.XmlSerializer.Generator.Tests
 
             const string CodeFile = "SerializableAssembly.XmlSerializers.cs";
             const string LKGCodeFile = "Expected.SerializableAssembly.XmlSerializers.cs";
+
             var type = Type.GetType("Microsoft.XmlSerializer.Generator.Sgen, dotnet-Microsoft.XmlSerializer.Generator");
             MethodInfo md = type.GetMethod("Main", BindingFlags.Static | BindingFlags.Public);
             string[] args = new string[] { "SerializableAssembly.dll", "--force", "--quiet" };
@@ -40,7 +41,7 @@ namespace Microsoft.XmlSerializer.Generator.Tests
             Assert.True(File.Exists(CodeFile), string.Format("Fail to generate {0}.", CodeFile));
             // Compare the generated CodeFiles from the LKG with the live built shared framework one.
             // Not comparing byte per byte as the generated output isn't deterministic.
-            Assert.Equal(new System.IO.FileInfo(LKGCodeFile).Length, new System.IO.FileInfo(CodeFile).Length);
+            Assert.Equal(LineEndingsHelper.Normalize(File.ReadAllText(LKGCodeFile)).Length, File.ReadAllText(CodeFile).Length);
         }
     }
 }

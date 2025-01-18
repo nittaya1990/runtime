@@ -4,7 +4,10 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Xunit;
 
+namespace Test_generics
+{
 class ApplicationException : Exception
 {
     public ApplicationException(string message) : base(message) { }
@@ -186,7 +189,9 @@ namespace Test
             child.TestGrandChild();
         }
 
-        public static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             try
             {
@@ -221,4 +226,5 @@ namespace Test
             }
         }
     }
+}
 }

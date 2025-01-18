@@ -39,6 +39,7 @@ struct MonoMethodDesc {
 	char *args;
 	guint num_args;
 	gboolean include_namespace, klass_glob, name_glob;
+	gboolean match_wrappers;
 };
 
 // This, instead of an array of pointers, to optimize away a pointer and a relocation per string.
@@ -114,8 +115,8 @@ static void
 mono_custom_modifiers_get_desc (GString *res, const MonoType *type, gboolean include_namespace)
 {
 	ERROR_DECL (error);
-	int count = mono_type_custom_modifier_count (type);
-	for (int i = 0; i < count; ++i) {
+	uint8_t count = mono_type_custom_modifier_count (type);
+	for (uint8_t i = 0; i < count; ++i) {
 		gboolean required;
 		MonoType *cmod_type = mono_type_get_custom_modifier (type, i, &required, error);
 		mono_error_assert_ok (error);
@@ -131,8 +132,6 @@ mono_custom_modifiers_get_desc (GString *res, const MonoType *type, gboolean inc
 void
 mono_type_get_desc (GString *res, MonoType *type, gboolean include_namespace)
 {
-	int i;
-
 	switch (type->type) {
 	case MONO_TYPE_VOID:
 		g_string_append (res, "void"); break;
@@ -177,7 +176,7 @@ mono_type_get_desc (GString *res, MonoType *type, gboolean include_namespace)
 	case MONO_TYPE_ARRAY:
 		mono_type_get_desc (res, &type->data.array->eklass->_byval_arg, include_namespace);
 		g_string_append_c (res, '[');
-		for (i = 1; i < type->data.array->rank; ++i)
+		for (guint8 i = 1; i < type->data.array->rank; ++i)
 			g_string_append_c (res, ',');
 		g_string_append_c (res, ']');
 		break;
@@ -196,7 +195,7 @@ mono_type_get_desc (GString *res, MonoType *type, gboolean include_namespace)
 		g_string_append (res, "<");
 		context = &type->data.generic_class->context;
 		if (context->class_inst) {
-			for (i = 0; i < context->class_inst->type_argc; ++i) {
+			for (guint i = 0; i < context->class_inst->type_argc; ++i) {
 				if (i > 0)
 					g_string_append (res, ", ");
 				mono_type_get_desc (res, context->class_inst->type_argv [i], include_namespace);
@@ -205,7 +204,7 @@ mono_type_get_desc (GString *res, MonoType *type, gboolean include_namespace)
 		if (context->method_inst) {
 			if (context->class_inst)
 					g_string_append (res, "; ");
-			for (i = 0; i < context->method_inst->type_argc; ++i) {
+			for (guint i = 0; i < context->method_inst->type_argc; ++i) {
 				if (i > 0)
 					g_string_append (res, ", ");
 				mono_type_get_desc (res, context->method_inst->type_argv [i], include_namespace);
@@ -221,7 +220,7 @@ mono_type_get_desc (GString *res, MonoType *type, gboolean include_namespace)
 			if (name)
 				g_string_append (res, name);
 			else
-				g_string_append_printf (res, "%s%d", type->type == MONO_TYPE_VAR ? "!" : "!!", mono_generic_param_num (type->data.generic_param));
+				g_string_append_printf (res, "%s%hu", type->type == MONO_TYPE_VAR ? "!" : "!!", mono_generic_param_num (type->data.generic_param));
 		} else {
 			g_string_append (res, "<unknown>");
 		}
@@ -305,9 +304,7 @@ mono_signature_full_name (MonoMethodSignature *sig)
 void
 mono_ginst_get_desc (GString *str, MonoGenericInst *ginst)
 {
-	int i;
-
-	for (i = 0; i < ginst->type_argc; ++i) {
+	for (guint i = 0; i < ginst->type_argc; ++i) {
 		if (i > 0)
 			g_string_append (str, ", ");
 		mono_type_get_desc (str, ginst->type_argv [i], TRUE);
@@ -345,7 +342,7 @@ mono_context_get_desc (MonoGenericContext *context)
  * Creates a method description for \p name, which conforms to the following
  * specification:
  *
- * <code>[namespace.]classname:methodname[(args...)]</code>
+ * <code>[w:][namespace.]classname:methodname[(args...)]</code>
  *
  * in all the loaded assemblies.
  *
@@ -360,7 +357,13 @@ mono_method_desc_new (const char *name, gboolean include_namespace)
 	char *class_name, *class_nspace, *method_name, *use_args, *end;
 	int use_namespace;
 	int generic_delim_stack;
+	int match_wrappers = 0;
 
+	/* if the name starts with w: or W: allow matching wrappers */
+	if (strstr(name, "W:") == name || strstr(name, "w:") == name) {
+		name += 2;
+		match_wrappers = 1;
+	}
 	class_nspace = g_strdup (name);
 	use_args = strchr (class_nspace, '(');
 	if (use_args) {
@@ -418,6 +421,8 @@ mono_method_desc_new (const char *name, gboolean include_namespace)
 			++end;
 		}
 	}
+	if (match_wrappers)
+		result->match_wrappers = TRUE;
 
 	return result;
 }
@@ -435,6 +440,8 @@ mono_method_desc_from_method (MonoMethod *method)
 	result->name = g_strdup (method->name);
 	result->klass = g_strdup (method->klass->name);
 	result->name_space = g_strdup (method->klass->name_space);
+	if (method->wrapper_type)
+		result->match_wrappers = TRUE;
 
 	return result;
 }
@@ -470,6 +477,9 @@ mono_method_desc_match (MonoMethodDesc *desc, MonoMethod *method)
 	char *sig;
 	gboolean name_match;
 
+	if (desc->match_wrappers && method->wrapper_type == MONO_WRAPPER_NONE) {
+		return FALSE;
+	}
 	if (desc->name_glob && !strcmp (desc->name, "*"))
 		return TRUE;
 #if 0
@@ -599,7 +609,6 @@ mono_method_desc_search_in_image (MonoMethodDesc *desc, MonoImage *image)
 	MonoClass *klass;
 	const MonoTableInfo *methods;
 	MonoMethod *method;
-	int i;
 
 	/* Handle short names for system classes */
 	if (!desc->name_space && image == mono_defaults.corlib) {
@@ -618,7 +627,7 @@ mono_method_desc_search_in_image (MonoMethodDesc *desc, MonoImage *image)
 	/* FIXME: Is this call necessary?  We don't use its result. */
 	mono_image_get_table_info (image, MONO_TABLE_TYPEDEF);
 	methods = mono_image_get_table_info (image, MONO_TABLE_METHOD);
-	for (i = 0; i < mono_table_info_get_rows (methods); ++i) {
+	for (guint32 i = 0; i < table_info_get_rows (methods); ++i) {
 		ERROR_DECL (error);
 		guint32 token = mono_metadata_decode_row_col (methods, i, MONO_METHOD_NAME);
 		const char *n = mono_metadata_string_heap (image, token);
@@ -655,7 +664,7 @@ dis_one (GString *str, MonoDisHelper *dh, MonoMethod *method, const unsigned cha
 	}
 	il_code = mono_method_header_get_code (header, NULL, NULL);
 
-	label = ip - il_code;
+	label = GPTRDIFF_TO_UINT32 (ip - il_code);
 	if (dh->indenter) {
 		tmp = dh->indenter (dh, method, label);
 		g_string_append (str, tmp);
@@ -755,17 +764,17 @@ dis_one (GString *str, MonoDisHelper *dh, MonoMethod *method, const unsigned cha
 			g_string_append_printf (str, "%d", sval);
 		break;
 	case MonoInlineSwitch: {
-		const unsigned char *end;
+		const unsigned char *sval_end;
 		sval = read32 (ip);
 		ip += 4;
-		end = ip + sval * 4;
+		sval_end = ip + sval * 4;
 		g_string_append_c (str, '(');
 		for (i = 0; i < sval; ++i) {
 			if (i > 0)
 				g_string_append (str, ", ");
 			label = read32 (ip);
 			if (dh->label_target)
-				g_string_append_printf (str, dh->label_target, end + label - il_code);
+				g_string_append_printf (str, dh->label_target, sval_end + label - il_code);
 			else
 				g_string_append_printf (str, "%d", label);
 			ip += 4;
@@ -1064,7 +1073,7 @@ mono_object_describe (MonoObject *obj)
 }
 
 static void
-print_field_value (const char *field_ptr, MonoClassField *field, int type_offset)
+print_field_value (const char *field_ptr, MonoClassField *field, gssize type_offset)
 {
 	MonoType *type;
 	g_print ("At %p (ofs: %2d) %s: ", field_ptr, m_field_is_from_update (field) ? -1 : (field->offset + type_offset), mono_field_get_name (field));

@@ -58,12 +58,11 @@ namespace System.Diagnostics
             sourceLine = 0;
             sourceColumn = 0;
 
-            MetadataReader? reader = TryGetReader(assembly, assemblyPath, loadedPeAddress, loadedPeSize, isFileLayout, inMemoryPdbAddress, inMemoryPdbSize);
-            if (reader != null)
+            Handle handle = MetadataTokens.Handle(methodToken);
+            if (!handle.IsNil && handle.Kind == HandleKind.MethodDefinition)
             {
-                Handle handle = MetadataTokens.Handle(methodToken);
-
-                if (handle.Kind == HandleKind.MethodDefinition)
+                MetadataReader? reader = TryGetReader(assembly, assemblyPath, loadedPeAddress, loadedPeSize, isFileLayout, inMemoryPdbAddress, inMemoryPdbSize);
+                if (reader != null)
                 {
                     MethodDebugInformationHandle methodDebugHandle = ((MethodDefinitionHandle)handle).ToDebugInformationHandle();
                     MethodDebugInformation methodInfo = reader.GetMethodDebugInformation(methodDebugHandle);
@@ -115,22 +114,27 @@ namespace System.Diagnostics
         /// underlying ConditionalWeakTable doesn't keep the assembly alive, so cached types will be
         /// correctly invalidated when the Assembly is unloaded by the GC.
         /// </remarks>
-        private unsafe MetadataReader? TryGetReader(Assembly assembly, string assemblyPath, IntPtr loadedPeAddress, int loadedPeSize, bool isFileLayout, IntPtr inMemoryPdbAddress, int inMemoryPdbSize)
+        private MetadataReader? TryGetReader(Assembly assembly, string assemblyPath, IntPtr loadedPeAddress, int loadedPeSize, bool isFileLayout, IntPtr inMemoryPdbAddress, int inMemoryPdbSize)
         {
-            if ((loadedPeAddress == IntPtr.Zero || assemblyPath == null) && inMemoryPdbAddress == IntPtr.Zero)
+            if (loadedPeAddress == IntPtr.Zero && assemblyPath == null && inMemoryPdbAddress == IntPtr.Zero)
             {
-                // Dynamic or in-memory module without symbols (they would be in-memory if they were available).
                 return null;
             }
 
-            // The ConditionalWeakTable's GetValue + callback will atomically create the cache entry for us
-            // so we are protected from multiple threads racing to get/create the same MetadataReaderProvider
-            MetadataReaderProvider? provider = _metadataCache.GetValue(assembly, (assembly) =>
+            MetadataReaderProvider? provider;
+            while (!_metadataCache.TryGetValue(assembly, out provider))
             {
-                return (inMemoryPdbAddress != IntPtr.Zero) ?
-                            TryOpenReaderForInMemoryPdb(inMemoryPdbAddress, inMemoryPdbSize) :
-                            TryOpenReaderFromAssemblyFile(assemblyPath!, loadedPeAddress, loadedPeSize, isFileLayout);
-            });
+                provider = inMemoryPdbAddress != IntPtr.Zero ?
+                    TryOpenReaderForInMemoryPdb(inMemoryPdbAddress, inMemoryPdbSize) :
+                    TryOpenReaderFromAssemblyFile(assemblyPath!, loadedPeAddress, loadedPeSize, isFileLayout);
+
+                if (_metadataCache.TryAdd(assembly, provider))
+                {
+                    break;
+                }
+
+                provider?.Dispose();
+            }
 
             // The reader has already been open, so this doesn't throw.
             return provider?.GetMetadataReader();
@@ -187,14 +191,29 @@ namespace System.Diagnostics
                     return null;
                 }
 
-                string? pdbPath;
-                MetadataReaderProvider? provider;
-                if (peReader.TryOpenAssociatedPortablePdb(assemblyPath, TryOpenFile, out provider, out pdbPath))
+                if (assemblyPath is not null)
                 {
-                    // TODO:
-                    // Consider caching the provider in a global cache (across stack traces) if the PDB is embedded (pdbPath == null),
-                    // as decompressing embedded PDB takes some time.
-                    return provider;
+                    string? pdbPath;
+                    MetadataReaderProvider? provider;
+                    if (peReader.TryOpenAssociatedPortablePdb(assemblyPath, TryOpenFile, out provider, out pdbPath))
+                    {
+                        return provider;
+                    }
+                }
+
+                foreach (DebugDirectoryEntry entry in peReader.ReadDebugDirectory())
+                {
+                    if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
+                    {
+                        try
+                        {
+                            return peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
+                        }
+                        catch (Exception e) when (e is BadImageFormatException || e is IOException)
+                        {
+                            break;
+                        }
+                    }
                 }
             }
 

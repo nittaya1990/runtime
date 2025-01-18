@@ -3,6 +3,8 @@
 
 // Runtime headers
 #include <coreclrhost.h>
+#include <corehost/host_runtime_contract.h>
+#include <minipal/debugger.h>
 
 #include "corerun.hpp"
 #include "dotenv.hpp"
@@ -72,21 +74,22 @@ namespace envvar
 
 static void wait_for_debugger()
 {
-    pal::debugger_state_t state = pal::is_debugger_attached();
-    if (state == pal::debugger_state_t::na)
+    if (!minipal_can_check_for_native_debugger())
     {
         pal::fprintf(stdout, W("Debugger attach is not available on this platform\n"));
         return;
     }
-    else if (state == pal::debugger_state_t::not_attached)
+
+    bool attached = minipal_is_native_debugger_present();
+    if (!attached)
     {
         uint32_t pid = pal::get_process_id();
         pal::fprintf(stdout, W("Waiting for the debugger to attach (PID: %u). Press any key to continue ...\n"), pid);
         (void)getchar();
-        state = pal::is_debugger_attached();
+        attached = minipal_is_native_debugger_present();
     }
 
-    if (state == pal::debugger_state_t::attached)
+    if (attached)
     {
         pal::fprintf(stdout, W("Debugger is attached.\n"));
     }
@@ -205,6 +208,40 @@ public:
 static void* CurrentClrInstance;
 static unsigned int CurrentAppDomainId;
 
+static void log_error_info(const char* line)
+{
+    std::fprintf(stderr, "%s\n", line);
+}
+
+size_t HOST_CONTRACT_CALLTYPE get_runtime_property(
+    const char* key,
+    char* value_buffer,
+    size_t value_buffer_size,
+    void* contract_context)
+{
+    configuration* config = static_cast<configuration *>(contract_context);
+
+    if (::strcmp(key, HOST_PROPERTY_ENTRY_ASSEMBLY_NAME) == 0)
+    {
+        // Compute the entry assembly name based on the entry assembly full path
+        pal::string_t dir;
+        pal::string_t file;
+        pal::split_path_to_dir_filename(config->entry_assembly_fullpath, dir, file);
+        file = file.substr(0, file.rfind(W('.')));
+
+        pal::string_utf8_t file_utf8 = pal::convert_to_utf8(file.c_str());
+        size_t len = file_utf8.size() + 1;
+        if (value_buffer_size < len)
+            return len;
+
+        ::strncpy(value_buffer, file_utf8.c_str(), len - 1);
+        value_buffer[len - 1] = '\0';
+        return len;
+    }
+
+    return -1;
+}
+
 static int run(const configuration& config)
 {
     platform_specific_actions actions;
@@ -212,6 +249,8 @@ static int run(const configuration& config)
     // Check if debugger attach scenario was requested.
     if (config.wait_to_debug)
         wait_for_debugger();
+
+    config.dotenv_configuration.load_into_current_process();
 
     string_t exe_path = pal::get_exe_path();
 
@@ -268,8 +307,6 @@ static int run(const configuration& config)
         }
     }
 
-    config.dotenv_configuration.load_into_current_process();
-
     actions.before_coreclr_load();
 
     // Attempt to load CoreCLR.
@@ -282,6 +319,7 @@ static int run(const configuration& config)
     // Get CoreCLR exports
     coreclr_initialize_ptr coreclr_init_func = nullptr;
     coreclr_execute_assembly_ptr coreclr_execute_func = nullptr;
+    coreclr_set_error_writer_ptr coreclr_set_error_writer_func = nullptr;
     coreclr_shutdown_2_ptr coreclr_shutdown2_func = nullptr;
     if (!try_get_export(coreclr_mod, "coreclr_initialize", (void**)&coreclr_init_func)
         || !try_get_export(coreclr_mod, "coreclr_execute_assembly", (void**)&coreclr_execute_func)
@@ -289,6 +327,9 @@ static int run(const configuration& config)
     {
         return -1;
     }
+
+    // The coreclr_set_error_writer is optional
+    (void)try_get_export(coreclr_mod, "coreclr_set_error_writer", (void**)&coreclr_set_error_writer_func);
 
     // Construct CoreCLR properties.
     pal::string_utf8_t tpa_list_utf8 = pal::convert_to_utf8(tpa_list.c_str());
@@ -330,6 +371,18 @@ static int run(const configuration& config)
     for (const pal::string_utf8_t& str : user_defined_values_utf8)
         propertyValues.push_back(str.c_str());
 
+    host_runtime_contract host_contract = {
+        sizeof(host_runtime_contract),
+        (void*)&config,
+        &get_runtime_property,
+        nullptr,
+        nullptr };
+    propertyKeys.push_back(HOST_PROPERTY_RUNTIME_CONTRACT);
+    std::stringstream ss;
+    ss << "0x" << std::hex << (size_t)(&host_contract);
+    pal::string_utf8_t contract_str = ss.str();
+    propertyValues.push_back(contract_str.c_str());
+
     assert(propertyKeys.size() == propertyValues.size());
     int propertyCount = (int)propertyKeys.size();
 
@@ -343,6 +396,11 @@ static int run(const configuration& config)
         exe_path_utf8.c_str(),
         propertyCount, propertyKeys.data(), propertyValues.data(),
         entry_assembly_utf8.c_str(), config.entry_assembly_argc, argv_utf8.get() };
+
+    if (coreclr_set_error_writer_func != nullptr)
+    {
+        coreclr_set_error_writer_func(log_error_info);
+    }
 
     int result;
     result = coreclr_init_func(
@@ -359,6 +417,11 @@ static int run(const configuration& config)
         logger.dump_details();
         pal::fprintf(stderr, W("END: coreclr_initialize failed - Error: 0x%08x\n"), result);
         return -1;
+    }
+
+    if (coreclr_set_error_writer_func != nullptr)
+    {
+        coreclr_set_error_writer_func(nullptr);
     }
 
     int exit_code;
@@ -411,6 +474,7 @@ static void display_usage()
         W("  -p, --property - Property to pass to runtime during initialization.\n")
         W("                   If a property value contains spaces, quote the entire argument.\n")
         W("                   May be supplied multiple times. Format: <key>=<value>.\n")
+        W("  -l, --preload - path to shared library to load before loading the CLR.\n")
         W("  -d, --debug - causes corerun to wait for a debugger to attach before executing.\n")
         W("  -e, --env - path to a .env file with environment variables that corerun should set.\n")
         W("  -?, -h, --help - show this help.\n")
@@ -507,6 +571,22 @@ static bool parse_args(
             string_t value = prop.substr(delim_maybe + 1);
             config.user_defined_keys.push_back(std::move(key));
             config.user_defined_values.push_back(std::move(value));
+        }
+        else if (pal::strcmp(option, W("l")) == 0 || (pal::strcmp(option, W("preload")) == 0))
+        {
+            i++;
+            if (i >= argc)
+            {
+                pal::fprintf(stderr, W("Option %s: missing shared library path\n"), arg);
+                break;
+            }
+
+            string_t library = argv[i];
+            pal::mod_t hMod;
+            if (!pal::try_load_library(library, hMod))
+            {
+                break;
+            }
         }
         else if (pal::strcmp(option, W("d")) == 0 || (pal::strcmp(option, W("debug")) == 0))
         {

@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace System.Management
@@ -701,7 +701,7 @@ namespace System.Management
             //
             // Try catch the call to cancel. In this case the cancel is being done without the client
             // knowing about it so catching all exceptions is not a bad thing to do. If a client calls
-            // Stop (which calls Cancel), they will still receive any exceptions that may have occured.
+            // Stop (which calls Cancel), they will still receive any exceptions that may have occurred.
             //
             try
             {

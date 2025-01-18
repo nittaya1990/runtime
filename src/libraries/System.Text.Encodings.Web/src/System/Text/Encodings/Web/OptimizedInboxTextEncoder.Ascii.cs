@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-#if NETCOREAPP
+#if NET
 using System.Runtime.Intrinsics;
 #endif
 
@@ -22,7 +22,7 @@ namespace System.Text.Encodings.Web
             [FieldOffset(0)] // ensure same offset with AsVector field
             private fixed byte AsBytes[16];
 
-#if NETCOREAPP
+#if NET
 #if !TARGET_BROWSER
             [FieldOffset(0)] // ensure same offset with AsBytes field
             internal Vector128<byte> AsVector;
@@ -30,7 +30,9 @@ namespace System.Text.Encodings.Web
             // This member shouldn't be accessed from browser-based code paths.
             // All call sites should be trimmed away, which will also trim this member
             // and the type hierarchy it links to.
+#pragma warning disable CA1822
             internal Vector128<byte> AsVector => throw new PlatformNotSupportedException();
+#pragma warning restore CA1822
 #endif
 #endif
 

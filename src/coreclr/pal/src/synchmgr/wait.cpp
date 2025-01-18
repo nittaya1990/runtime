@@ -26,8 +26,8 @@ Revision History:
 #include "pal/event.hpp"
 #include "pal/mutex.hpp"
 #include "pal/semaphore.hpp"
-#include "pal/malloc.hpp"
 #include "pal/dbgmsg.h"
+#include <new>
 
 SET_DEFAULT_DEBUG_CHANNEL(SYNC);
 
@@ -390,8 +390,8 @@ DWORD CorUnix::InternalWaitForMultipleObjectsEx(
         wtWaitType = fWAll ? MultipleObjectsWaitAll : MultipleObjectsWaitOne;
         if (nCount > MAXIMUM_STACK_WAITOBJ_ARRAY_SIZE)
         {
-            ppIPalObjs = InternalNewArray<IPalObject*>(nCount);
-            ppISyncWaitCtrlrs = InternalNewArray<ISynchWaitController*>(nCount);
+            ppIPalObjs = new(std::nothrow) IPalObject*[nCount];
+            ppISyncWaitCtrlrs = new(std::nothrow) ISynchWaitController*[nCount];
             if ((NULL == ppIPalObjs) || (NULL == ppISyncWaitCtrlrs))
             {
                 ERROR("Out of memory allocating internal structures\n");
@@ -439,7 +439,7 @@ DWORD CorUnix::InternalWaitForMultipleObjectsEx(
         try
         {
             MutexTryAcquireLockResult tryAcquireLockResult =
-                static_cast<NamedMutexProcessData *>(processDataHeader->GetData())->TryAcquireLock(dwMilliseconds);
+                static_cast<NamedMutexProcessData *>(processDataHeader->GetData())->TryAcquireLock(nullptr, dwMilliseconds);
             switch (tryAcquireLockResult)
             {
                 case MutexTryAcquireLockResult::AcquiredLock:
@@ -655,7 +655,7 @@ WFMOExIntReleaseControllers:
         case WaitSucceeded:
             dwRet = WAIT_OBJECT_0; // offset added later
             break;
-        case MutexAbondoned:
+        case MutexAbandoned:
             dwRet =  WAIT_ABANDONED_0; // offset added later
             break;
         case WaitTimeout:
@@ -707,8 +707,8 @@ WFMOExIntCleanup:
 WFMOExIntExit:
     if (nCount > MAXIMUM_STACK_WAITOBJ_ARRAY_SIZE)
     {
-        InternalDeleteArray(ppIPalObjs);
-        InternalDeleteArray(ppISyncWaitCtrlrs);
+        delete[] ppIPalObjs;
+        delete[] ppISyncWaitCtrlrs;
     }
 
     return dwRet;
@@ -874,8 +874,8 @@ DWORD CorUnix::InternalSleepEx (
             _ASSERT_MSG(NO_ERROR == palErr, "Awakened for APC, but no APC is pending\n");
 
             break;
-        case MutexAbondoned:
-            ASSERT("Thread %p awakened with reason=MutexAbondoned from a SleepEx\n", pThread);
+        case MutexAbandoned:
+            ASSERT("Thread %p awakened with reason=MutexAbandoned from a SleepEx\n", pThread);
             break;
         case WaitFailed:
         default:

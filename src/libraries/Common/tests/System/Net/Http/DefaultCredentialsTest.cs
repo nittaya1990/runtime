@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.IO;
 using System.Security.Principal;
 using System.Threading.Tasks;
 
@@ -86,7 +87,8 @@ namespace System.Net.Http.Functional.Tests
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
                 string responseBody = await response.Content.ReadAsStringAsync();
-                WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
+
+                using WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
                 _output.WriteLine("currentIdentity={0}", currentIdentity.Name);
                 VerifyAuthentication(responseBody, true, currentIdentity.Name);
             }
@@ -110,7 +112,8 @@ namespace System.Net.Http.Functional.Tests
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
                 string responseBody = await response.Content.ReadAsStringAsync();
-                WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
+
+                using WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
                 _output.WriteLine("currentIdentity={0}", currentIdentity.Name);
                 VerifyAuthentication(responseBody, true, currentIdentity.Name);
             }

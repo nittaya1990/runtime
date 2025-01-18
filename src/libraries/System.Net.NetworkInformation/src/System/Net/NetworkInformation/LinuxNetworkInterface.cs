@@ -25,7 +25,7 @@ namespace System.Net.NetworkInformation
             internal string[]? IPv4Routes;
             internal string[]? IPv6Routes;
             internal string? DnsSuffix;
-            internal IPAddressCollection? DnsAddresses;
+            internal IPAddressCollection DnsAddresses;
 
             internal LinuxNetworkInterfaceSystemProperties()
             {
@@ -59,6 +59,7 @@ namespace System.Net.NetworkInformation
                 }
                 catch (Exception e) when (e is FileNotFoundException || e is UnauthorizedAccessException)
                 {
+                    DnsAddresses = new InternalIPAddressCollection();
                 }
             }
         }
@@ -73,10 +74,10 @@ namespace System.Net.NetworkInformation
         {
             var systemProperties = new LinuxNetworkInterfaceSystemProperties();
 
-            int interfaceCount=0;
-            int addressCount=0;
-            Interop.Sys.NetworkInterfaceInfo * nii = null;
-            Interop.Sys.IpAddressInfo * ai = null;
+            int interfaceCount = 0;
+            int addressCount = 0;
+            Interop.Sys.NetworkInterfaceInfo* nii = null;
+            Interop.Sys.IpAddressInfo* ai = null;
             IntPtr globalMemory = (IntPtr)null;
 
             if (Interop.Sys.GetNetworkInterfaces(&interfaceCount, &nii, &addressCount, &ai) != 0)
@@ -93,7 +94,7 @@ namespace System.Net.NetworkInformation
 
                 for (int i = 0; i < interfaceCount; i++)
                 {
-                    var lni = new LinuxNetworkInterface(Marshal.PtrToStringAnsi((IntPtr)nii->Name)!, nii->InterfaceIndex, systemProperties);
+                    var lni = new LinuxNetworkInterface(Marshal.PtrToStringUTF8((IntPtr)nii->Name)!, nii->InterfaceIndex, systemProperties);
                     lni._interfaceType = (NetworkInterfaceType)nii->HardwareType;
                     lni._speed = nii->Speed;
                     lni._operationalStatus = (OperationalStatus)nii->OperationalState;

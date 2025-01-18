@@ -20,7 +20,7 @@
 
 __checkReturn
 HRESULT _GetFixedSigOfVarArg(           // S_OK or error.
-    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob of COM+ method signature
+    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob of CLR method signature
     ULONG   cbSigBlob,                  // [IN] size of signature
     CQuickBytes *pqbSig,                // [OUT] output buffer for fixed part of VarArg Signature
     ULONG   *pcbSigBlob);               // [OUT] number of bytes written to the above output buffer
@@ -69,7 +69,7 @@ HRESULT TranslateSigHelper(                 // S_OK or error.
                 pbSigBlob,          // signature from the imported scope
                 NULL,               // Internal OID mapping structure.
                 pqkSigEmit,         // [OUT] translated signature
-                NULL,               // start from first byte of the signature
+                0,               // start from first byte of the signature
                 NULL,               // don't care how many bytes consumed
                 pcbSig);           // [OUT] total number of bytes write to pqkSigEmit
 
@@ -466,7 +466,7 @@ ULONG MDInternalRW::Release()
     cRef = InterlockedDecrement(&m_cRefs);
     if (cRef == 0)
     {
-        LOG((LOGMD, "MDInternalRW(0x%08x)::destruction\n", this));
+        LOG((LOGMD, "MDInternalRW(0x%p)::destruction\n", this));
         delete this;
     }
     return cRef;
@@ -695,7 +695,7 @@ ULONG MDInternalRW::GetCountWithTokenKind(     // return hresult
         ulCount = m_pStgdb->m_MiniMd.getCountEvents();
         break;
     case mdtProperty:
-        ulCount = m_pStgdb->m_MiniMd.getCountPropertys();
+        ulCount = m_pStgdb->m_MiniMd.getCountProperties();
         break;
     case mdtModuleRef:
         ulCount = m_pStgdb->m_MiniMd.getCountModuleRefs();
@@ -1144,7 +1144,7 @@ HRESULT MDInternalRW::EnumInit(     // return S_FALSE if record not found
             IfFailGo(m_pStgdb->m_MiniMd.GetPropertyMapRecord(ridPropertyMap, &pPropertyMapRec));
             ulStart = m_pStgdb->m_MiniMd.getPropertyListOfPropertyMap(pPropertyMapRec);
             IfFailGo(m_pStgdb->m_MiniMd.getEndPropertyListOfPropertyMap(ridPropertyMap, &ulEnd));
-            ulMax = m_pStgdb->m_MiniMd.getCountPropertys() + 1;
+            ulMax = m_pStgdb->m_MiniMd.getCountProperties() + 1;
             if(ulStart == 0) ulStart = 1;
             if(ulEnd > ulMax) ulEnd = ulMax;
             if(ulStart > ulEnd) ulStart = ulEnd;
@@ -1696,7 +1696,7 @@ __checkReturn
 HRESULT MDInternalRW::FindMethodDef(// S_OK or error.
     mdTypeDef   classdef,               // The owning class of the member.
     LPCSTR      szName,                 // Name of the member in utf8.
-    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
     ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
     mdMethodDef *pmethoddef)            // Put MemberDef token here.
 {
@@ -1723,7 +1723,7 @@ __checkReturn
 HRESULT MDInternalRW::FindMethodDefUsingCompare(// S_OK or error.
     mdTypeDef   classdef,               // The owning class of the member.
     LPCSTR      szName,                 // Name of the member in utf8.
-    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+    PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
     ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
     PSIGCOMPARE pSignatureCompare,      // [IN] Routine to compare signatures
     void*       pSignatureArgs,         // [IN] Additional info to supply the compare function
@@ -1797,7 +1797,7 @@ ErrExit:
 
 //*****************************************************************************
 // return a pointer which points to meta data's internal string
-// return the the type name in utf8
+// return the type name in utf8
 //*****************************************************************************
 __checkReturn
 HRESULT
@@ -1916,7 +1916,7 @@ __checkReturn
 HRESULT
 MDInternalRW::GetNameAndSigOfMethodDef(
     mdMethodDef      methoddef,         // [IN] given memberdef
-    PCCOR_SIGNATURE *ppvSigBlob,        // [OUT] point to a blob value of COM+ signature
+    PCCOR_SIGNATURE *ppvSigBlob,        // [OUT] point to a blob value of signature
     ULONG           *pcbSigBlob,        // [OUT] count of bytes in the signature blob
     LPCSTR          *pszMethodName)
 {
@@ -2128,7 +2128,7 @@ HRESULT MDInternalRW::GetItemGuid(      // return hresult
         wzBlob[0] = '{';
         wzBlob[37] = '}';
         wzBlob[38] = 0;
-        hr = IIDFromString(wzBlob, pGuid);
+        hr = LPCWSTRToGuid(wzBlob, pGuid) ? S_OK : E_FAIL;
     }
     else
         *pGuid = GUID_NULL;
@@ -2665,7 +2665,7 @@ __checkReturn
 HRESULT
 MDInternalRW::GetNameAndSigOfMemberRef( // meberref's name
     mdMemberRef      memberref,         // given a memberref
-    PCCOR_SIGNATURE *ppvSigBlob,        // [OUT] point to a blob value of COM+ signature
+    PCCOR_SIGNATURE *ppvSigBlob,        // [OUT] point to a blob value of signature
     ULONG           *pcbSigBlob,        // [OUT] count of bytes in the signature blob
     LPCSTR          *pszMemberRefName)
 {
@@ -3835,7 +3835,7 @@ __checkReturn
 HRESULT MDInternalRW::ConvertTextSigToComSig(// Return hresult.
     BOOL        fCreateTrIfNotFound,    // create typeref if not found or not
     LPCSTR      pSignature,             // class file format signature
-    CQuickBytes *pqbNewSig,             // [OUT] place holder for COM+ signature
+    CQuickBytes *pqbNewSig,             // [OUT] place holder for signature
     ULONG       *pcbCount)              // [OUT] the result size of signature
 {
     return E_NOTIMPL;
@@ -3898,7 +3898,7 @@ BOOL MDInternalRW::IsValidToken(        // True or False.
     case mdtEvent:
         return (rid <= m_pStgdb->m_MiniMd.getCountEvents());
     case mdtProperty:
-        return (rid <= m_pStgdb->m_MiniMd.getCountPropertys());
+        return (rid <= m_pStgdb->m_MiniMd.getCountProperties());
     case mdtModuleRef:
         return (rid <= m_pStgdb->m_MiniMd.getCountModuleRefs());
     case mdtTypeSpec:

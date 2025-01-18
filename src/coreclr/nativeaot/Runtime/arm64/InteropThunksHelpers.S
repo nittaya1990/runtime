@@ -5,7 +5,7 @@
 
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;  DATA SECTIONS  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-POINTER_SIZE = 0x08
+#define POINTER_SIZE 0x08
 
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Interop Thunks Helpers ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -27,7 +27,7 @@ POINTER_SIZE = 0x08
         // need to save and restore them, too
         GETTHUNKDATA_ETLS_9
 #else
-        INLINE_GET_TLS_VAR x9, tls_thunkData
+        INLINE_GET_TLS_VAR x9, C_FUNC(tls_thunkData)
 #endif
 
         // x9  = base address of TLS data
@@ -50,19 +50,3 @@ POINTER_SIZE = 0x08
         PREPARE_EXTERNAL_VAR RhCommonStub, x0
         ret
     LEAF_END RhGetCommonStubAddress, _TEXT
-
-
-#ifndef FEATURE_EMULATED_TLS
-    //
-    // IntPtr RhGetCurrentThunkContext()
-    //
-    LEAF_ENTRY RhGetCurrentThunkContext, _TEXT
-
-        INLINE_GET_TLS_VAR x1, tls_thunkData
-
-        ldr x0, [x1]
-
-        ret
-
-    LEAF_END RhGetCurrentThunkContext, _TEXT
-#endif //FEATURE_EMULATED_TLS

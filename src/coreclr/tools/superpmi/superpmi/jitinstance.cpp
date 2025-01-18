@@ -8,7 +8,6 @@
 #include "jithost.h"
 #include "errorhandling.h"
 #include "spmiutil.h"
-#include "metricssummary.h"
 
 JitInstance* JitInstance::InitJit(char*                         nameOfJit,
                                   bool                          breakOnAssert,
@@ -32,10 +31,10 @@ JitInstance* JitInstance::InitJit(char*                         nameOfJit,
     // or to force it on, then propagate that to the jit flags.
     jit->forceClearAltJitFlag = false;
     jit->forceSetAltJitFlag = false;
-    const WCHAR* altJitFlag = jit->getForceOption(W("AltJit"));
+    const char* altJitFlag = jit->getForceOption("AltJit");
     if (altJitFlag != nullptr)
     {
-        if (wcscmp(altJitFlag, W("")) == 0)
+        if (strcmp(altJitFlag, "") == 0)
         {
             jit->forceClearAltJitFlag = true;
         }
@@ -44,10 +43,10 @@ JitInstance* JitInstance::InitJit(char*                         nameOfJit,
             jit->forceSetAltJitFlag = true;
         }
     }
-    const WCHAR* altJitNgenFlag = jit->getForceOption(W("AltJitNgen"));
+    const char* altJitNgenFlag = jit->getForceOption("AltJitNgen");
     if (altJitNgenFlag != nullptr)
     {
-        if (wcscmp(altJitNgenFlag, W("")) == 0)
+        if (strcmp(altJitNgenFlag, "") == 0)
         {
             jit->forceClearAltJitFlag = true;
         }
@@ -177,7 +176,7 @@ HRESULT JitInstance::StartUp(char* PathToJit, bool copyJit, bool breakOnDebugBre
 #endif // !TARGET_UNIX
 
     // Load Library
-    hLib = ::LoadLibraryA(PathToTempJit);
+    hLib = ::LoadLibraryExA(PathToTempJit, NULL, 0);
     if (hLib == 0)
     {
         LogError("LoadLibrary failed (0x%08x)", ::GetLastError());
@@ -237,7 +236,7 @@ bool JitInstance::reLoad(MethodContext* firstContext)
     FreeLibrary(hLib);
 
     // Load Library
-    hLib = ::LoadLibraryA(PathToTempJit);
+    hLib = ::LoadLibraryExA(PathToTempJit, NULL, 0);
     if (hLib == 0)
     {
         LogError("LoadLibrary failed (0x%08x)", ::GetLastError());
@@ -277,24 +276,44 @@ bool JitInstance::reLoad(MethodContext* firstContext)
     return true;
 }
 
-JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, int mcIndex, bool collectThroughput, MetricsSummary* metrics)
+#undef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT __attribute__((visibility("default")))
+#endif
+
+DLLEXPORT volatile UINT64 s_globalZero;
+// A dynamic instrumentor can rewrite this function to provide precise
+// instruction counts that SPMI will report in metrics. We need the volatile
+// read here to model to the compiler that something might actually happen in
+// this function.
+extern "C" DLLEXPORT NOINLINE void Instrumentor_GetInsCount(UINT64* result)
+{
+    // Instrumentor may have written the value already.
+    if (*result == 0)
+    {
+        *result = s_globalZero;
+    }
+}
+
+ReplayResults JitInstance::CompileMethod(MethodContext* MethodToCompile, int mcIndex, bool collectThroughput)
 {
     struct Param : FilterSuperPMIExceptionsParam_CaptureException
     {
         JitInstance*        pThis;
-        JitInstance::Result result;
         CORINFO_METHOD_INFO info;
         unsigned            flags;
         int                 mcIndex;
         bool                collectThroughput;
-        MetricsSummary*     metrics;
+        bool*               isMinOpts;
+        ReplayResults       results;
     } param;
     param.pThis             = this;
-    param.result            = RESULT_SUCCESS; // assume success
     param.flags             = 0;
     param.mcIndex           = mcIndex;
     param.collectThroughput = collectThroughput;
-    param.metrics           = metrics;
+    param.results.Result    = ReplayResult::Success;
 
     // store to instance field our raw values, so we can figure things out a bit later...
     mc = MethodToCompile;
@@ -304,6 +323,9 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
 
     stj.Start();
 
+    UINT64 insCountBefore = 0;
+    Instrumentor_GetInsCount(&insCountBefore);
+
     PAL_TRY(Param*, pParam, &param)
     {
         uint8_t*   NEntryBlock    = nullptr;
@@ -311,6 +333,14 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
         CORINFO_OS os             = CORINFO_WINNT;
 
         pParam->pThis->mc->repCompileMethod(&pParam->info, &pParam->flags, &os);
+        CORJIT_FLAGS jitFlags;
+        pParam->pThis->mc->repGetJitFlags(&jitFlags, sizeof(jitFlags));
+
+        pParam->results.IsMinOpts =
+            jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_DEBUG_CODE) ||
+            jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_MIN_OPT) ||
+            jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_TIER0);
+
         if (pParam->collectThroughput)
         {
             pParam->pThis->lt.Start();
@@ -323,6 +353,17 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
             pParam->pThis->lt.Stop();
             pParam->pThis->times[0] = pParam->pThis->lt.GetCycles();
         }
+
+        CorInfoMethodRuntimeFlags flags = pParam->pThis->mc->cr->repSetMethodAttribs(pParam->info.ftn);
+        if ((flags & CORINFO_FLG_SWITCHED_TO_MIN_OPT) != 0)
+        {
+            pParam->results.IsMinOpts = true;
+        }
+        else if ((flags & CORINFO_FLG_SWITCHED_TO_OPTIMIZED) != 0)
+        {
+            pParam->results.IsMinOpts = false;
+        }
+
         if (jitResult == CORJIT_SKIPPED)
         {
             SPMI_TARGET_ARCHITECTURE targetArch = GetSpmiTargetArchitecture();
@@ -348,7 +389,7 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
 
                 default:
                     LogError("Unknown target architecture");
-                break;
+                    break;
             }
 
             // If the target architecture doesn't match the expected target architecture
@@ -358,23 +399,21 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
             {
                 jitResult = CORJIT_OK;
             }
-
         }
-        if (jitResult == CORJIT_OK)
+
+        if ((jitResult == CORJIT_OK) || (jitResult == CORJIT_BADCODE))
         {
             // capture the results of compilation
             pParam->pThis->mc->cr->recCompileMethod(&NEntryBlock, &NCodeSizeBlock, jitResult);
             pParam->pThis->mc->cr->recAllocMemCapture();
             pParam->pThis->mc->cr->recAllocGCInfoCapture();
 
-            pParam->pThis->mc->cr->recMessageLog("Successful Compile");
-
-            pParam->metrics->NumCodeBytes += NCodeSizeBlock;
+            pParam->pThis->mc->cr->recMessageLog(jitResult == CORJIT_OK ? "Successful Compile" : "Successful Compile (BADCODE)");
         }
         else
         {
             LogDebug("compileMethod failed with result %d", jitResult);
-            pParam->result = RESULT_ERROR;
+            pParam->results.Result = ReplayResult::Error;
         }
     }
     PAL_EXCEPT_FILTER(FilterSuperPMIExceptions_CaptureExceptionAndStop)
@@ -386,12 +425,26 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
             char* message = e.GetExceptionMessage();
             LogMissing("Method context %d failed to replay: %s", mcIndex, message);
             e.DeleteMessage();
-            param.result = RESULT_MISSING;
+            param.results.Result = ReplayResult::Miss;
+        }
+        else if (e.GetCode() == EXCEPTIONCODE_RECORDED_EXCEPTION)
+        {
+            // Exception thrown by EE during recording, for example a managed
+            // MissingFieldException thrown by resolveToken. Several JIT-EE
+            // APIs can throw exceptions and the recorder expects and rethrows
+            // their exceptions under this exception code. We do not consider
+            // these a replay failure.
+
+            // Call these methods to capture that no code/GC info was generated.
+            mc->cr->recAllocMemCapture();
+            mc->cr->recAllocGCInfoCapture();
+
+            mc->cr->recMessageLog("Successful Compile (EE API exception)");
         }
         else
         {
             e.ShowAndDeleteMessage();
-            param.result = RESULT_ERROR;
+            param.results.Result = ReplayResult::Error;
         }
     }
     PAL_ENDTRY
@@ -404,22 +457,13 @@ JitInstance::Result JitInstance::CompileMethod(MethodContext* MethodToCompile, i
     }
 
     mc->cr->secondsToCompile = stj.GetSeconds();
+    param.results.CompileResults = mc->cr;
 
-    if (param.result == RESULT_SUCCESS)
-    {
-        metrics->SuccessfulCompiles++;
-    }
-    else
-    {
-        metrics->FailingCompiles++;
-    }
+    UINT64 insCountAfter = 0;
+    Instrumentor_GetInsCount(&insCountAfter);
 
-    if (param.result == RESULT_MISSING)
-    {
-        metrics->MissingCompiles++;
-    }
-
-    return param.result;
+    param.results.NumExecutedInstructions = static_cast<long long>(insCountAfter - insCountBefore);
+    return param.results;
 }
 
 void JitInstance::timeResult(CORINFO_METHOD_INFO info, unsigned flags)
@@ -429,7 +473,7 @@ void JitInstance::timeResult(CORINFO_METHOD_INFO info, unsigned flags)
 
     int sampleSize = 10;
     // Save 2 smallest times. To help reduce noise, we will look at the closest pair of these.
-    unsigned __int64 time;
+    uint64_t time;
 
     for (int i = 0; i < sampleSize; i++)
     {
@@ -464,31 +508,31 @@ void JitInstance::timeResult(CORINFO_METHOD_INFO info, unsigned flags)
 
 /*-------------------------- Misc ---------------------------------------*/
 
-const WCHAR* JitInstance::getForceOption(const WCHAR* key)
+const char* JitInstance::getForceOption(const char* key)
 {
     return getOption(key, forceOptions);
 }
 
-const WCHAR* JitInstance::getOption(const WCHAR* key)
+const char* JitInstance::getOption(const char* key)
 {
     return getOption(key, options);
 }
 
-const WCHAR* JitInstance::getOption(const WCHAR* key, LightWeightMap<DWORD, DWORD>* options)
+const char* JitInstance::getOption(const char* key, LightWeightMap<DWORD, DWORD>* options)
 {
     if (options == nullptr)
     {
         return nullptr;
     }
 
-    size_t keyLenInBytes = sizeof(WCHAR) * (wcslen(key) + 1);
+    size_t keyLenInBytes = sizeof(char) * (strlen(key) + 1);
     int    keyIndex      = options->Contains((unsigned char*)key, (unsigned int)keyLenInBytes);
     if (keyIndex == -1)
     {
         return nullptr;
     }
 
-    return (const WCHAR*)options->GetBuffer(options->Get(keyIndex));
+    return (const char*)options->GetBuffer(options->Get(keyIndex));
 }
 
 // Used to allocate memory that needs to handed to the EE.
@@ -559,7 +603,7 @@ bool JitInstance::callJitStartup(ICorJitHost* jithost)
     return param.result;
 }
 
-// Reset JitConfig, that stores Enviroment variables.
+// Reset JitConfig, that stores Environment variables.
 bool JitInstance::resetConfig(MethodContext* firstContext)
 {
     if (pnjitStartup == nullptr)
@@ -595,4 +639,9 @@ bool JitInstance::resetConfig(MethodContext* firstContext)
 const MethodContext::Environment& JitInstance::getEnvironment()
 {
     return environment;
+}
+
+void JitInstance::updateForceOptions(LightWeightMap<DWORD, DWORD>* newForceOptions)
+{
+    forceOptions = newForceOptions;
 }

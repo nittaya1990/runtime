@@ -11,8 +11,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using System.Diagnostics;
+using System.Threading;
 
 namespace System.Linq.Parallel
 {
@@ -167,11 +167,7 @@ namespace System.Linq.Parallel
                 {
                     for (int j = 0; j < _sharedBarriers[i].Length; j++)
                     {
-                        Barrier b = _sharedBarriers[i][j];
-                        if (b != null)
-                        {
-                            b.Dispose();
-                        }
+                        _sharedBarriers[i][j]?.Dispose();
                     }
                 }
             }
@@ -233,10 +229,7 @@ namespace System.Linq.Parallel
                 TKey currentKey = default(TKey)!;
                 bool hadNext = _source.MoveNext(ref current!, ref currentKey);
 
-                if (keys == null)
-                {
-                    keys = new GrowingArray<TKey>();
-                }
+                keys ??= new GrowingArray<TKey>();
 
                 if (hadNext)
                 {
@@ -358,7 +351,9 @@ namespace System.Linq.Parallel
         // negatively impact speedups.
         //
 
+#if !FEATURE_WASM_MANAGED_THREADS
         [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+#endif
         private void MergeSortCooperatively()
         {
             CancellationToken cancelToken = _groupState.CancellationState.MergedCancellationToken;

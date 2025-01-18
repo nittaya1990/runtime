@@ -36,7 +36,7 @@ namespace System.Text.Encodings.Web
         /// </remarks>
         [CLSCompliant(false)]
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public unsafe abstract bool TryEncodeUnicodeScalar(int unicodeScalar, char* buffer, int bufferLength, out int numberOfCharactersWritten);
+        public abstract unsafe bool TryEncodeUnicodeScalar(int unicodeScalar, char* buffer, int bufferLength, out int numberOfCharactersWritten);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private unsafe bool TryEncodeUnicodeScalar(uint unicodeScalar, Span<char> buffer, out int charsWritten)
@@ -73,7 +73,7 @@ namespace System.Text.Encodings.Web
                 uint utf8lsb = (uint)UnicodeHelpers.GetUtf8RepresentationForScalarValue((uint)nextScalarValue.Value);
                 do
                 {
-                    if (SpanUtility.IsValidIndex(utf8Destination, dstIdx))
+                    if ((uint)utf8Destination.Length > (uint)dstIdx)
                     {
                         utf8Destination[dstIdx++] = (byte)utf8lsb;
                     }
@@ -103,7 +103,7 @@ namespace System.Text.Encodings.Web
         /// <remarks>This method is seldom called directly. It's used by higher level helper APIs.</remarks>
         [CLSCompliant(false)]
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public unsafe abstract int FindFirstCharacterToEncode(char* text, int textLength);
+        public abstract unsafe int FindFirstCharacterToEncode(char* text, int textLength);
 
         /// <summary>
         /// Determines if a given Unicode scalar will be encoded.
@@ -126,8 +126,13 @@ namespace System.Text.Encodings.Web
         /// </summary>
         /// <param name="value">String to encode.</param>
         /// <returns>Encoded string.</returns>
-        public virtual string Encode(string value!!)
+        public virtual string Encode(string value)
         {
+            if (value is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
+            }
+
             int indexOfFirstCharToEncode = FindFirstCharacterToEncode(value.AsSpan());
             if (indexOfFirstCharToEncode < 0)
             {
@@ -145,7 +150,7 @@ namespace System.Text.Encodings.Web
             ReadOnlySpan<char> remainingInput = value.Slice(indexOfFirstCharToEncode);
             ValueStringBuilder stringBuilder = new ValueStringBuilder(stackalloc char[EncodeStartingOutputBufferSize]);
 
-#if !NETCOREAPP
+#if !NET
             // Can't call string.Concat later in the method, so memcpy now.
             stringBuilder.Append(value.Slice(0, indexOfFirstCharToEncode));
 #endif
@@ -170,7 +175,7 @@ namespace System.Text.Encodings.Web
                 stringBuilder.Length -= destBuffer.Length - charsWrittenJustNow;
             } while (!remainingInput.IsEmpty);
 
-#if NETCOREAPP
+#if NET
             string retVal = string.Concat(value.Slice(0, indexOfFirstCharToEncode), stringBuilder.AsSpan());
             stringBuilder.Dispose();
             return retVal;
@@ -196,8 +201,17 @@ namespace System.Text.Encodings.Web
         /// <param name="value">String whose substring is to be encoded.</param>
         /// <param name="startIndex">The index where the substring starts.</param>
         /// <param name="characterCount">Number of characters in the substring.</param>
-        public virtual void Encode(TextWriter output!!, string value!!, int startIndex, int characterCount)
+        public virtual void Encode(TextWriter output, string value, int startIndex, int characterCount)
         {
+            if (output is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.output);
+            }
+            if (value is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
+            }
+
             ValidateRanges(startIndex, characterCount, actualInputLength: value.Length);
 
             int indexOfFirstCharToEncode = FindFirstCharacterToEncode(value.AsSpan(startIndex, characterCount));
@@ -222,8 +236,17 @@ namespace System.Text.Encodings.Web
         /// <param name="value">Array of characters to be encoded.</param>
         /// <param name="startIndex">The index where the substring starts.</param>
         /// <param name="characterCount">Number of characters in the substring.</param>
-        public virtual void Encode(TextWriter output!!, char[] value!!, int startIndex, int characterCount)
+        public virtual void Encode(TextWriter output, char[] value, int startIndex, int characterCount)
         {
+            if (output is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.output);
+            }
+            if (value is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
+            }
+
             ValidateRanges(startIndex, characterCount, actualInputLength: value.Length);
 
             int indexOfFirstCharToEncode = FindFirstCharacterToEncode(value.AsSpan(startIndex, characterCount));

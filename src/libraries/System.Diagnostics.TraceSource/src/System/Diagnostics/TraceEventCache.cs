@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Threading;
-using System.Text;
 using System.Collections;
 using System.Globalization;
+using System.Text;
+using System.Threading;
 
 namespace System.Diagnostics
 {
@@ -51,18 +51,7 @@ namespace System.Diagnostics
             }
         }
 
-        public string Callstack
-        {
-            get
-            {
-                if (_stackTrace == null)
-                {
-                    _stackTrace = Environment.StackTrace;
-                }
-
-                return _stackTrace;
-            }
-        }
+        public string Callstack => _stackTrace ??= Environment.StackTrace;
 
         public Stack LogicalOperationStack
         {

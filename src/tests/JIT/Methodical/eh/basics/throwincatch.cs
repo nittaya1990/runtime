@@ -4,10 +4,11 @@
 // Throw in catch handler
 
 using System;
+using Xunit;
 
-namespace hello
+namespace hello_throwincatch_basics_cs
 {
-    class Class1
+    public class Class1
     {
         private static TestUtil.TestLog testLog;
 
@@ -27,7 +28,9 @@ namespace hello
             testLog = new TestUtil.TestLog(expectedOut);
         }
 
-        static public int Main()
+        [Fact]
+        [OuterLoop]
+        static public int TestEntryPoint()
         {
             //Start recording
             testLog.StartRecording();

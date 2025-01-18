@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/time.h>
+#include <minipal/thread.h>
 #if HAVE_SCHED_GETCPU
 #include <sched.h>
 #endif
@@ -21,9 +22,6 @@
 #undef _XOPEN_SOURCE
 #endif
 #include <pthread.h>
-#if defined(TARGET_OSX)
-#define _XOPEN_SOURCE
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // LowLevelMonitor - Represents a non-recursive mutex and condition
@@ -48,7 +46,7 @@ static void SetIsLocked(LowLevelMonitor* monitor, bool isLocked)
 #endif
 }
 
-LowLevelMonitor* SystemNative_LowLevelMonitor_Create()
+LowLevelMonitor* SystemNative_LowLevelMonitor_Create(void)
 {
     LowLevelMonitor* monitor = (LowLevelMonitor *)malloc(sizeof(LowLevelMonitor));
     if (monitor == NULL)
@@ -233,8 +231,8 @@ int32_t SystemNative_CreateThread(uintptr_t stackSize, void *(*startAddress)(voi
     error = pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
     assert(error == 0);
 
-#ifdef ENSURE_PRIMARY_STACK_SIZE
-    // TODO: https://github.com/dotnet/runtimelab/issues/791
+#ifdef HOST_APPLE
+    // Match Windows stack size
     if (stackSize == 0)
     {
         stackSize = 1536 * 1024;
@@ -265,7 +263,7 @@ CreateThreadExit:
     return result;
 }
 
-int32_t SystemNative_SchedGetCpu()
+int32_t SystemNative_SchedGetCpu(void)
 {
 #if HAVE_SCHED_GETCPU
     return sched_getcpu();
@@ -281,7 +279,21 @@ void SystemNative_Exit(int32_t exitCode)
 }
 
 __attribute__((noreturn))
-void SystemNative_Abort()
+void SystemNative_Abort(void)
 {
     abort();
+}
+
+// Gets a non-truncated OS thread ID that is also suitable for diagnostics, for platforms that offer a 64-bit ID
+uint64_t SystemNative_GetUInt64OSThreadId(void)
+{
+    return (uint64_t)minipal_get_current_thread_id();
+}
+
+// Tries to get a non-truncated OS thread ID that is also suitable for diagnostics, for platforms that offer a 32-bit ID.
+// Returns (uint32_t)-1 when the implementation does not know how to get the OS thread ID.
+uint32_t SystemNative_TryGetUInt32OSThreadId(void)
+{
+    uint32_t result = (uint32_t)minipal_get_current_thread_id();
+    return result == 0 ? (uint32_t)-1 : result;
 }

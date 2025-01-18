@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
-using System.Collections;
-using System.Globalization;
 
 namespace System.ComponentModel.Design
 {
@@ -30,8 +30,10 @@ namespace System.ComponentModel.Design
         /// <summary>
         /// Sets a saved license key.
         /// </summary>
-        public override void SetSavedLicenseKey(Type type!!, string key)
+        public override void SetSavedLicenseKey(Type type, string key)
         {
+            ArgumentNullException.ThrowIfNull(type);
+
             _savedLicenseKeys[type.AssemblyQualifiedName!] = key;
         }
     }
@@ -59,15 +61,8 @@ namespace System.ComponentModel.Design
         {
             if (_savedLicenseKeys == null || _savedLicenseKeys[type.AssemblyQualifiedName!] == null)
             {
-                if (_savedLicenseKeys == null)
-                {
-                    _savedLicenseKeys = new Hashtable();
-                }
-
-                if (resourceAssembly == null)
-                {
-                    resourceAssembly = Assembly.GetEntryAssembly();
-                }
+                _savedLicenseKeys ??= new Hashtable();
+                resourceAssembly ??= Assembly.GetEntryAssembly();
 
                 if (resourceAssembly == null)
                 {
@@ -83,12 +78,10 @@ namespace System.ComponentModel.Design
                         string fileName = new FileInfo(location).Name;
 
                         Stream? s = asm.GetManifestResourceStream(fileName + ".licenses");
-                        if (s == null)
-                        {
-                            // Since the casing may be different depending on how the assembly was loaded,
-                            // we'll do a case insensitive lookup for this manifest resource stream...
-                            s = CaseInsensitiveManifestResourceStreamLookup(asm, fileName + ".licenses");
-                        }
+
+                        // Since the casing may be different depending on how the assembly was loaded,
+                        // we'll do a case insensitive lookup for this manifest resource stream...
+                        s ??= CaseInsensitiveManifestResourceStreamLookup(asm, fileName + ".licenses");
 
                         if (s != null)
                         {

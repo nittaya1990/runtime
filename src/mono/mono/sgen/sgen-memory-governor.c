@@ -94,30 +94,30 @@ sgen_memgov_calculate_minor_collection_allowance (void)
 	 * We allow the heap to grow by one third its current size before we start the next
 	 * major collection.
 	 */
-	allowance_target = new_heap_size * SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO;
+	allowance_target = GDOUBLE_TO_SIZE (new_heap_size * SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO);
 
-	allowance = MAX (allowance_target, MIN_MINOR_COLLECTION_ALLOWANCE);
+	allowance = MAX (allowance_target, GDOUBLE_TO_SIZE (MIN_MINOR_COLLECTION_ALLOWANCE));
 
 	/*
 	 * For the concurrent collector, we decrease the allowance relative to the memory
 	 * growth during the M&S phase, survival rate of the collection and the allowance
 	 * ratio.
 	 */
-	decrease = (major_pre_sweep_heap_size - major_start_heap_size) * ((float)new_heap_size / major_pre_sweep_heap_size) * (SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO + 1);
+	decrease = GDOUBLE_TO_SIZE ((major_pre_sweep_heap_size - major_start_heap_size) * ((float)new_heap_size / major_pre_sweep_heap_size) * (SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO + 1));
 	if (decrease > allowance)
 		decrease = allowance;
 	allowance -= decrease;
 
 	if (new_heap_size + allowance > soft_heap_limit) {
 		if (new_heap_size > soft_heap_limit)
-			allowance = MIN_MINOR_COLLECTION_ALLOWANCE;
+			allowance = GDOUBLE_TO_SIZE (MIN_MINOR_COLLECTION_ALLOWANCE);
 		else
-			allowance = MAX (soft_heap_limit - new_heap_size, MIN_MINOR_COLLECTION_ALLOWANCE);
+			allowance = MAX (soft_heap_limit - new_heap_size, GDOUBLE_TO_SIZE (MIN_MINOR_COLLECTION_ALLOWANCE));
 	}
 
 	/* FIXME: Why is this here? */
 	if (sgen_major_collector.free_swept_blocks)
-		sgen_major_collector.free_swept_blocks (sgen_major_collector.get_num_major_sections () * SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO);
+		sgen_major_collector.free_swept_blocks (GDOUBLE_TO_SIZE (sgen_major_collector.get_num_major_sections () * SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO));
 
 	major_collection_trigger_size = new_heap_size + allowance;
 
@@ -128,6 +128,20 @@ sgen_memgov_calculate_minor_collection_allowance (void)
 		SGEN_LOG (0, "Allowance: %ld bytes", (long)allowance);
 		SGEN_LOG (0, "Trigger size: %ld bytes", (long)major_collection_trigger_size);
 	}
+}
+
+// This can be called while sweep is running to determine earlier if there is so much memory growth
+// that we know we will require a GC once sweep finishes.
+static gboolean
+sgen_need_major_collection_conservative (void)
+{
+	size_t min_heap_size = sgen_los_memory_usage + sgen_major_collector.get_min_live_major_sections () * sgen_major_collector.section_size;
+
+	size_t max_last_collection_heap_size = last_collection_los_memory_usage + sgen_major_collector.get_max_last_major_survived_sections () * sgen_major_collector.section_size;
+	size_t max_allowance = GDOUBLE_TO_SIZE (max_last_collection_heap_size * SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO);
+	max_allowance = MAX (max_allowance, GDOUBLE_TO_SIZE (MIN_MINOR_COLLECTION_ALLOWANCE));
+
+	return min_heap_size > max_allowance;
 }
 
 static size_t
@@ -144,14 +158,20 @@ update_gc_info (mword used_slots_size)
 
 	sgen_gc_info.heap_size_bytes = major_size + sgen_los_memory_usage_total;
 	sgen_gc_info.fragmented_bytes = sgen_gc_info.heap_size_bytes - sgen_los_memory_usage - major_size_in_use;
-	guint64 physical_ram_size = mono_determine_physical_ram_size ();
-	sgen_gc_info.memory_load_bytes = physical_ram_size ? sgen_gc_info.total_available_memory_bytes - (guint64)(((double)sgen_gc_info.total_available_memory_bytes*mono_determine_physical_ram_available_size ())/physical_ram_size) : 0;
 	sgen_gc_info.total_committed_bytes = major_size_in_use + sgen_los_memory_usage;
 	sgen_gc_info.total_promoted_bytes = sgen_total_promoted_size - total_promoted_size_start;
 	sgen_gc_info.total_major_size_bytes = major_size;
 	sgen_gc_info.total_major_size_in_use_bytes = major_size_in_use;
 	sgen_gc_info.total_los_size_bytes = sgen_los_memory_usage_total;
 	sgen_gc_info.total_los_size_in_use_bytes = sgen_los_memory_usage;
+}
+
+static void
+update_gc_info_memory_load (void)
+{
+	// We update this separately because it is not safe to do it during GC stw
+	guint64 physical_ram_size = mono_determine_physical_ram_size ();
+	sgen_gc_info.memory_load_bytes = physical_ram_size ? sgen_gc_info.total_available_memory_bytes - (guint64)(((double)sgen_gc_info.total_available_memory_bytes*mono_determine_physical_ram_available_size ())/physical_ram_size) : 0;
 }
 
 gboolean
@@ -178,9 +198,11 @@ sgen_need_major_collection (mword space_needed, gboolean *forced)
 		return FALSE;
 	}
 
-	/* FIXME: This is a cop-out.  We should have some way of figuring this out. */
-	if (!sgen_major_collector.have_swept ())
+	if (!sgen_major_collector.have_swept ()) {
+		if (sgen_need_major_collection_conservative ())
+			return TRUE;
 		return FALSE;
+	}
 
 	if (space_needed > sgen_memgov_available_free_space ())
 		return TRUE;
@@ -222,11 +244,12 @@ sgen_memgov_minor_collection_end (const char *reason, gboolean is_overflow)
 		log_entry->reason = reason;
 		log_entry->is_overflow = is_overflow;
 		log_entry->time = SGEN_TV_ELAPSED (last_minor_start, current_time);
-		log_entry->promoted_size = sgen_gc_info.total_promoted_bytes;
-		log_entry->major_size = sgen_gc_info.total_major_size_bytes;
-		log_entry->major_size_in_use = sgen_gc_info.total_major_size_in_use_bytes;
-		log_entry->los_size = sgen_gc_info.total_los_size_bytes;
-		log_entry->los_size_in_use = sgen_gc_info.total_los_size_in_use_bytes;
+		log_entry->promoted_size = (mword)sgen_gc_info.total_promoted_bytes;
+		log_entry->major_size = (mword)sgen_gc_info.total_major_size_bytes;
+		log_entry->major_size_in_use = (mword)sgen_gc_info.total_major_size_in_use_bytes;
+		log_entry->major_empty_reserved_size = (mword)sgen_major_collector.get_num_empty_blocks () * sgen_major_collector.section_size;
+		log_entry->los_size = (mword)sgen_gc_info.total_los_size_bytes;
+		log_entry->los_size_in_use = (mword)sgen_gc_info.total_los_size_in_use_bytes;
 
 		sgen_add_log_entry (log_entry);
 	}
@@ -252,8 +275,8 @@ sgen_memgov_major_post_sweep (mword used_slots_size)
 		SgenLogEntry *log_entry = (SgenLogEntry*)sgen_alloc_internal (INTERNAL_MEM_LOG_ENTRY);
 
 		log_entry->type = SGEN_LOG_MAJOR_SWEEP_FINISH;
-		log_entry->major_size = sgen_gc_info.total_major_size_bytes;
-		log_entry->major_size_in_use = sgen_gc_info.total_major_size_in_use_bytes;
+		log_entry->major_size = (mword)sgen_gc_info.total_major_size_bytes;
+		log_entry->major_size_in_use = (mword)sgen_gc_info.total_major_size_in_use_bytes;
 
 		sgen_add_log_entry (log_entry);
 	}
@@ -327,7 +350,7 @@ sgen_output_log_entry (SgenLogEntry *entry, gint64 stw_time, int generation)
 
 	switch (entry->type) {
 		case SGEN_LOG_NURSERY:
-			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_GC, "GC_MINOR%s: (%s) time %.2fms, %s promoted %luK major size: %luK in use: %luK los size: %luK in use: %luK",
+			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_GC, "GC_MINOR%s: (%s) time %.2fms, %s promoted %luK major size: %luK in use: %luK empty reserved: %luK los size: %luK in use: %luK",
 				entry->is_overflow ? "_OVERFLOW" : "",
 				entry->reason ? entry->reason : "",
 				entry->time / 10000.0f,
@@ -335,6 +358,7 @@ sgen_output_log_entry (SgenLogEntry *entry, gint64 stw_time, int generation)
 				(unsigned long)entry->promoted_size / 1024,
 				(unsigned long)entry->major_size / 1024,
 				(unsigned long)entry->major_size_in_use / 1024,
+				(unsigned long)entry->major_empty_reserved_size / 1024,
 				(unsigned long)entry->los_size / 1024,
 				(unsigned long)entry->los_size_in_use / 1024);
 			break;
@@ -359,9 +383,10 @@ sgen_output_log_entry (SgenLogEntry *entry, gint64 stw_time, int generation)
 				(unsigned long)entry->los_size_in_use / 1024);
 			break;
 		case SGEN_LOG_MAJOR_SWEEP_FINISH:
-			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_GC, "GC_MAJOR_SWEEP: major size: %luK in use: %luK",
+			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_GC, "GC_MAJOR_SWEEP: major size: %luK in use: %luK empty reserved: %luK",
 				(unsigned long)entry->major_size / 1024,
-				(unsigned long)entry->major_size_in_use / 1024);
+				(unsigned long)entry->major_size_in_use / 1024,
+				(unsigned long)entry->major_empty_reserved_size / 1024);
 			break;
 		default:
 			SGEN_ASSERT (0, FALSE, "Invalid log entry type");
@@ -387,6 +412,8 @@ sgen_memgov_collection_end (int generation, gint64 stw_time)
 		sgen_pointer_queue_clear (&log_entries);
 		mono_os_mutex_unlock (&log_entries_mutex);
 	}
+
+	update_gc_info_memory_load ();
 }
 
 /*
@@ -507,7 +534,7 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 		soft_heap_limit = soft_limit;
 
 	debug_print_allowance = debug_allowance;
-	major_collection_trigger_size = MIN_MINOR_COLLECTION_ALLOWANCE;
+	major_collection_trigger_size = GDOUBLE_TO_SIZE (MIN_MINOR_COLLECTION_ALLOWANCE);
 
 	mono_counters_register ("Memgov alloc", MONO_COUNTER_GC | MONO_COUNTER_WORD | MONO_COUNTER_BYTES | MONO_COUNTER_VARIABLE, (void*)&total_alloc);
 	mono_counters_register ("Memgov max alloc", MONO_COUNTER_GC | MONO_COUNTER_WORD | MONO_COUNTER_BYTES | MONO_COUNTER_MONOTONIC, (void*)&total_alloc_max);
@@ -523,7 +550,7 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 
 		// This threshold is commonly used by software caches to detect when they are approaching the limit of available memory.
 		// In sgen it is not adjusted dynamically, since sgen does not adjust compaction strategies based on a threshold.
-		sgen_gc_info.high_memory_load_threshold_bytes = .9 * sgen_gc_info.total_available_memory_bytes;
+		sgen_gc_info.high_memory_load_threshold_bytes = GDOUBLE_TO_UINT64 (.9 * sgen_gc_info.total_available_memory_bytes);
 
 		if (!sgen_gc_info.total_available_memory_bytes) {
 			SGEN_LOG(9, "Warning: Unable to determine physical ram size for GCMemoryInfo");
@@ -544,7 +571,7 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 	max_heap_size = max_heap;
 
 	sgen_gc_info.total_available_memory_bytes = max_heap;
-	sgen_gc_info.high_memory_load_threshold_bytes = .9 * sgen_gc_info.total_available_memory_bytes;
+	sgen_gc_info.high_memory_load_threshold_bytes = GDOUBLE_TO_UINT64 (.9 * sgen_gc_info.total_available_memory_bytes);
 
 	if (allowance_ratio)
 		default_allowance_nursery_size_ratio = allowance_ratio;

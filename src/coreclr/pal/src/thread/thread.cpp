@@ -2,19 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*++
-
-
-
 Module Name:
-
     thread.cpp
 
 Abstract:
-
     Thread object and core APIs
-
-
-
 --*/
 
 #include "pal/dbgmsg.h"
@@ -37,20 +29,18 @@ SET_DEFAULT_DEBUG_CHANNEL(THREAD); // some headers have code with asserts, so do
 #include "pal/utils.h"
 #include "pal/virtual.h"
 
+#include <minipal/thread.h>
+
 #if defined(__NetBSD__) && !HAVE_PTHREAD_GETCPUCLOCKID
 #include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/sysctl.h>
 #include <kvm.h>
-#elif defined(__sun)
-#ifndef _KERNEL
-#define _KERNEL
-#define UNDEF_KERNEL
 #endif
-#include <sys/procfs.h>
-#ifdef UNDEF_KERNEL
-#undef _KERNEL
-#endif
+
+#if defined(__sun)
+#include <procfs.h>
+#include <fcntl.h>
 #endif
 
 #include <signal.h>
@@ -80,24 +70,12 @@ SET_DEFAULT_DEBUG_CHANNEL(THREAD); // some headers have code with asserts, so do
 #if HAVE_LWP_H
 #include <lwp.h>
 #endif
-// If we don't have sys/lwp.h but do expect to use _lwp_self, declare it to silence compiler warnings
-#if HAVE__LWP_SELF && !HAVE_SYS_LWP_H && !HAVE_LWP_H
-extern "C" int _lwp_self ();
-#endif
 
 #if HAVE_CPUSET_T
 typedef cpuset_t cpu_set_t;
 #endif
 
 using namespace CorUnix;
-
-#ifdef __APPLE__
-#define MAX_THREAD_NAME_SIZE 63
-#elif defined(__FreeBSD__)
-#define MAX_THREAD_NAME_SIZE MAXCOMLEN
-#else
-#define MAX_THREAD_NAME_SIZE 15
-#endif
 
 /* ------------------- Definitions ------------------------------*/
 
@@ -110,34 +88,17 @@ void
 ThreadCleanupRoutine(
     CPalThread *pThread,
     IPalObject *pObjectToCleanup,
-    bool fShutdown,
-    bool fCleanupSharedState
-    );
-
-PAL_ERROR
-ThreadInitializationRoutine(
-    CPalThread *pThread,
-    CObjectType *pObjectType,
-    void *pImmutableData,
-    void *pSharedData,
-    void *pProcessLocalData
+    bool fShutdown
     );
 
 CObjectType CorUnix::otThread(
                 otiThread,
                 ThreadCleanupRoutine,
-                ThreadInitializationRoutine,
                 0,      // sizeof(CThreadImmutableData),
                 NULL,   // No immutable data copy routine
                 NULL,   // No immutable data cleanup routine
                 sizeof(CThreadProcessLocalData),
                 NULL,   // No process local data cleanup routine
-                0,      // sizeof(CThreadSharedData),
-                0,      // THREAD_ALL_ACCESS,
-                CObjectType::SecuritySupported,
-                CObjectType::SecurityInfoNotPersisted,
-                CObjectType::UnnamedObject,
-                CObjectType::LocalDuplicationOnly,
                 CObjectType::WaitableObject,
                 CObjectType::SingleTransitionObject,
                 CObjectType::ThreadReleaseHasNoSideEffects,
@@ -225,7 +186,7 @@ Return:
 --*/
 CPalThread* AllocTHREAD()
 {
-    return InternalNew<CPalThread>();
+    return new(std::nothrow) CPalThread();
 }
 
 /*++
@@ -238,19 +199,7 @@ Abstract:
 --*/
 static void FreeTHREAD(CPalThread *pThread)
 {
-    //
-    // Run the destructors for this object
-    //
-
-    pThread->~CPalThread();
-
-#ifdef _DEBUG
-    // Fill value so we can find code re-using threads after they're dead. We
-    // check against pThread->dwGuard when getting the current thread's data.
-    memset((void*)pThread, 0xcc, sizeof(*pThread));
-#endif
-
-    free(pThread);
+    delete pThread;
 }
 
 
@@ -572,7 +521,7 @@ CorUnix::InternalCreateThread(
             // When coming here from the public API surface, the incoming value is originally a nonnegative signed int32, so
             // this shouldn't happen
             ASSERT(
-                "Couldn't align the requested stack size (%Iu) to the page size because the stack size was too large\n",
+                "Couldn't align the requested stack size (%zu) to the page size because the stack size was too large\n",
                 alignedStackSize);
             palError = ERROR_INVALID_PARAMETER;
             goto EXIT;
@@ -645,10 +594,10 @@ CorUnix::InternalCreateThread(
             alignedStackSize = MinStackSize;
         }
 
-        TRACE("setting thread stack size to %Iu\n", alignedStackSize);
+        TRACE("setting thread stack size to %zu\n", alignedStackSize);
         if (0 != pthread_attr_setstacksize(&pthreadAttr, alignedStackSize))
         {
-            ERROR("couldn't set pthread stack size to %Iu\n", alignedStackSize);
+            ERROR("couldn't set pthread stack size to %zu\n", alignedStackSize);
             palError = ERROR_INTERNAL_ERROR;
             goto EXIT;
         }
@@ -1159,7 +1108,7 @@ CorUnix::InternalSetThreadPriority(
        Time Critical [+15]), we have to do a mapping from a known range to an
        unknown (at compilation) range.
        We do this by :
-       -substracting the minimal PAL priority from the desired priority. this
+       -subtracting the minimal PAL priority from the desired priority. this
         gives a value between 0 and the PAL priority range
        -dividing this value by the PAL priority range. this allows us to
         express the desired priority as a floating-point value between 0 and 1
@@ -1231,7 +1180,7 @@ CorUnix::GetThreadTimesInternal(
     OUT LPFILETIME lpKernelTime,
     OUT LPFILETIME lpUserTime)
 {
-    __int64 calcTime;
+    int64_t calcTime;
     BOOL retval = FALSE;
 
 #if HAVE_MACH_THREADS
@@ -1281,15 +1230,15 @@ CorUnix::GetThreadTimesInternal(
     }
 
     /* Get the time of user mode execution, in nanoseconds */
-    calcTime = (__int64)resUsage.user_time.seconds * SECS_TO_NS;
-    calcTime += (__int64)resUsage.user_time.microseconds * USECS_TO_NS;
+    calcTime = (int64_t)resUsage.user_time.seconds * SECS_TO_NS;
+    calcTime += (int64_t)resUsage.user_time.microseconds * USECS_TO_NS;
     /* Assign the time into lpUserTime */
     lpUserTime->dwLowDateTime = (DWORD)calcTime;
     lpUserTime->dwHighDateTime = (DWORD)(calcTime >> 32);
 
     /* Get the time of kernel mode execution, in nanoseconds */
-    calcTime = (__int64)resUsage.system_time.seconds * SECS_TO_NS;
-    calcTime += (__int64)resUsage.system_time.microseconds * USECS_TO_NS;
+    calcTime = (int64_t)resUsage.system_time.seconds * SECS_TO_NS;
+    calcTime += (int64_t)resUsage.system_time.microseconds * USECS_TO_NS;
     /* Assign the time into lpKernelTime */
     lpKernelTime->dwLowDateTime = (DWORD)calcTime;
     lpKernelTime->dwHighDateTime = (DWORD)(calcTime >> 32);
@@ -1368,8 +1317,8 @@ CorUnix::GetThreadTimesInternal(
 
     kvm_close(kd);
 
-    calcTime = (__int64) klwp[i].l_rtime_sec * SECS_TO_NS;
-    calcTime += (__int64) klwp[i].l_rtime_usec * USECS_TO_NS;
+    calcTime = (int64_t) klwp[i].l_rtime_sec * SECS_TO_NS;
+    calcTime += (int64_t) klwp[i].l_rtime_usec * USECS_TO_NS;
     lpUserTime->dwLowDateTime = (DWORD)calcTime;
     lpUserTime->dwHighDateTime = (DWORD)(calcTime >> 32);
 
@@ -1410,6 +1359,7 @@ CorUnix::GetThreadTimesInternal(
 
     pTargetThread->Lock(pThread);
 
+#if HAVE_PTHREAD_GETCPUCLOCKID || HAVE_CLOCK_THREAD_CPUTIME
 #if HAVE_PTHREAD_GETCPUCLOCKID
     if (pthread_getcpuclockid(pTargetThread->GetPThreadSelf(), &cid) != 0)
     {
@@ -1418,6 +1368,9 @@ CorUnix::GetThreadTimesInternal(
         pTargetThread->Unlock(pThread);
         goto SetTimesToZero;
     }
+#else // HAVE_PTHREAD_GETCPUCLOCKID
+    cid = CLOCK_THREAD_CPUTIME_ID;
+#endif // HAVE_PTHREAD_GETCPUCLOCKID
 
     struct timespec ts;
     if (clock_gettime(cid, &ts) != 0)
@@ -1451,15 +1404,15 @@ CorUnix::GetThreadTimesInternal(
     close(fd);
 
     ts = status.pr_utime;
-#else // HAVE_PTHREAD_GETCPUCLOCKID
+#else // HAVE_PTHREAD_GETCPUCLOCKID || HAVE_CLOCK_THREAD_CPUTIME
 #error "Don't know how to obtain user cpu time on this platform."
-#endif // HAVE_PTHREAD_GETCPUCLOCKID
+#endif // HAVE_PTHREAD_GETCPUCLOCKID || HAVE_CLOCK_THREAD_CPUTIME
 
     pTargetThread->Unlock(pThread);
 
     /* Calculate time in nanoseconds and assign to user time */
-    calcTime = (__int64) ts.tv_sec * SECS_TO_NS;
-    calcTime += (__int64) ts.tv_nsec;
+    calcTime = (int64_t) ts.tv_sec * SECS_TO_NS;
+    calcTime += (int64_t) ts.tv_nsec;
     lpUserTime->dwLowDateTime = (DWORD)calcTime;
     lpUserTime->dwHighDateTime = (DWORD)(calcTime >> 32);
 
@@ -1484,213 +1437,60 @@ GetThreadTimesInternalExit:
     return retval;
 }
 
-/*++
-Function:
-  GetThreadTimes
-
-See MSDN doc.
---*/
-BOOL
-PALAPI
-GetThreadTimes(
-        IN HANDLE hThread,
-        OUT LPFILETIME lpCreationTime,
-        OUT LPFILETIME lpExitTime,
-        OUT LPFILETIME lpKernelTime,
-        OUT LPFILETIME lpUserTime)
-{
-    PERF_ENTRY(GetThreadTimes);
-    ENTRY("GetThreadTimes(hThread=%p, lpExitTime=%p, lpKernelTime=%p,"
-          "lpUserTime=%p)\n",
-          hThread, lpCreationTime, lpExitTime, lpKernelTime, lpUserTime );
-
-    FILETIME KernelTime, UserTime;
-
-    BOOL retval = GetThreadTimesInternal(hThread, &KernelTime, &UserTime);
-
-    /* Not sure if this still needs to be here */
-    /*
-    TRACE ("thread_info User: %ld sec,%ld microsec. Kernel: %ld sec,%ld"
-           " microsec\n",
-           resUsage.user_time.seconds, resUsage.user_time.microseconds,
-           resUsage.system_time.seconds, resUsage.system_time.microseconds);
-    */
-
-    __int64 calcTime;
-    if (lpUserTime)
-    {
-        /* Produce the time in 100s of ns */
-        calcTime = ((ULONG64)UserTime.dwHighDateTime << 32);
-        calcTime += (ULONG64)UserTime.dwLowDateTime;
-        calcTime /= 100;
-        lpUserTime->dwLowDateTime = (DWORD)calcTime;
-        lpUserTime->dwHighDateTime = (DWORD)(calcTime >> 32);
-    }
-    if (lpKernelTime)
-    {
-        /* Produce the time in 100s of ns */
-        calcTime = ((ULONG64)KernelTime.dwHighDateTime << 32);
-        calcTime += (ULONG64)KernelTime.dwLowDateTime;
-        calcTime /= 100;
-        lpKernelTime->dwLowDateTime = (DWORD)calcTime;
-        lpKernelTime->dwHighDateTime = (DWORD)(calcTime >> 32);
-    }
-    //Set CreationTime and Exit time to zero for now - maybe change this later?
-    if (lpCreationTime)
-    {
-        lpCreationTime->dwLowDateTime = 0;
-        lpCreationTime->dwHighDateTime = 0;
-    }
-
-    if (lpExitTime)
-    {
-        lpExitTime->dwLowDateTime = 0;
-        lpExitTime->dwHighDateTime = 0;
-    }
-
-    LOGEXIT("GetThreadTimes returns BOOL %d\n", retval);
-    PERF_EXIT(GetThreadTimes);
-    return (retval);
-}
-
 HRESULT
 PALAPI
 SetThreadDescription(
     IN HANDLE hThread,
     IN PCWSTR lpThreadDescription)
 {
-    CPalThread *pThread;
-    PAL_ERROR palError;
-
     PERF_ENTRY(SetThreadDescription);
     ENTRY("SetThreadDescription(hThread=%p,lpThreadDescription=%p)\n", hThread, lpThreadDescription);
 
-    pThread = InternalGetCurrentThread();
+    CPalThread *pThread = InternalGetCurrentThread();
 
-    palError = InternalSetThreadDescription(
-        pThread,
-        hThread,
-        lpThreadDescription
-        );
+    CPalThread *pTargetThread = NULL;
+    IPalObject *pobjThread = NULL;
+    int nameSize;
+    char *nameBuf = NULL;
 
-    if (NO_ERROR != palError)
+    PAL_ERROR palError = InternalGetThreadDataFromHandle(pThread, hThread, &pTargetThread, &pobjThread);
+    if (palError == NO_ERROR)
     {
-        pThread->SetLastError(palError);
+        // Ignore requests to set the main thread name because
+        // it causes the value returned by Process.ProcessName to change.
+        if ((pid_t)pTargetThread->GetThreadId() != getpid())
+        {
+            nameSize = WideCharToMultiByte(CP_ACP, 0, lpThreadDescription, -1, NULL, 0, NULL, NULL);
+            if (nameSize > 0)
+            {
+                nameBuf = (char *)malloc(nameSize);
+                if (nameBuf == NULL || WideCharToMultiByte(CP_ACP, 0, lpThreadDescription, -1, nameBuf, nameSize, NULL, NULL) != nameSize)
+                {
+                    pThread->SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                }
+                else
+                {
+                    int setNameResult = minipal_set_thread_name(pTargetThread->GetPThreadSelf(), nameBuf);
+                    (void)setNameResult; // used
+                    _ASSERTE(setNameResult == 0);
+                }
+
+                free(nameBuf);
+            }
+            else
+            {
+                pThread->SetLastError(ERROR_INVALID_PARAMETER);
+            }
+        }
+
+        if (pobjThread != NULL)
+            pobjThread->ReleaseReference(pThread);
     }
 
     LOGEXIT("SetThreadDescription");
     PERF_EXIT(SetThreadDescription);
 
     return HRESULT_FROM_WIN32(palError);
-}
-
-PAL_ERROR
-CorUnix::InternalSetThreadDescription(
-    CPalThread *pThread,
-    HANDLE hTargetThread,
-    PCWSTR lpThreadDescription
-)
-{
-    PAL_ERROR palError = NO_ERROR;
-    CPalThread *pTargetThread = NULL;
-    IPalObject *pobjThread = NULL;
-    int error = 0;
-    int maxNameSize = 0;
-    int nameSize;
-    char *nameBuf = NULL;
-
-// The exact API of pthread_setname_np varies very wildly depending on OS.
-// For now, only Linux, macOS and FreeBSD are implemented.
-#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
-
-    palError = InternalGetThreadDataFromHandle(
-        pThread,
-        hTargetThread,
-        &pTargetThread,
-        &pobjThread
-        );
-
-    if (NO_ERROR != palError)
-    {
-        goto InternalSetThreadDescriptionExit;
-    }
-
-    pTargetThread->Lock(pThread);
-
-    // Ignore requests to set the main thread name because
-    // it causes the value returned by Process.ProcessName to change.
-    if ((pid_t)pTargetThread->GetThreadId() == getpid())
-    {
-        goto InternalSetThreadDescriptionExit;
-    }
-
-    /* translate the wide char lpThreadDescription string to multibyte string */
-    nameSize = WideCharToMultiByte(CP_ACP, 0, lpThreadDescription, -1, NULL, 0, NULL, NULL);
-
-    if (0 == nameSize)
-    {
-        palError = ERROR_INTERNAL_ERROR;
-        goto InternalSetThreadDescriptionExit;
-    }
-
-    nameBuf = (char *)PAL_malloc(nameSize);
-    if (nameBuf == NULL)
-    {
-        palError = ERROR_OUTOFMEMORY;
-        goto InternalSetThreadDescriptionExit;
-    }
-
-    if (WideCharToMultiByte(CP_ACP, 0, lpThreadDescription, -1, nameBuf, nameSize, NULL,
-                            NULL) != nameSize)
-    {
-        palError = ERROR_INTERNAL_ERROR;
-        goto InternalSetThreadDescriptionExit;
-    }
-
-    // Null terminate early.
-    // pthread_setname_np only accepts up to 16 chars on Linux,
-    // 64 chars on macOS and 20 chars on FreeBSD.
-    if (nameSize > MAX_THREAD_NAME_SIZE)
-    {
-        nameBuf[MAX_THREAD_NAME_SIZE] = '\0';
-    }
-    
-    #if defined(__linux__) || defined(__FreeBSD__)
-    error = pthread_setname_np(pTargetThread->GetPThreadSelf(), nameBuf);
-    #endif
-
-    #if defined(__APPLE__)
-    // on macOS, pthread_setname_np only works for the calling thread.
-    if (PlatformGetCurrentThreadId() == pTargetThread->GetThreadId()) 
-    {
-        error = pthread_setname_np(nameBuf);
-    }
-    #endif
-
-    if (error != 0)
-    {
-        palError = ERROR_INTERNAL_ERROR;
-    }
-
-InternalSetThreadDescriptionExit:
-
-    if (NULL != pTargetThread)
-    {
-        pTargetThread->Unlock(pThread);
-    }
-
-    if (NULL != pobjThread)
-    {
-        pobjThread->ReleaseReference(pThread);
-    }
-
-    if (NULL != nameBuf) {
-        PAL_free(nameBuf);
-    }
-
-#endif //defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
-
-    return palError;
 }
 
 void *
@@ -2289,12 +2089,6 @@ CPalThread::RunPreCreateInitializers(
         goto RunPreCreateInitializersExit;
     }
 
-    palError = crtInfo.InitializePreCreate();
-    if (NO_ERROR != palError)
-    {
-        goto RunPreCreateInitializersExit;
-    }
-
 RunPreCreateInitializersExit:
 
     return palError;
@@ -2382,12 +2176,6 @@ CPalThread::RunPostCreateInitializers(
     }
 
     palError = apcInfo.InitializePostCreate(this, m_threadId, m_dwLwpId);
-    if (NO_ERROR != palError)
-    {
-        goto RunPostCreateInitializersExit;
-    }
-
-    palError = crtInfo.InitializePostCreate(this, m_threadId, m_dwLwpId);
     if (NO_ERROR != palError)
     {
         goto RunPostCreateInitializersExit;
@@ -2518,7 +2306,7 @@ CPalThread::EnsureSignalAlternateStack()
             // We include the size of the SignalHandlerWorkerReturnPoint in the alternate stack size since the
             // context contained in it is large and the SIGSTKSZ was not sufficient on ARM64 during testing.
             int altStackSize = SIGSTKSZ + ALIGN_UP(sizeof(SignalHandlerWorkerReturnPoint), 16) + GetVirtualPageSize();
-#ifdef HAS_ASAN
+#ifdef HAS_ADDRESS_SANITIZER
             // Asan also uses alternate stack so we increase its size on the SIGSTKSZ * 4 that enough for asan
             // (see kAltStackSize in compiler-rt/lib/sanitizer_common/sanitizer_posix_libcdep.cc)
             altStackSize += SIGSTKSZ * 4;
@@ -2604,8 +2392,7 @@ void
 ThreadCleanupRoutine(
     CPalThread *pThread,
     IPalObject *pObjectToCleanup,
-    bool fShutdown,
-    bool fCleanupSharedState
+    bool fShutdown
     )
 {
     CThreadProcessLocalData *pThreadData = NULL;
@@ -2648,24 +2435,12 @@ ThreadCleanupRoutine(
 
 }
 
-PAL_ERROR
-ThreadInitializationRoutine(
-    CPalThread *pThread,
-    CObjectType *pObjectType,
-    void *pImmutableData,
-    void *pSharedData,
-    void *pProcessLocalData
-    )
-{
-    return NO_ERROR;
-}
-
 // Get base address of the current thread's stack
 void *
 CPalThread::GetStackBase()
 {
     void* stackBase;
-#ifdef TARGET_OSX
+#ifdef TARGET_APPLE
     // This is a Mac specific method
     stackBase = pthread_get_stackaddr_np(pthread_self());
 #else
@@ -2705,7 +2480,7 @@ void *
 CPalThread::GetStackLimit()
 {
     void* stackLimit;
-#ifdef TARGET_OSX
+#ifdef TARGET_APPLE
     // This is a Mac specific method
     stackLimit = ((BYTE *)pthread_get_stackaddr_np(pthread_self()) -
                    pthread_get_stacksize_np(pthread_self()));

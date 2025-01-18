@@ -355,13 +355,16 @@ int32_t SystemIoPortsNative_TermiosSetSpeed(intptr_t handle, int32_t speed)
 
     if (brate == B0)
     {
-#if HAVE_IOSS_H
         // Looks like custom speed out of POSIX. Let see if we can set it via specialized call.
+#if HAVE_IOSS_H
         brate = speed;
         if (ioctl(fd, IOSSIOSPEED, &brate) != -1)
         {
             return speed;
         }
+#endif
+#if HAVE_TERMIOS2
+        return SystemIoPortsNative_Termios2SetSpeed(fd, speed);
 #endif
         errno = EINVAL;
         return -1;
@@ -434,22 +437,21 @@ int32_t SystemIoPortsNative_TermiosReset(intptr_t handle, int32_t speed, int32_t
 
     if (tcgetattr(fd, &term) < 0)
     {
-        return  -1;
+        return -1;
     }
 
 #if HAVE_CFMAKERAW
     cfmakeraw(&term);
 #else
-    term.c_iflag &= ~(IMAXBEL|IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
+    term.c_iflag &= ~(IMAXBEL | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
     term.c_oflag &= ~OPOST;
-    term.c_lflag &= ~(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
-    term.c_cflag &= ~(CSIZE|PARENB);
+    term.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    term.c_cflag &= ~(CSIZE | PARENB);
     term.c_cflag |= CS8;
 #endif
-    term.c_cflag |=  (CLOCAL | CREAD);
-    term.c_lflag &= ~((tcflag_t)(ICANON | ECHO | ECHOE | ECHOK | ECHONL | ISIG | IEXTEN ));
+    term.c_cflag |= (CLOCAL | CREAD);
+    term.c_lflag &= ~((tcflag_t)(ICANON | ECHO | ECHOE | ECHOK | ECHONL | ISIG | IEXTEN));
     term.c_oflag &= ~((tcflag_t)(OPOST));
-    term.c_iflag = IGNBRK;
 
     term.c_cflag &= ~((tcflag_t)(CSIZE));
     switch (dataBits)
@@ -469,7 +471,7 @@ int32_t SystemIoPortsNative_TermiosReset(intptr_t handle, int32_t speed, int32_t
         break;
     }
 
-    // There really is only choice of 1 or 2.
+    // Configure stop bits
     if (stopBits == 1)
     {
         term.c_cflag &= ~((tcflag_t)(CSTOPB));
@@ -500,7 +502,7 @@ int32_t SystemIoPortsNative_TermiosReset(intptr_t handle, int32_t speed, int32_t
     switch (handshake)
     {
         case HandshakeNone: /* None */
-            /* do nothing. We did the reset above */
+            // Do nothing; already reset above
             break;
         case HandshakeHard: /* hardware flow control */
             term.c_cflag |= CRTSCTS;
@@ -518,7 +520,7 @@ int32_t SystemIoPortsNative_TermiosReset(intptr_t handle, int32_t speed, int32_t
         brate = TermiosSpeed2Rate(speed);
         if (brate == B0)
         {
-#if !HAVE_IOSS_H
+#if !HAVE_IOSS_H && !HAVE_TERMIOS2
             // We can try to set non-standard speed after tcsetattr().
             errno = EINVAL;
             return -1;
@@ -539,17 +541,20 @@ int32_t SystemIoPortsNative_TermiosReset(intptr_t handle, int32_t speed, int32_t
         return -1;
     }
 
-#if HAVE_IOSS_H
     if (speed && brate == B0)
     {
-        // we have deferred non-standard speed.
+#if HAVE_IOSS_H
+        // We have deferred non-standard speed.
         brate = speed;
         if (ioctl(fd, IOSSIOSPEED, &brate) == -1)
         {
-           return  -1;
+            return -1;
         }
-    }
 #endif
+#if HAVE_TERMIOS2
+        return SystemIoPortsNative_Termios2SetSpeed(fd, speed);
+#endif
+    }
 
     return 0;
 }

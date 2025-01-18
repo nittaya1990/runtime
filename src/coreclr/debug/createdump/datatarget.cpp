@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "createdump.h"
+#include <dbgtargetcontext.h>
 
 DumpDataTarget::DumpDataTarget(CrashInfo& crashInfo) :
     m_ref(1),
@@ -23,6 +24,12 @@ DumpDataTarget::QueryInterface(
         InterfaceId == IID_ICLRDataTarget)
     {
         *Interface = (ICLRDataTarget*)this;
+        AddRef();
+        return S_OK;
+    }
+    else if (InterfaceId == IID_ICLRRuntimeLocator)
+    {
+        *Interface = (ICLRRuntimeLocator*)this;
         AddRef();
         return S_OK;
     }
@@ -63,6 +70,10 @@ DumpDataTarget::GetMachineType(
     *machine = IMAGE_FILE_MACHINE_ARM64;
 #elif HOST_X86
     *machine = IMAGE_FILE_MACHINE_I386;
+#elif HOST_LOONGARCH64
+    *machine = IMAGE_FILE_MACHINE_LOONGARCH64;
+#elif HOST_RISCV64
+    *machine = IMAGE_FILE_MACHINE_RISCV64;
 #else
 #error Unsupported architecture
 #endif
@@ -73,7 +84,7 @@ HRESULT STDMETHODCALLTYPE
 DumpDataTarget::GetPointerSize(
     /* [out] */ ULONG32 *size)
 {
-#if defined(HOST_AMD64) || defined(HOST_ARM64)
+#if defined(HOST_AMD64) || defined(HOST_ARM64) || defined(HOST_LOONGARCH64) || defined(HOST_RISCV64)
     *size = 8;
 #elif defined(HOST_ARM) || defined(HOST_X86)
     *size = 4;
@@ -91,12 +102,12 @@ DumpDataTarget::GetImageBase(
     *baseAddress = 0;
 
     char tempModuleName[MAX_PATH];
-    int length = WideCharToMultiByte(CP_ACP, 0, moduleName, -1, tempModuleName, sizeof(tempModuleName), NULL, NULL);
+    size_t cch = minipal_u16_strlen((CHAR16_T*)moduleName) + 1;
+    int length = minipal_convert_utf16_to_utf8((CHAR16_T*)moduleName, cch, tempModuleName, sizeof(tempModuleName), 0);
     if (length > 0)
     {
         *baseAddress = m_crashInfo.GetBaseAddressFromName(tempModuleName);
     }
-
     return *baseAddress != 0 ? S_OK : E_FAIL;
 }
 
@@ -107,13 +118,15 @@ DumpDataTarget::ReadVirtual(
     /* [in] */ ULONG32 size,
     /* [optional][out] */ ULONG32 *done)
 {
+    address = CONVERT_FROM_SIGN_EXTENDED(address);
     size_t read = 0;
-    if (!m_crashInfo.ReadProcessMemory((void*)(ULONG_PTR)address, buffer, size, &read))
+    if (!m_crashInfo.ReadProcessMemory(address, buffer, size, &read))
     {
         TRACE("DumpDataTarget::ReadVirtual %p %d FAILED\n", (void*)address, size);
         *done = 0;
         return E_FAIL;
     }
+    m_crashInfo.m_dataTargetPagesAdded += m_crashInfo.InsertMemoryRegion(address, read);
     *done = read;
     return S_OK;
 }
@@ -164,7 +177,7 @@ DumpDataTarget::GetThreadContext(
     /* [in] */ ULONG32 contextSize,
     /* [out, size_is(contextSize)] */ PBYTE context)
 {
-    if (contextSize < sizeof(CONTEXT))
+    if (contextSize < sizeof(DT_CONTEXT))
     {
         assert(false);
         return E_INVALIDARG;
@@ -201,4 +214,14 @@ DumpDataTarget::Request(
 {
     assert(false);
     return E_NOTIMPL;
+}
+
+// ICLRRuntimeLocator
+
+HRESULT STDMETHODCALLTYPE 
+DumpDataTarget::GetRuntimeBase(
+    /* [out] */ CLRDATA_ADDRESS* baseAddress)
+{
+    *baseAddress = m_crashInfo.RuntimeBaseAddress();
+    return S_OK;
 }

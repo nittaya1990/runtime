@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -36,10 +37,10 @@ namespace System.Text.Json
         {
             if (!_options.SkipValidation)
             {
-                if (!_inObject || _tokenType == JsonTokenType.PropertyName)
+                if (_enclosingContainer != EnclosingContainerType.Object || _tokenType == JsonTokenType.PropertyName)
                 {
                     Debug.Assert(_tokenType != JsonTokenType.StartObject);
-                    ThrowHelper.ThrowInvalidOperationException(ExceptionResource.CannotWritePropertyWithinArray, currentDepth: default, maxDepth: _options.MaxDepth, token: default, _tokenType);
+                    OnValidateWritingPropertyFailed();
                 }
             }
         }
@@ -49,13 +50,26 @@ namespace System.Text.Json
         {
             if (!_options.SkipValidation)
             {
-                if (!_inObject || _tokenType == JsonTokenType.PropertyName)
+                if (_enclosingContainer != EnclosingContainerType.Object || _tokenType == JsonTokenType.PropertyName)
                 {
                     Debug.Assert(_tokenType != JsonTokenType.StartObject);
-                    ThrowHelper.ThrowInvalidOperationException(ExceptionResource.CannotWritePropertyWithinArray, currentDepth: default, maxDepth: _options.MaxDepth, token: default, _tokenType);
+                    OnValidateWritingPropertyFailed();
                 }
                 UpdateBitStackOnStart(token);
             }
+        }
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void OnValidateWritingPropertyFailed()
+        {
+            if (IsWritingPartialString)
+            {
+                ThrowInvalidOperationException(ExceptionResource.CannotWriteWithinString);
+            }
+
+            Debug.Assert(_enclosingContainer != EnclosingContainerType.Object || _tokenType == JsonTokenType.PropertyName);
+            ThrowInvalidOperationException(ExceptionResource.CannotWritePropertyWithinArray);
         }
 
         private void WritePropertyNameMinimized(ReadOnlySpan<byte> escapedPropertyName, byte token)
@@ -82,19 +96,19 @@ namespace System.Text.Json
             BytesPending += escapedPropertyName.Length;
 
             output[BytesPending++] = JsonConstants.Quote;
-            output[BytesPending++] = JsonConstants.KeyValueSeperator;
+            output[BytesPending++] = JsonConstants.KeyValueSeparator;
             output[BytesPending++] = token;
         }
 
         private void WritePropertyNameIndented(ReadOnlySpan<byte> escapedPropertyName, byte token)
         {
             int indent = Indentation;
-            Debug.Assert(indent <= 2 * _options.MaxDepth);
+            Debug.Assert(indent <= _indentLength * _options.MaxDepth);
 
-            Debug.Assert(escapedPropertyName.Length < int.MaxValue - indent - 6 - s_newLineLength);
+            Debug.Assert(escapedPropertyName.Length < int.MaxValue - indent - 6 - _newLineLength);
 
             int minRequired = indent + escapedPropertyName.Length + 5; // 2 quotes, 1 colon, 1 space, and 1 start token
-            int maxRequired = minRequired + 1 + s_newLineLength; // Optionally, 1 list separator and 1-2 bytes for new line
+            int maxRequired = minRequired + 1 + _newLineLength; // Optionally, 1 list separator and 1-2 bytes for new line
 
             if (_memory.Length - BytesPending < maxRequired)
             {
@@ -115,7 +129,7 @@ namespace System.Text.Json
                 WriteNewLine(output);
             }
 
-            JsonWriterHelper.WriteIndentation(output.Slice(BytesPending), indent);
+            WriteIndentation(output.Slice(BytesPending), indent);
             BytesPending += indent;
 
             output[BytesPending++] = JsonConstants.Quote;
@@ -125,7 +139,7 @@ namespace System.Text.Json
 
             output[BytesPending++] = JsonConstants.Quote;
 
-            output[BytesPending++] = JsonConstants.KeyValueSeperator;
+            output[BytesPending++] = JsonConstants.KeyValueSeparator;
             output[BytesPending++] = JsonConstants.Space;
             output[BytesPending++] = token;
         }
@@ -154,20 +168,20 @@ namespace System.Text.Json
             TranscodeAndWrite(escapedPropertyName, output);
 
             output[BytesPending++] = JsonConstants.Quote;
-            output[BytesPending++] = JsonConstants.KeyValueSeperator;
+            output[BytesPending++] = JsonConstants.KeyValueSeparator;
             output[BytesPending++] = token;
         }
 
         private void WritePropertyNameIndented(ReadOnlySpan<char> escapedPropertyName, byte token)
         {
             int indent = Indentation;
-            Debug.Assert(indent <= 2 * _options.MaxDepth);
+            Debug.Assert(indent <= _indentLength * _options.MaxDepth);
 
-            Debug.Assert(escapedPropertyName.Length < (int.MaxValue / JsonConstants.MaxExpansionFactorWhileTranscoding) - indent - 6 - s_newLineLength);
+            Debug.Assert(escapedPropertyName.Length < (int.MaxValue / JsonConstants.MaxExpansionFactorWhileTranscoding) - indent - 6 - _newLineLength);
 
             // All ASCII, 2 quotes, 1 colon, 1 space, and 1 start token => indent + escapedPropertyName.Length + 5
             // Optionally, 1 list separator, 1-2 bytes for new line, and up to 3x growth when transcoding
-            int maxRequired = indent + (escapedPropertyName.Length * JsonConstants.MaxExpansionFactorWhileTranscoding) + 6 + s_newLineLength;
+            int maxRequired = indent + (escapedPropertyName.Length * JsonConstants.MaxExpansionFactorWhileTranscoding) + 6 + _newLineLength;
 
             if (_memory.Length - BytesPending < maxRequired)
             {
@@ -188,7 +202,7 @@ namespace System.Text.Json
                 WriteNewLine(output);
             }
 
-            JsonWriterHelper.WriteIndentation(output.Slice(BytesPending), indent);
+            WriteIndentation(output.Slice(BytesPending), indent);
             BytesPending += indent;
 
             output[BytesPending++] = JsonConstants.Quote;
@@ -197,7 +211,7 @@ namespace System.Text.Json
 
             output[BytesPending++] = JsonConstants.Quote;
 
-            output[BytesPending++] = JsonConstants.KeyValueSeperator;
+            output[BytesPending++] = JsonConstants.KeyValueSeparator;
             output[BytesPending++] = JsonConstants.Space;
             output[BytesPending++] = token;
         }
@@ -205,10 +219,8 @@ namespace System.Text.Json
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void TranscodeAndWrite(ReadOnlySpan<char> escapedPropertyName, Span<byte> output)
         {
-            ReadOnlySpan<byte> byteSpan = MemoryMarshal.AsBytes(escapedPropertyName);
-            OperationStatus status = JsonWriterHelper.ToUtf8(byteSpan, output.Slice(BytesPending), out int consumed, out int written);
+            OperationStatus status = JsonWriterHelper.ToUtf8(escapedPropertyName, output.Slice(BytesPending), out int written);
             Debug.Assert(status == OperationStatus.Done);
-            Debug.Assert(consumed == byteSpan.Length);
             BytesPending += written;
         }
     }

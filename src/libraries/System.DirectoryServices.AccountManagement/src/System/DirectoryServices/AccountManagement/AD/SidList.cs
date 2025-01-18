@@ -1,10 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
-
 using Microsoft.Win32.SafeHandles;
 
 namespace System.DirectoryServices.AccountManagement
@@ -18,7 +17,7 @@ namespace System.DirectoryServices.AccountManagement
         internal SidList(List<byte[]> sidListByteFormat, string target, NetCred credentials)
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SidList", "SidList: processing {0} ByteFormat SIDs", sidListByteFormat.Count);
-            GlobalDebug.WriteLineIf(GlobalDebug.Info, "SidList", "SidList: Targetting {0} ", (target != null) ? target : "local store");
+            GlobalDebug.WriteLineIf(GlobalDebug.Info, "SidList", "SidList: Targeting {0} ", target ?? "local store");
 
             // Build the list of SIDs to resolve
             IntPtr hUser = IntPtr.Zero;
@@ -63,7 +62,7 @@ namespace System.DirectoryServices.AccountManagement
             TranslateSids(null, pSids);
         }
 
-        private void TranslateSids(string target, IntPtr[] pSids)
+        private unsafe void TranslateSids(string target, IntPtr[] pSids)
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "AuthZSet", "SidList: processing {0} SIDs", pSids.Length);
 
@@ -94,6 +93,8 @@ namespace System.DirectoryServices.AccountManagement
                                     out policyHandle);
                 if (err != 0)
                 {
+                    policyHandle.Dispose();
+
                     GlobalDebug.WriteLineIf(GlobalDebug.Warn, "AuthZSet", "SidList: couldn't get policy handle, err={0}", err);
 
                     throw new PrincipalOperationException(SR.Format(
@@ -119,6 +120,9 @@ namespace System.DirectoryServices.AccountManagement
                      err != Interop.StatusOptions.STATUS_SOME_NOT_MAPPED &&
                      err != Interop.StatusOptions.STATUS_NONE_MAPPED)
                 {
+                    domainsHandle.Dispose();
+                    namesHandle.Dispose();
+
                     GlobalDebug.WriteLineIf(GlobalDebug.Warn, "AuthZSet", "SidList: LsaLookupSids failed, err={0}", err);
 
                     throw new PrincipalOperationException(SR.Format(
@@ -153,8 +157,8 @@ namespace System.DirectoryServices.AccountManagement
 
                 for (int i = 0; i < domainCount; i++)
                 {
-                    domains[i] = (Interop.LSA_TRUST_INFORMATION)Marshal.PtrToStructure(pCurrentDomain, typeof(Interop.LSA_TRUST_INFORMATION));
-                    pCurrentDomain = new IntPtr(pCurrentDomain.ToInt64() + Marshal.SizeOf(typeof(Interop.LSA_TRUST_INFORMATION)));
+                    domains[i] = *(Interop.LSA_TRUST_INFORMATION*)pCurrentDomain;
+                    pCurrentDomain += sizeof(Interop.LSA_TRUST_INFORMATION);
                 }
 
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "AuthZSet", "SidList: got {0} groups in {1} domains", sidCount, domainCount);
@@ -194,14 +198,9 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (domainsHandle != null)
-                    domainsHandle.Dispose();
-
-                if (namesHandle != null)
-                    namesHandle.Dispose();
-
-                if (policyHandle != null)
-                    policyHandle.Dispose();
+                domainsHandle?.Dispose();
+                namesHandle?.Dispose();
+                policyHandle?.Dispose();
             }
         }
 

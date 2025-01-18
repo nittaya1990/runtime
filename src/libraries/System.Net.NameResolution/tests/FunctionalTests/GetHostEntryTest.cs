@@ -81,7 +81,7 @@ namespace System.Net.NameResolution.Tests
         [ConditionalTheory(nameof(GetHostEntryWorks))]
         [InlineData("")]
         [InlineData(TestSettings.LocalHost)]
-        public async Task Dns_GetHostEntryAsync_HostString_Ok(string hostName)    
+        public async Task Dns_GetHostEntryAsync_HostString_Ok(string hostName)
         {
             await TestGetHostEntryAsync(() => Dns.GetHostEntryAsync(hostName));
         }
@@ -122,7 +122,7 @@ namespace System.Net.NameResolution.Tests
                 {
                     Assert.NotEqual(AddressFamily.InterNetworkV6, address.AddressFamily);
                 }
-            }   
+            }
         }
 
         [ConditionalTheory(nameof(GetHostEntry_DisableIPv6_Condition))]
@@ -148,10 +148,16 @@ namespace System.Net.NameResolution.Tests
         {
             Assert.Throws<ArgumentNullException>(() => Dns.GetHostEntry((string)null));
             await Assert.ThrowsAsync<ArgumentNullException>(() => Dns.GetHostEntryAsync((string)null));
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        public async Task Dns_GetHostEntry_NullStringHost_Fail_Obsolete()
+        {
             await Assert.ThrowsAsync<ArgumentNullException>(() => Task.Factory.FromAsync(Dns.BeginGetHostEntry, Dns.EndGetHostEntry, (string)null, null));
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI has no getnameinfo")]
         public async Task Dns_GetHostEntryAsync_NullIPAddressHost_Fail()
         {
             Assert.Throws<ArgumentNullException>(() => Dns.GetHostEntry((IPAddress)null));
@@ -168,6 +174,7 @@ namespace System.Net.NameResolution.Tests
 
         [Theory]
         [MemberData(nameof(GetInvalidAddresses))]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI has no getnameinfo")]
         public async Task Dns_GetHostEntry_AnyIPAddress_Fail(IPAddress address)
         {
             Assert.Throws<ArgumentException>(() => Dns.GetHostEntry(address));
@@ -195,6 +202,7 @@ namespace System.Net.NameResolution.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI has no getnameinfo")]
         public async Task DnsGetHostEntry_Loopback_AllVariationsMatch()
         {
             IPHostEntry syncResult = Dns.GetHostEntry(IPAddress.Loopback);
@@ -216,6 +224,7 @@ namespace System.Net.NameResolution.Tests
         [InlineData("Really.Long.Name.Over.One.Hundred.And.Twenty.Six.Chars.Eeeeeeeventualllllllly.I.Will.Get.To.The.Eeeee"
                 + "eeeeend.Almost.There.Are.We.Really.Long.Name.Over.One.Hundred.And.Twenty.Six.Chars.Eeeeeeeventualll"
                 + "llllly.I.Will.Get.To.The.Eeeeeeeeeend.Almost.There.Are")] // very long name but not too long
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107339", TestPlatforms.Wasi)]
         public async Task DnsGetHostEntry_BadName_ThrowsSocketException(string hostNameOrAddress)
         {
             Assert.ThrowsAny<SocketException>(() => Dns.GetHostEntry(hostNameOrAddress));
@@ -231,6 +240,14 @@ namespace System.Net.NameResolution.Tests
         {
             Assert.ThrowsAny<ArgumentOutOfRangeException>(() => Dns.GetHostEntry(hostNameOrAddress));
             await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(() => Dns.GetHostEntryAsync(hostNameOrAddress));
+        }
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [InlineData("Really.Long.Name.Over.One.Hundred.And.Twenty.Six.Chars.Eeeeeeeventualllllllly.I.Will.Get.To.The.Eeeee"
+                + "eeeeend.Almost.There.Are.We.Really.Long.Name.Over.One.Hundred.And.Twenty.Six.Chars.Eeeeeeeventualll"
+                + "llllly.I.Will.Get.To.The.Eeeeeeeeeend.Almost.There.Aret")]
+        public async Task DnsGetHostEntry_BadName_ThrowsArgumentOutOfRangeException_Obsolete(string hostNameOrAddress)
+        {
             await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(() => Task.Factory.FromAsync(Dns.BeginGetHostEntry, Dns.EndGetHostEntry, hostNameOrAddress, null));
         }
 
@@ -238,6 +255,7 @@ namespace System.Net.NameResolution.Tests
         [InlineData(0)]
         [InlineData(1)]
         [InlineData(2)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107339", TestPlatforms.Wasi)]
         public async Task DnsGetHostEntry_LocalHost_ReturnsFqdnAndLoopbackIPs(int mode)
         {
             IPHostEntry entry = mode switch
@@ -259,6 +277,9 @@ namespace System.Net.NameResolution.Tests
         [InlineData(2)]
         public async Task DnsGetHostEntry_LoopbackIP_MatchesGetHostEntryLoopbackString(int mode)
         {
+            if (OperatingSystem.IsWasi() && mode == 2)
+                throw new SkipTestException("mode 2 is not supported on WASI");
+
             IPAddress address = IPAddress.Loopback;
 
             IPHostEntry ipEntry = mode switch
@@ -315,9 +336,10 @@ namespace System.Net.NameResolution.Tests
     [Collection(nameof(DisableParallelization))]
     public class GetHostEntryTest_Cancellation
     {
+        [Fact]
         [OuterLoop]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/33378", TestPlatforms.AnyUnix)] // Cancellation of an outstanding getaddrinfo is not supported on *nix.
-        [Fact]
+        [SkipOnCoreClr("JitStress interferes with cancellation timing", RuntimeTestModes.JitStress | RuntimeTestModes.JitStressRegs)]
         public async Task DnsGetHostEntry_PostCancelledToken_Throws()
         {
             // Windows 7 name resolution is synchronous and does not respect cancellation.

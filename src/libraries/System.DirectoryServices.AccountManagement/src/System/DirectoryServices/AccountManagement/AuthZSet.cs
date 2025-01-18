@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections.Generic;
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Security.Principal;
-
-using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 
 namespace System.DirectoryServices.AccountManagement
 {
@@ -101,7 +100,7 @@ namespace System.DirectoryServices.AccountManagement
                                                     out bufferSize,
                                                     IntPtr.Zero
                                                     );
-                        if (!f && (bufferSize > 0) && (Marshal.GetLastWin32Error() == 122) /*ERROR_INSUFFICIENT_BUFFER*/)
+                        if (!f && (bufferSize > 0) && (Marshal.GetLastPInvokeError() == 122) /*ERROR_INSUFFICIENT_BUFFER*/)
                         {
                             GlobalDebug.WriteLineIf(GlobalDebug.Info, "AuthZSet", "Getting info from ctx (size={0})", bufferSize);
 
@@ -132,7 +131,7 @@ namespace System.DirectoryServices.AccountManagement
 
                                 // Extract TOKEN_GROUPS.GroupCount
 
-                                Interop.TOKEN_GROUPS tokenGroups = (Interop.TOKEN_GROUPS)Marshal.PtrToStructure(pBuffer, typeof(Interop.TOKEN_GROUPS));
+                                Interop.TOKEN_GROUPS tokenGroups = *(Interop.TOKEN_GROUPS*)pBuffer;
 
                                 uint groupCount = tokenGroups.GroupCount;
 
@@ -142,36 +141,36 @@ namespace System.DirectoryServices.AccountManagement
                                 // each native SID_AND_ATTRIBUTES into a managed SID_AND_ATTR.
                                 Interop.SID_AND_ATTRIBUTES[] groups = new Interop.SID_AND_ATTRIBUTES[groupCount];
 
-                                IntPtr currentItem = new IntPtr(pBuffer.ToInt64() + Marshal.SizeOf(typeof(Interop.TOKEN_GROUPS)) - sizeof(Interop.SID_AND_ATTRIBUTES));
+                                IntPtr currentItem = pBuffer + sizeof(Interop.TOKEN_GROUPS) - sizeof(Interop.SID_AND_ATTRIBUTES);
 
                                 for (int i = 0; i < groupCount; i++)
                                 {
-                                    groups[i] = (Interop.SID_AND_ATTRIBUTES)Marshal.PtrToStructure(currentItem, typeof(Interop.SID_AND_ATTRIBUTES));
+                                    groups[i] = *(Interop.SID_AND_ATTRIBUTES*)currentItem;
 
-                                    currentItem = new IntPtr(currentItem.ToInt64() + Marshal.SizeOf(typeof(Interop.SID_AND_ATTRIBUTES)));
+                                    currentItem += sizeof(Interop.SID_AND_ATTRIBUTES);
                                 }
 
                                 _groupSidList = new SidList(groups);
                             }
                             else
                             {
-                                lastError = Marshal.GetLastWin32Error();
+                                lastError = Marshal.GetLastPInvokeError();
                             }
                         }
                         else
                         {
-                            lastError = Marshal.GetLastWin32Error();
+                            lastError = Marshal.GetLastPInvokeError();
                             Debug.Fail("With a zero-length buffer, this should have never succeeded");
                         }
                     }
                     else
                     {
-                        lastError = Marshal.GetLastWin32Error();
+                        lastError = Marshal.GetLastPInvokeError();
                     }
                 }
                 else
                 {
-                    lastError = Marshal.GetLastWin32Error();
+                    lastError = Marshal.GetLastPInvokeError();
                 }
 
                 if (!f)
@@ -192,14 +191,9 @@ namespace System.DirectoryServices.AccountManagement
             {
                 GlobalDebug.WriteLineIf(GlobalDebug.Error, "AuthZSet", "Caught exception {0} with message {1}", e.GetType(), e.Message);
 
-                if (_psBuffer != null && !_psBuffer.IsInvalid)
-                    _psBuffer.Close();
-
-                if (_psUserSid != null && !_psUserSid.IsInvalid)
-                    _psUserSid.Close();
-
-                if (_psMachineSid != null && !_psMachineSid.IsInvalid)
-                    _psMachineSid.Close();
+                _psBuffer?.Dispose();
+                _psUserSid?.Dispose();
+                _psMachineSid?.Dispose();
 
                 // We're on a platform that doesn't have the AuthZ library
                 if (e is DllNotFoundException)
@@ -354,7 +348,7 @@ namespace System.DirectoryServices.AccountManagement
                 {
                     // It's a local group, because either (1) it's a local machine user, and local users can't be a member of a domain group,
                     // or (2) it's a domain user that's a member of a group on the local machine.  Pass the default machine context options
-                    // If we initially targetted AD then those options will not be valid for the machine store.
+                    // If we initially targeted AD then those options will not be valid for the machine store.
 
                     PrincipalContext ctx = SDSCache.LocalMachine.GetContext(
                                                                     sidIssuerName,

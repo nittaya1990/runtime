@@ -13,24 +13,26 @@ namespace ILCompiler.DependencyAnalysis
     /// method body along with the instantiation context the canonical body requires.
     /// Pointers to these structures can be created by e.g. ldftn/ldvirtftn of a method with a canonical body.
     /// </summary>
-    public class FatFunctionPointerNode : ObjectNode, IMethodNode, ISymbolDefinitionNode
+    public class FatFunctionPointerNode : DehydratableObjectNode, IMethodNode, ISymbolDefinitionNode
     {
-        private bool _isUnboxingStub;
+        private readonly bool _isUnboxingStub;
+        private readonly bool _isAddressTaken;
 
         public bool IsUnboxingStub => _isUnboxingStub;
 
-        public FatFunctionPointerNode(MethodDesc methodRepresented, bool isUnboxingStub)
+        public FatFunctionPointerNode(MethodDesc methodRepresented, bool isUnboxingStub, bool addressTaken)
         {
             // We should not create these for methods that don't have a canonical method body
             Debug.Assert(methodRepresented.GetCanonMethodTarget(CanonicalFormKind.Specific) != methodRepresented);
 
             Method = methodRepresented;
             _isUnboxingStub = isUnboxingStub;
+            _isAddressTaken = addressTaken;
         }
 
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
-            string prefix = _isUnboxingStub ? "__fatunboxpointer_" : "__fatpointer_";
+            string prefix = $"__fat{(_isUnboxingStub ? "unbox" : "")}{(_isAddressTaken ? "addresstaken" : "")}pointer_";
             sb.Append(prefix).Append(nameMangler.GetMangledMethodName(Method));
         }
 
@@ -41,34 +43,36 @@ namespace ILCompiler.DependencyAnalysis
 
         public MethodDesc Method { get; }
 
-        public override ObjectNodeSection Section
+        protected override ObjectNodeSection GetDehydratedSection(NodeFactory factory)
         {
-            get
-            {
-                if (Method.Context.Target.IsWindows)
-                    return ObjectNodeSection.ReadOnlyDataSection;
-                else
-                    return ObjectNodeSection.DataSection;
-            }
+            if (factory.Target.IsWindows)
+                return ObjectNodeSection.ReadOnlyDataSection;
+            else
+                return ObjectNodeSection.DataSection;
         }
 
         public override bool StaticDependenciesAreComputed => true;
 
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
 
-        public override ObjectData GetData(NodeFactory factory, bool relocsOnly = false)
+        protected override ObjectData GetDehydratableData(NodeFactory factory, bool relocsOnly = false)
         {
             var builder = new ObjectDataBuilder(factory, relocsOnly);
 
-            // These need to be aligned the same as methods because they show up in same contexts
-            builder.RequireInitialAlignment(factory.Target.MinimumFunctionAlignment);
+            // These need to be aligned the same as method bodies because they show up in same contexts
+            // (macOS ARM64 has even stricter alignment requirement for the linker, so round up to pointer size)
+            Debug.Assert(factory.Target.MinimumFunctionAlignment <= factory.Target.PointerSize);
+            builder.RequireInitialAlignment(factory.Target.PointerSize);
 
             builder.AddSymbol(this);
 
             MethodDesc canonMethod = Method.GetCanonMethodTarget(CanonicalFormKind.Specific);
 
             // Pointer to the canonical body of the method
-            builder.EmitPointerReloc(factory.MethodEntrypoint(canonMethod, _isUnboxingStub));
+            ISymbolNode target = _isAddressTaken
+                ? factory.AddressTakenMethodEntrypoint(canonMethod, _isUnboxingStub)
+                : factory.MethodEntrypoint(canonMethod, _isUnboxingStub);
+            builder.EmitPointerReloc(target);
 
             // Find out what's the context to use
             ISortableSymbolNode contextParameter;
@@ -86,7 +90,7 @@ namespace ILCompiler.DependencyAnalysis
 
             // The next entry is a pointer to the context to be used for the canonical method
             builder.EmitPointerReloc(contextParameter);
-            
+
             return builder.ToObjectData();
         }
 
@@ -95,6 +99,10 @@ namespace ILCompiler.DependencyAnalysis
         public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
         {
             var compare = _isUnboxingStub.CompareTo(((FatFunctionPointerNode)other)._isUnboxingStub);
+            if (compare != 0)
+                return compare;
+
+            compare = _isAddressTaken.CompareTo(((FatFunctionPointerNode)other)._isAddressTaken);
             if (compare != 0)
                 return compare;
 

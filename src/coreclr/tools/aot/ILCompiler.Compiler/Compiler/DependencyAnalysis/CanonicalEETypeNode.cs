@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 
 using Internal.TypeSystem;
@@ -13,8 +12,8 @@ namespace ILCompiler.DependencyAnalysis
     /// <summary>
     /// Canonical type instantiations are emitted, not because they are used directly by the user code, but because
     /// they are used by the dynamic type loader when dynamically instantiating types at runtime.
-    /// The data that we emit on canonical type instantiations should just be the minimum that is needed by the template 
-    /// type loader. 
+    /// The data that we emit on canonical type instantiations should just be the minimum that is needed by the template
+    /// type loader.
     /// Similarly, the dependencies that we track for canonical type instantiations are minimal, and are just the ones used
     /// by the dynamic type loader
     /// </summary>
@@ -25,12 +24,12 @@ namespace ILCompiler.DependencyAnalysis
             Debug.Assert(!type.IsCanonicalDefinitionType(CanonicalFormKind.Any));
             Debug.Assert(type.IsCanonicalSubtype(CanonicalFormKind.Any));
             Debug.Assert(type == type.ConvertToCanonForm(CanonicalFormKind.Specific));
-            Debug.Assert(!type.IsMdArray || factory.Target.Abi == TargetAbi.CppCodegen);
+            Debug.Assert(!type.IsMdArray);
         }
 
         public override bool StaticDependenciesAreComputed => true;
         public override bool IsShareable => IsTypeNodeShareable(_type);
-        protected override bool EmitVirtualSlotsAndInterfaces => true;
+        protected override bool EmitVirtualSlots => true;
         public override bool ShouldSkipEmittingObjectNode(NodeFactory factory) => false;
 
         protected override DependencyList ComputeNonRelocationBasedDependencies(NodeFactory factory)
@@ -44,29 +43,17 @@ namespace ILCompiler.DependencyAnalysis
 
             DefType closestDefType = _type.GetClosestDefType();
 
-            if (MightHaveInterfaceDispatchMap(factory))
-                dependencyList.Add(factory.InterfaceDispatchMap(_type), "Canonical interface dispatch map");
-
             dependencyList.Add(factory.VTable(closestDefType), "VTable");
 
             if (_type.IsCanonicalSubtype(CanonicalFormKind.Universal))
                 dependencyList.Add(factory.NativeLayout.TemplateTypeLayout(_type), "Universal generic types always have template layout");
 
             // Track generic virtual methods that will get added to the GVM tables
-            if (TypeGVMEntriesNode.TypeNeedsGVMTableEntries(_type))
+            if ((_virtualMethodAnalysisFlags & VirtualMethodAnalysisFlags.NeedsGvmEntries) != 0)
             {
                 dependencyList.Add(new DependencyListEntry(factory.TypeGVMEntries(_type.GetTypeDefinition()), "Type with generic virtual methods"));
 
                 AddDependenciesForUniversalGVMSupport(factory, _type, ref dependencyList);
-            }
-
-            // Keep track of the default constructor map dependency for this type if it has a default constructor
-            MethodDesc defaultCtor = closestDefType.GetDefaultConstructor();
-            if (defaultCtor != null)
-            {
-                dependencyList.Add(new DependencyListEntry(
-                    factory.CanonicalEntrypoint(defaultCtor),
-                    "DefaultConstructorNode"));
             }
 
             return dependencyList;
@@ -75,6 +62,13 @@ namespace ILCompiler.DependencyAnalysis
         protected override ISymbolNode GetBaseTypeNode(NodeFactory factory)
         {
             return _type.BaseType != null ? factory.NecessaryTypeSymbol(_type.BaseType.NormalizeInstantiation()) : null;
+        }
+
+        protected override FrozenRuntimeTypeNode GetFrozenRuntimeTypeNode(NodeFactory factory) => throw new NotSupportedException();
+
+        protected override ISymbolNode GetNonNullableValueTypeArrayElementTypeNode(NodeFactory factory)
+        {
+            return factory.ConstructedTypeSymbol(((ArrayType)_type).ElementType);
         }
 
         protected override int GCDescSize
@@ -102,8 +96,12 @@ namespace ILCompiler.DependencyAnalysis
 
         protected override void OutputInterfaceMap(NodeFactory factory, ref ObjectDataBuilder objData)
         {
-            foreach (var itf in _type.RuntimeInterfaces)
+            foreach (DefType intface in _type.RuntimeInterfaces)
             {
+                // If the interface was optimized away, skip it
+                if (!factory.InterfaceUse(intface.GetTypeDefinition()).Marked)
+                    continue;
+
                 // Interface omitted for canonical instantiations (constructed at runtime for dynamic types from the native layout info)
                 objData.EmitZeroPointer();
             }
@@ -119,7 +117,7 @@ namespace ILCompiler.DependencyAnalysis
 
                     if (instanceByteCount.IsIndeterminate)
                     {
-                        // For USG types, they may be of indeterminate size, and the size of the type may be meaningless. 
+                        // For USG types, they may be of indeterminate size, and the size of the type may be meaningless.
                         // In that case emit a fixed constant.
                         return MinimumObjectSize;
                     }
@@ -127,20 +125,6 @@ namespace ILCompiler.DependencyAnalysis
 
                 return base.BaseSize;
             }
-        }
-
-        protected override void ComputeValueTypeFieldPadding()
-        {
-            DefType defType = _type as DefType;
-
-            // Types of indeterminate sizes don't have computed ValueTypeFieldPadding
-            if (defType != null && defType.InstanceByteCount.IsIndeterminate)
-            {
-                Debug.Assert(_type.IsCanonicalSubtype(CanonicalFormKind.Universal));
-                return;
-            }
-
-            base.ComputeValueTypeFieldPadding();
         }
 
         public override int ClassCode => -1798018602;

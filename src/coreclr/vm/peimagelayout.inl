@@ -19,7 +19,7 @@ inline void PEImageLayout::AddRef()
     }
     CONTRACT_END;
 
-    FastInterlockIncrement(&m_refCount);
+    InterlockedIncrement(&m_refCount);
 
     RETURN;
 }
@@ -41,7 +41,7 @@ inline ULONG PEImageLayout::Release()
         return m_refCount;
 #endif
 
-    ULONG result=FastInterlockDecrement(&m_refCount);
+    ULONG result=InterlockedDecrement(&m_refCount);
     if (result == 0 )
     {
         delete this;
@@ -80,7 +80,7 @@ inline BOOL PEImageLayout::CompareBase(UPTR base, UPTR mapping)
         MODE_ANY;
     }
     CONTRACTL_END;
-    if (base==NULL) //we were searching for 'Any'
+    if (base==0) //we were searching for 'Any'
         return TRUE;
     return ((PEImageLayout*)mapping)->GetBase()==((PEImageLayout*)(base<<1))->GetBase();
 

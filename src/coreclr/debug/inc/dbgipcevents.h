@@ -10,7 +10,7 @@
 #ifndef _DbgIPCEvents_h_
 #define _DbgIPCEvents_h_
 
-#include <new.hpp>
+#include <new>
 #include <cor.h>
 #include <cordebug.h>
 #include <corjit.h> // for ICorDebugInfo::VarLocType & VarLoc
@@ -24,6 +24,8 @@
 #include "dbgappdomain.h"
 
 #include "./common.h"
+
+using std::nothrow;
 
 //-----------------------------------------------------------------------------
 // V3 additions to IPC protocol between LS and RS.
@@ -153,6 +155,7 @@ struct MSLAYOUT DebuggerIPCRuntimeOffsets
     SIZE_T  m_cbOpcode;                                 // Max size of opcode
     SIZE_T  m_offTraceType;                             // Offset of the trace.type within a patch
     DWORD   m_traceTypeUnmanaged;                       // TRACE_UNMANAGED
+    void   *m_setThreadContextNeededAddr;               // Address of SetThreadContextNeededFlare
 
     DebuggerIPCRuntimeOffsets()
     {
@@ -767,7 +770,7 @@ public:
     //
     // Operators to emulate Pointer semantics.
     //
-    bool IsNull() { SUPPORTS_DAC; return m_addr == NULL; }
+    bool IsNull() { SUPPORTS_DAC; return m_addr == (TADDR)0; }
 
     static VMPTR_This NullPtr()
     {
@@ -779,7 +782,7 @@ public:
 #endif // _PREFAST_
 
         VMPTR_This dummy;
-        dummy.m_addr = NULL;
+        dummy.m_addr = (TADDR)NULL;
         return dummy;
 
 #ifdef _PREFAST_
@@ -869,7 +872,7 @@ template <int nMaxLengthIncludingNull>
 class MSLAYOUT EmbeddedIPCString
 {
 public:
-    // Set, caller responsibility that wcslen(pData) < nMaxLengthIncludingNull
+    // Set, caller responsibility that u16_strlen(pData) < nMaxLengthIncludingNull
     void SetString(const WCHAR * pData)
     {
         // If the string doesn't fit into the buffer, that's an issue (and so this is a real
@@ -1136,6 +1139,74 @@ struct MSLAYOUT DebuggerREGDISPLAY
     SIZE_T  LR;
     SIZE_T  SP;
     SIZE_T  PC;
+#elif defined(TARGET_LOONGARCH64)
+    #define DebuggerIPCE_FloatCount 32
+    SIZE_T  RA;
+    SIZE_T  TP;
+    SIZE_T  SP;
+    SIZE_T  A0;
+    SIZE_T  A1;
+    SIZE_T  A2;
+    SIZE_T  A3;
+    SIZE_T  A4;
+    SIZE_T  A5;
+    SIZE_T  A6;
+    SIZE_T  A7;
+    SIZE_T  T0;
+    SIZE_T  T1;
+    SIZE_T  T2;
+    SIZE_T  T3;
+    SIZE_T  T4;
+    SIZE_T  T5;
+    SIZE_T  T6;
+    SIZE_T  T7;
+    SIZE_T  T8;
+    SIZE_T  X0;
+    SIZE_T  FP;
+    SIZE_T  S0;
+    SIZE_T  S1;
+    SIZE_T  S2;
+    SIZE_T  S3;
+    SIZE_T  S4;
+    SIZE_T  S5;
+    SIZE_T  S6;
+    SIZE_T  S7;
+    SIZE_T  S8;
+    SIZE_T  PC;
+#elif defined(TARGET_RISCV64)
+    #define DebuggerIPCE_FloatCount 32
+    SIZE_T  RA;
+    SIZE_T  SP;
+    SIZE_T  GP;
+    SIZE_T  TP;
+    SIZE_T  T0;
+    SIZE_T  T1;
+    SIZE_T  T2;
+    SIZE_T  FP;
+    SIZE_T  S1;
+    SIZE_T  A0;
+    SIZE_T  A1;
+    SIZE_T  A2;
+    SIZE_T  A3;
+    SIZE_T  A4;
+    SIZE_T  A5;
+    SIZE_T  A6;
+    SIZE_T  A7;
+    SIZE_T  S2;
+    SIZE_T  S3;
+    SIZE_T  S4;
+    SIZE_T  S5;
+    SIZE_T  S6;
+    SIZE_T  S7;
+    SIZE_T  S8;
+    SIZE_T  S9;
+    SIZE_T  S10;
+    SIZE_T  S11;
+    SIZE_T  T3;
+    SIZE_T  T4;
+    SIZE_T  T5;
+    SIZE_T  T6;
+    SIZE_T  PC;
 #else
     #define DebuggerIPCE_FloatCount 1
 
@@ -1249,7 +1320,7 @@ inline bool IsEqualOrCloserToRoot(FramePointer fp1, FramePointer fp2)
 //          the address of the real start address of the native code.
 //          This field will be NULL only if the method hasn't been JITted
 //          yet (and thus no code is available).  Otherwise, it will be
-//          the adress of a CORDB_ADDRESS in the remote memory.  This
+//          the address of a CORDB_ADDRESS in the remote memory.  This
 //          CORDB_ADDRESS may be NULL, in which case the code is unavailable
 //          has been pitched (return CORDBG_E_CODE_NOT_AVAILABLE)
 //
@@ -1298,7 +1369,7 @@ struct MSLAYOUT DebuggerIPCE_FuncData
 //          generic code of some kind)
 // BOOL isInstantiatedGeneric: Indicates if the method is
 //          generic code of some kind.
-// BOOL jsutAfterILThrow: indicates that code just threw a software exception and
+// BOOL justAfterILThrow: indicates that code just threw a software exception and
 //          nativeOffset points to an instruction just after [call IL_Throw].
 //          This is being used to figure out a real offset of the exception origin.
 //          By subtracting STACKWALK_CONTROLPC_ADJUST_OFFSET from nativeOffset you can get
@@ -1332,7 +1403,7 @@ struct MSLAYOUT DebuggerIPCE_JITFuncData
     // this is the version of the jitted code
     SIZE_T       enCVersion;
 
-    BOOL         jsutAfterILThrow;
+    BOOL         justAfterILThrow;
 };
 
 //
@@ -1853,6 +1924,20 @@ C_ASSERT(DBG_TARGET_REGNUM_AMBIENT_SP == ICorDebugInfo::REGNUM_AMBIENT_SP);
 C_ASSERT(DBG_TARGET_REGNUM_SP == ICorDebugInfo::REGNUM_SP);
 C_ASSERT(DBG_TARGET_REGNUM_AMBIENT_SP == ICorDebugInfo::REGNUM_AMBIENT_SP);
 #endif // TARGET_ARM64
+#elif defined(TARGET_LOONGARCH64)
+#define DBG_TARGET_REGNUM_SP 3
+#define DBG_TARGET_REGNUM_AMBIENT_SP 34
+#ifdef TARGET_LOONGARCH64
+C_ASSERT(DBG_TARGET_REGNUM_SP == ICorDebugInfo::REGNUM_SP);
+C_ASSERT(DBG_TARGET_REGNUM_AMBIENT_SP == ICorDebugInfo::REGNUM_AMBIENT_SP);
+#endif
+#elif defined(TARGET_RISCV64)
+#define DBG_TARGET_REGNUM_SP 2
+#define DBG_TARGET_REGNUM_AMBIENT_SP 34
+#ifdef TARGET_RISCV64
+C_ASSERT(DBG_TARGET_REGNUM_SP == ICorDebugInfo::REGNUM_SP);
+C_ASSERT(DBG_TARGET_REGNUM_AMBIENT_SP == ICorDebugInfo::REGNUM_AMBIENT_SP);
+#endif
 #else
 #error Target registers are not defined for this platform
 #endif
@@ -1888,7 +1973,7 @@ struct MSLAYOUT DebuggerIPCEvent
 
         struct MSLAYOUT
         {
-            // Module whos metadata is being updated
+            // Module whose metadata is being updated
             // This tells the RS that the metadata for that module has become invalid.
             VMPTR_DomainAssembly vmDomainAssembly;
 
@@ -1962,7 +2047,27 @@ struct MSLAYOUT DebuggerIPCEvent
             SIZE_T       offset;
             SIZE_T       encVersion;
             LSPTR_METHODDESC  nativeCodeMethodDescToken; // points to the MethodDesc if !isIL
+            CORDB_ADDRESS codeStartAddress;
         } BreakpointData;
+
+        struct MSLAYOUT
+        {
+            mdMethodDef funcMetadataToken;
+            VMPTR_Module pModule;
+        } DisableOptData;
+
+        struct MSLAYOUT
+        {
+            BOOL enableEvents;
+            VMPTR_Object vmObj;
+        } ForceCatchHandlerFoundData;
+
+        struct MSLAYOUT
+        {
+            VMPTR_Module vmModule;
+            mdTypeDef    classMetadataToken;
+            BOOL Enabled;
+        } CustomNotificationData;
 
         struct MSLAYOUT
         {

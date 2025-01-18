@@ -8,9 +8,9 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System.Collections.Generic;
-using System.Threading;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Linq.Parallel
 {
@@ -125,9 +125,7 @@ namespace System.Linq.Parallel
 
             Debug.Assert(!ParallelEnumerable.SinglePartitionMode);
 
-            Mutables? mutables = _mutables;
-            if (mutables == null)
-                mutables = _mutables = new Mutables();
+            Mutables mutables = _mutables ??= new Mutables();
 
             // If we haven't enumerated the source yet, do that now.  This is the first phase
             // of a two-phase barrier style operation.

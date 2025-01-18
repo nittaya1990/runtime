@@ -16,18 +16,18 @@ namespace System.IO.Compression
     {
         private readonly Stream _archiveStream;
         private ZipArchiveEntry? _archiveStreamOwner;
-        private BinaryReader? _archiveReader;
-        private ZipArchiveMode _mode;
-        private List<ZipArchiveEntry> _entries;
-        private ReadOnlyCollection<ZipArchiveEntry> _entriesCollection;
-        private Dictionary<string, ZipArchiveEntry> _entriesDictionary;
+        private readonly BinaryReader? _archiveReader;
+        private readonly ZipArchiveMode _mode;
+        private readonly List<ZipArchiveEntry> _entries;
+        private readonly ReadOnlyCollection<ZipArchiveEntry> _entriesCollection;
+        private readonly Dictionary<string, ZipArchiveEntry> _entriesDictionary;
         private bool _readEntries;
-        private bool _leaveOpen;
+        private readonly bool _leaveOpen;
         private long _centralDirectoryStart; //only valid after ReadCentralDirectory
         private bool _isDisposed;
         private uint _numberOfThisDisk; //only valid after ReadCentralDirectory
         private long _expectedNumberOfEntries;
-        private Stream? _backingStream;
+        private readonly Stream? _backingStream;
         private byte[] _archiveComment;
         private Encoding? _entryNameAndCommentEncoding;
 
@@ -77,7 +77,7 @@ namespace System.IO.Compression
         /// <param name="stream">The input or output stream.</param>
         /// <param name="mode">See the description of the ZipArchiveMode enum. Read requires the stream to support reading, Create requires the stream to support writing, and Update requires the stream to support reading, writing, and seeking.</param>
         /// <param name="leaveOpen">true to leave the stream open upon disposing the ZipArchive, otherwise false.</param>
-        /// <param name="entryNameEncoding">The encoding to use when reading or writing entry names in this ZipArchive.
+        /// <param name="entryNameEncoding">The encoding to use when reading or writing entry names and comments in this ZipArchive.
         ///         ///     <para>NOTE: Specifying this parameter to values other than <c>null</c> is discouraged.
         ///         However, this may be necessary for interoperability with ZIP archive tools and libraries that do not correctly support
         ///         UTF-8 encoding for entry names.<br />
@@ -86,30 +86,30 @@ namespace System.IO.Compression
         ///     <para>If <c>entryNameEncoding</c> is not specified (<c>== null</c>):</para>
         ///     <list>
         ///         <item>For entries where the language encoding flag (EFS) in the general purpose bit flag of the local file header is <em>not</em> set,
-        ///         use the current system default code page (<c>Encoding.Default</c>) in order to decode the entry name.</item>
+        ///         use the current system default code page (<c>Encoding.Default</c>) in order to decode the entry name and comment.</item>
         ///         <item>For entries where the language encoding flag (EFS) in the general purpose bit flag of the local file header <em>is</em> set,
-        ///         use UTF-8 (<c>Encoding.UTF8</c>) in order to decode the entry name.</item>
+        ///         use UTF-8 (<c>Encoding.UTF8</c>) in order to decode the entry name and comment.</item>
         ///     </list>
         ///     <para>If <c>entryNameEncoding</c> is specified (<c>!= null</c>):</para>
         ///     <list>
         ///         <item>For entries where the language encoding flag (EFS) in the general purpose bit flag of the local file header is <em>not</em> set,
-        ///         use the specified <c>entryNameEncoding</c> in order to decode the entry name.</item>
+        ///         use the specified <c>entryNameEncoding</c> in order to decode the entry name and comment.</item>
         ///         <item>For entries where the language encoding flag (EFS) in the general purpose bit flag of the local file header <em>is</em> set,
-        ///         use UTF-8 (<c>Encoding.UTF8</c>) in order to decode the entry name.</item>
+        ///         use UTF-8 (<c>Encoding.UTF8</c>) in order to decode the entry name and comment.</item>
         ///     </list>
         ///     <para><strong>Writing (saving) ZIP archive files:</strong></para>
         ///     <para>If <c>entryNameEncoding</c> is not specified (<c>== null</c>):</para>
         ///     <list>
-        ///         <item>For entry names that contain characters outside the ASCII range,
+        ///         <item>For entry names and comments that contain characters outside the ASCII range,
         ///         the language encoding flag (EFS) will be set in the general purpose bit flag of the local file header,
-        ///         and UTF-8 (<c>Encoding.UTF8</c>) will be used in order to encode the entry name into bytes.</item>
-        ///         <item>For entry names that do not contain characters outside the ASCII range,
+        ///         and UTF-8 (<c>Encoding.UTF8</c>) will be used in order to encode the entry name and comment into bytes.</item>
+        ///         <item>For entry names and comments that do not contain characters outside the ASCII range,
         ///         the language encoding flag (EFS) will not be set in the general purpose bit flag of the local file header,
-        ///         and the current system default code page (<c>Encoding.Default</c>) will be used to encode the entry names into bytes.</item>
+        ///         and the current system default code page (<c>Encoding.Default</c>) will be used to encode the entry names and comments into bytes.</item>
         ///     </list>
         ///     <para>If <c>entryNameEncoding</c> is specified (<c>!= null</c>):</para>
         ///     <list>
-        ///         <item>The specified <c>entryNameEncoding</c> will always be used to encode the entry names into bytes.
+        ///         <item>The specified <c>entryNameEncoding</c> will always be used to encode the entry names and comments into bytes.
         ///         The language encoding flag (EFS) in the general purpose bit flag of the local file header will be set if and only
         ///         if the specified <c>entryNameEncoding</c> is a UTF-8 encoding.</item>
         ///     </list>
@@ -117,8 +117,10 @@ namespace System.IO.Compression
         ///     otherwise an <see cref="ArgumentException"/> is thrown.</para>
         /// </param>
         /// <exception cref="ArgumentException">If a Unicode encoding other than UTF-8 is specified for the <code>entryNameEncoding</code>.</exception>
-        public ZipArchive(Stream stream!!, ZipArchiveMode mode, bool leaveOpen, Encoding? entryNameEncoding)
+        public ZipArchive(Stream stream, ZipArchiveMode mode, bool leaveOpen, Encoding? entryNameEncoding)
         {
+            ArgumentNullException.ThrowIfNull(stream);
+
             EntryNameAndCommentEncoding = entryNameEncoding;
             Stream? extraTempStream = null;
 
@@ -162,7 +164,7 @@ namespace System.IO.Compression
                 if (mode == ZipArchiveMode.Create)
                     _archiveReader = null;
                 else
-                    _archiveReader = new BinaryReader(_archiveStream);
+                    _archiveReader = new BinaryReader(_archiveStream, Encoding.UTF8, leaveOpen: true);
                 _entries = new List<ZipArchiveEntry>();
                 _entriesCollection = new ReadOnlyCollection<ZipArchiveEntry>(_entries);
                 _entriesDictionary = new Dictionary<string, ZipArchiveEntry>();
@@ -202,8 +204,7 @@ namespace System.IO.Compression
             }
             catch
             {
-                if (extraTempStream != null)
-                    extraTempStream.Dispose();
+                extraTempStream?.Dispose();
 
                 throw;
             }
@@ -338,8 +339,10 @@ namespace System.IO.Compression
         /// <exception cref="InvalidDataException">The Zip archive is corrupt and the entries cannot be retrieved.</exception>
         /// <param name="entryName">A path relative to the root of the archive, identifying the desired entry.</param>
         /// <returns>A wrapper for the file entry in the archive. If no entry in the archive exists with the specified name, null will be returned.</returns>
-        public ZipArchiveEntry? GetEntry(string entryName!!)
+        public ZipArchiveEntry? GetEntry(string entryName)
         {
+            ArgumentNullException.ThrowIfNull(entryName);
+
             if (_mode == ZipArchiveMode.Create)
                 throw new NotSupportedException(SR.EntriesInCreateMode);
 
@@ -386,18 +389,12 @@ namespace System.IO.Compression
             }
         }
 
-        private ZipArchiveEntry DoCreateEntry(string entryName!!, CompressionLevel? compressionLevel)
+        private ZipArchiveEntry DoCreateEntry(string entryName, CompressionLevel? compressionLevel)
         {
-            if (string.IsNullOrEmpty(entryName))
-                throw new ArgumentException(SR.CannotBeEmpty, nameof(entryName));
+            ArgumentException.ThrowIfNullOrEmpty(entryName);
 
             if (_mode == ZipArchiveMode.Read)
                 throw new NotSupportedException(SR.CreateInReadMode);
-
-            if (_entriesDictionary.ContainsKey(entryName))
-            {
-                throw new InvalidOperationException(string.Format(SR.EntryNameAlreadyExists, entryName));
-            }
 
             ThrowIfDisposed();
 
@@ -454,8 +451,7 @@ namespace System.IO.Compression
 
         internal void ThrowIfDisposed()
         {
-            if (_isDisposed)
-                throw new ObjectDisposedException(GetType().ToString());
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
         }
 
         private void CloseStreams()

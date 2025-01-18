@@ -13,7 +13,7 @@ namespace System.Net
     // name-password pairs and associates these with host/realm.
     public class CredentialCache : ICredentials, ICredentialsByHost, IEnumerable
     {
-        private Dictionary<CredentialKey, NetworkCredential>? _cache;
+        private Dictionary<CredentialCacheKey, NetworkCredential>? _cache;
         private Dictionary<CredentialHostKey, NetworkCredential>? _cacheForHosts;
         private int _version;
 
@@ -21,8 +21,11 @@ namespace System.Net
         {
         }
 
-        public void Add(Uri uriPrefix!!, string authType!!, NetworkCredential cred)
+        public void Add(Uri uriPrefix, string authType, NetworkCredential cred)
         {
+            ArgumentNullException.ThrowIfNull(uriPrefix);
+            ArgumentNullException.ThrowIfNull(authType);
+
             if ((cred is SystemNetworkCredential)
                 && !((string.Equals(authType, NegotiationInfoClass.NTLM, StringComparison.OrdinalIgnoreCase))
                      || (string.Equals(authType, NegotiationInfoClass.Kerberos, StringComparison.OrdinalIgnoreCase))
@@ -34,15 +37,11 @@ namespace System.Net
 
             ++_version;
 
-            var key = new CredentialKey(uriPrefix, authType);
+            var key = new CredentialCacheKey(uriPrefix, authType);
 
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Adding key:[{key}], cred:[{cred.Domain}],[{cred.UserName}]");
 
-            if (_cache == null)
-            {
-                _cache = new Dictionary<CredentialKey, NetworkCredential>();
-            }
-
+            _cache ??= new Dictionary<CredentialCacheKey, NetworkCredential>();
             _cache.Add(key, cred);
         }
 
@@ -51,10 +50,7 @@ namespace System.Net
             ArgumentException.ThrowIfNullOrEmpty(host);
             ArgumentNullException.ThrowIfNull(authenticationType);
 
-            if (port < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(port));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(port);
 
             if ((credential is SystemNetworkCredential)
                 && !((string.Equals(authenticationType, NegotiationInfoClass.NTLM, StringComparison.OrdinalIgnoreCase))
@@ -71,11 +67,7 @@ namespace System.Net
 
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Adding key:[{key}], cred:[{credential.Domain}],[{credential.UserName}]");
 
-            if (_cacheForHosts == null)
-            {
-                _cacheForHosts = new Dictionary<CredentialHostKey, NetworkCredential>();
-            }
-
+            _cacheForHosts ??= new Dictionary<CredentialHostKey, NetworkCredential>();
             _cacheForHosts.Add(key, credential);
         }
 
@@ -96,7 +88,7 @@ namespace System.Net
 
             ++_version;
 
-            var key = new CredentialKey(uriPrefix, authType);
+            var key = new CredentialCacheKey(uriPrefix, authType);
 
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Removing key:[{key}]");
 
@@ -132,36 +124,18 @@ namespace System.Net
             _cacheForHosts.Remove(key);
         }
 
-        public NetworkCredential? GetCredential(Uri uriPrefix!!, string authType!!)
+        public NetworkCredential? GetCredential(Uri uriPrefix, string authType)
         {
+            ArgumentNullException.ThrowIfNull(uriPrefix);
+            ArgumentNullException.ThrowIfNull(authType);
+
             if (_cache == null)
             {
                 if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "CredentialCache::GetCredential short-circuiting because the dictionary is null.");
                 return null;
             }
 
-            int longestMatchPrefix = -1;
-            NetworkCredential? mostSpecificMatch = null;
-
-            // Enumerate through every credential in the cache
-            foreach (KeyValuePair<CredentialKey, NetworkCredential> pair in _cache)
-            {
-                CredentialKey key = pair.Key;
-
-                // Determine if this credential is applicable to the current Uri/AuthType
-                if (key.Match(uriPrefix, authType))
-                {
-                    int prefixLen = key.UriPrefixLength;
-
-                    // Check if the match is better than the current-most-specific match
-                    if (prefixLen > longestMatchPrefix)
-                    {
-                        // Yes: update the information about currently preferred match
-                        longestMatchPrefix = prefixLen;
-                        mostSpecificMatch = pair.Value;
-                    }
-                }
-            }
+            CredentialCacheHelper.TryGetCredential(_cache, uriPrefix, authType, out _ /*uri*/, out NetworkCredential? mostSpecificMatch);
 
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Returning {(mostSpecificMatch == null ? "null" : "(" + mostSpecificMatch.UserName + ":" + mostSpecificMatch.Domain + ")")}");
 
@@ -172,10 +146,7 @@ namespace System.Net
         {
             ArgumentException.ThrowIfNullOrEmpty(host);
             ArgumentNullException.ThrowIfNull(authenticationType);
-            if (port < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(port));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(port);
 
             if (_cacheForHosts == null)
             {
@@ -209,7 +180,7 @@ namespace System.Net
                 {
                     return cache._cacheForHosts != null ?
                         new DoubleTableCredentialEnumerator(cache) :
-                        new SingleTableCredentialEnumerator<CredentialKey>(cache, cache._cache);
+                        new SingleTableCredentialEnumerator<CredentialCacheKey>(cache, cache._cache);
                 }
                 else
                 {
@@ -294,7 +265,7 @@ namespace System.Net
                 }
             }
 
-            private sealed class DoubleTableCredentialEnumerator : SingleTableCredentialEnumerator<CredentialKey>
+            private sealed class DoubleTableCredentialEnumerator : SingleTableCredentialEnumerator<CredentialCacheKey>
             {
                 private Dictionary<CredentialHostKey, NetworkCredential>.ValueCollection.Enumerator _enumerator; // mutable struct field deliberately not readonly.
                 private bool _onThisEnumerator;
@@ -413,96 +384,5 @@ namespace System.Net
 
         public override string ToString() =>
             string.Create(CultureInfo.InvariantCulture, $"{Host}:{Port}:{AuthenticationType}");
-    }
-
-    internal sealed class CredentialKey : IEquatable<CredentialKey?>
-    {
-        public readonly Uri UriPrefix;
-        public readonly int UriPrefixLength = -1;
-        public readonly string AuthenticationType;
-
-        internal CredentialKey(Uri uriPrefix, string authenticationType)
-        {
-            Debug.Assert(uriPrefix != null);
-            Debug.Assert(authenticationType != null);
-
-            UriPrefix = uriPrefix;
-            UriPrefixLength = UriPrefix.ToString().Length;
-            AuthenticationType = authenticationType;
-        }
-
-        internal bool Match(Uri uri, string authenticationType)
-        {
-            if (uri == null || authenticationType == null)
-            {
-                return false;
-            }
-
-            // If the protocols don't match, this credential is not applicable for the given Uri.
-            if (!string.Equals(authenticationType, AuthenticationType, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Match({UriPrefix} & {uri})");
-
-            return IsPrefix(uri, UriPrefix);
-        }
-
-        // IsPrefix (Uri)
-        //
-        // Determines whether <prefixUri> is a prefix of this URI. A prefix
-        // match is defined as:
-        //
-        //     scheme match
-        //     + host match
-        //     + port match, if any
-        //     + <prefix> path is a prefix of <URI> path, if any
-        //
-        // Returns:
-        // True if <prefixUri> is a prefix of this URI
-        private static bool IsPrefix(Uri uri, Uri prefixUri)
-        {
-            Debug.Assert(uri != null);
-            Debug.Assert(prefixUri != null);
-
-            if (prefixUri.Scheme != uri.Scheme || prefixUri.Host != uri.Host || prefixUri.Port != uri.Port)
-            {
-                return false;
-            }
-
-            int prefixLen = prefixUri.AbsolutePath.LastIndexOf('/');
-            if (prefixLen > uri.AbsolutePath.LastIndexOf('/'))
-            {
-                return false;
-            }
-
-            return string.Compare(uri.AbsolutePath, 0, prefixUri.AbsolutePath, 0, prefixLen, StringComparison.OrdinalIgnoreCase) == 0;
-        }
-
-        public override int GetHashCode() =>
-            StringComparer.OrdinalIgnoreCase.GetHashCode(AuthenticationType) ^
-            UriPrefix.GetHashCode();
-
-        public bool Equals([NotNullWhen(true)] CredentialKey? other)
-        {
-            if (other == null)
-            {
-                return false;
-            }
-
-            bool equals =
-                string.Equals(AuthenticationType, other.AuthenticationType, StringComparison.OrdinalIgnoreCase) &&
-                UriPrefix.Equals(other.UriPrefix);
-
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Equals({this},{other}) returns {equals}");
-
-            return equals;
-        }
-
-        public override bool Equals([NotNullWhen(true)] object? obj) => Equals(obj as CredentialKey);
-
-        public override string ToString() =>
-            string.Create(CultureInfo.InvariantCulture, $"[{UriPrefixLength}]:{UriPrefix}:{AuthenticationType}");
     }
 }

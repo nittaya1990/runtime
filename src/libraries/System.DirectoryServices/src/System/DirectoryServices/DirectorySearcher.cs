@@ -1,14 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
 using System.Collections;
 using System.Collections.Specialized;
-using System.DirectoryServices.Interop;
 using System.ComponentModel;
-
-using INTPTR_INTPTRCAST = System.IntPtr;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
+using INTPTR_INTPTRCAST = System.IntPtr;
 
 namespace System.DirectoryServices
 {
@@ -156,7 +154,7 @@ namespace System.DirectoryServices
             set
             {
                 // user explicitly set CacheResults to true and also want VLV
-                if (directoryVirtualListViewSpecified == true && value == true)
+                if (directoryVirtualListViewSpecified && value)
                     throw new ArgumentException(SR.DSBadCacheResultsVLV);
 
                 _cacheResults = value;
@@ -201,7 +199,7 @@ namespace System.DirectoryServices
             get => _filter;
             set
             {
-                if (value == null || value.Length == 0)
+                if (string.IsNullOrEmpty(value))
                     value = defaultFilter;
                 _filter = value;
             }
@@ -220,7 +218,7 @@ namespace System.DirectoryServices
                     throw new ArgumentException(SR.DSBadPageSize);
 
                 // specify non-zero pagesize explicitly and also want dirsync
-                if (directorySynchronizationSpecified == true && value != 0)
+                if (directorySynchronizationSpecified && value != 0)
                     throw new ArgumentException(SR.DSBadPageSizeDirsync);
 
                 _pageSize = value;
@@ -233,17 +231,8 @@ namespace System.DirectoryServices
         /// </devdoc>
         [Editor("System.Windows.Forms.Design.StringCollectionEditor, System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
                 "System.Drawing.Design.UITypeEditor, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
-        public StringCollection PropertiesToLoad
-        {
-            get
-            {
-                if (_propertiesToLoad == null)
-                {
-                    _propertiesToLoad = new StringCollection();
-                }
-                return _propertiesToLoad;
-            }
-        }
+        public StringCollection PropertiesToLoad =>
+            _propertiesToLoad ??= new StringCollection();
 
         /// <devdoc>
         /// Gets or sets how referrals are chased.
@@ -277,7 +266,7 @@ namespace System.DirectoryServices
                     throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(SearchScope));
 
                 // user explicitly set SearchScope to something other than Base and also want to do ASQ, it is not supported
-                if (_attributeScopeQuerySpecified == true && value != SearchScope.Base)
+                if (_attributeScopeQuerySpecified && value != SearchScope.Base)
                 {
                     throw new ArgumentException(SR.DSBadASQSearchScope);
                 }
@@ -413,13 +402,12 @@ namespace System.DirectoryServices
             get => _attributeScopeQuery;
             set
             {
-                if (value == null)
-                    value = "";
+                value ??= "";
 
                 // user explicitly set AttributeScopeQuery and value is not null or empty string
                 if (value.Length != 0)
                 {
-                    if (_scopeSpecified == true && SearchScope != SearchScope.Base)
+                    if (_scopeSpecified && SearchScope != SearchScope.Base)
                     {
                         throw new ArgumentException(SR.DSBadASQSearchScope);
                     }
@@ -556,7 +544,7 @@ namespace System.DirectoryServices
                 // if user explicitly set CacheResults to true and also want to set VLV
                 if (value != null)
                 {
-                    if (_cacheResultsSpecified == true && CacheResults == true)
+                    if (_cacheResultsSpecified && CacheResults)
                         throw new ArgumentException(SR.DSBadCacheResultsVLV);
 
                     directoryVirtualListViewSpecified = true;
@@ -618,6 +606,8 @@ namespace System.DirectoryServices
 
         private SearchResultCollection FindAll(bool findMoreThanOne)
         {
+            searchResult = null;
+
             DirectoryEntry clonedRoot = SearchRoot!.CloneBrowsable();
 
             UnsafeNativeMethods.IAds adsObject = clonedRoot.AdsObject;
@@ -661,7 +651,9 @@ namespace System.DirectoryServices
                 properties = Array.Empty<string>();
             }
 
-            return new SearchResultCollection(clonedRoot, resultsHandle, properties, this);
+            SearchResultCollection result = new SearchResultCollection(clonedRoot, resultsHandle, properties, this);
+            searchResult = result;
+            return result;
         }
 
         private unsafe void SetSearchPreferences(UnsafeNativeMethods.IDirectorySearch adsSearch, bool findMoreThanOne)
@@ -733,7 +725,7 @@ namespace System.DirectoryServices
             prefList.Add(info);
 
             // asynchronous
-            if (Asynchronous == true)
+            if (Asynchronous)
             {
                 info = default;
                 info.dwSearchPref = (int)AdsSearchPreferences.ASYNCHRONOUS;
@@ -742,7 +734,7 @@ namespace System.DirectoryServices
             }
 
             // tombstone
-            if (Tombstone == true)
+            if (Tombstone)
             {
                 info = default;
                 info.dwSearchPref = (int)AdsSearchPreferences.TOMBSTONE;
@@ -852,7 +844,7 @@ namespace System.DirectoryServices
                         ptrVLVContexToFree = vlvValue.contextID;
                         Marshal.Copy(_vlv.DirectoryVirtualListViewContext._context, 0, vlvValue.contextID, vlvValue.contextIDlength);
                     }
-                    IntPtr vlvPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(AdsVLV)));
+                    IntPtr vlvPtr = Marshal.AllocHGlobal(Marshal.SizeOf<AdsVLV>());
                     byte[] vlvBytes = new byte[Marshal.SizeOf(vlvValue)];
                     try
                     {
@@ -900,10 +892,10 @@ namespace System.DirectoryServices
             }
         }
 
-        private static void DoSetSearchPrefs(UnsafeNativeMethods.IDirectorySearch adsSearch, AdsSearchPreferenceInfo[] prefs)
+        private static unsafe void DoSetSearchPrefs(UnsafeNativeMethods.IDirectorySearch adsSearch, AdsSearchPreferenceInfo[] prefs)
         {
-            int structSize = Marshal.SizeOf(typeof(AdsSearchPreferenceInfo));
-            IntPtr ptr = Marshal.AllocHGlobal((IntPtr)(structSize * prefs.Length));
+            int structSize = sizeof(AdsSearchPreferenceInfo);
+            IntPtr ptr = Marshal.AllocHGlobal(structSize * prefs.Length);
             try
             {
                 IntPtr tempPtr = ptr;

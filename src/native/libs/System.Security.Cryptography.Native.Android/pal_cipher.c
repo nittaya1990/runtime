@@ -20,7 +20,7 @@ typedef struct CipherInfo
 } CipherInfo;
 
 #define DEFINE_CIPHER(cipherId, width, javaName, flags) \
-CipherInfo* AndroidCryptoNative_ ## cipherId() \
+CipherInfo* AndroidCryptoNative_ ## cipherId(void) \
 { \
     static CipherInfo info = { flags, width, javaName }; \
     return &info; \
@@ -294,6 +294,53 @@ int32_t AndroidCryptoNative_CipherFinalEx(CipherCtx* ctx, uint8_t* outm, int32_t
     jsize outBytesLen = (*env)->GetArrayLength(env, outBytes);
     *outl = outBytesLen;
     (*env)->GetByteArrayRegion(env, outBytes, 0, outBytesLen, (jbyte*) outm);
+
+    (*env)->DeleteLocalRef(env, outBytes);
+    return CheckJNIExceptions(env) ? FAIL : SUCCESS;
+}
+
+
+int32_t AndroidCryptoNative_AeadCipherFinalEx(CipherCtx* ctx, uint8_t* outm, int32_t* outl, int32_t* authTagMismatch)
+{
+    if (!ctx)
+        return FAIL;
+
+    // outm is allowed to be NULL
+    abort_if_invalid_pointer_argument(outl);
+    abort_if_invalid_pointer_argument(authTagMismatch);
+
+    JNIEnv* env = GetJNIEnv();
+
+    *outl = 0;
+    *authTagMismatch = 0;
+
+    jbyteArray outBytes = (jbyteArray)(*env)->CallObjectMethod(env, ctx->cipher, g_cipherDoFinalMethod);
+    jthrowable ex = NULL;
+
+    if (TryGetJNIException(env, &ex, false))
+    {
+        if (ex == NULL)
+        {
+            return FAIL;
+        }
+
+        if ((*env)->IsInstanceOf(env, ex, g_AEADBadTagExceptionClass))
+        {
+            *authTagMismatch = 1;
+        }
+
+        (*env)->DeleteLocalRef(env, ex);
+        return FAIL;
+    }
+
+    jsize outBytesLen = (*env)->GetArrayLength(env, outBytes);
+    *outl = outBytesLen;
+
+    if (outBytesLen > 0)
+    {
+        abort_if_invalid_pointer_argument(outm);
+        (*env)->GetByteArrayRegion(env, outBytes, 0, outBytesLen, (jbyte*) outm);
+    }
 
     (*env)->DeleteLocalRef(env, outBytes);
     return CheckJNIExceptions(env) ? FAIL : SUCCESS;

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -56,13 +57,32 @@ namespace System.Diagnostics
         }
 
         /// <summary>Gets process infos for each process on the specified machine.</summary>
+        /// <param name="processNameFilter">Optional process name to use as an inclusion filter.</param>
         /// <param name="machineName">The target machine.</param>
         /// <returns>An array of process infos, one per found process.</returns>
-        public static ProcessInfo[] GetProcessInfos(string machineName)
+        public static ProcessInfo[] GetProcessInfos(string? processNameFilter, string machineName)
         {
-            return IsRemoteMachine(machineName) ?
-                NtProcessManager.GetProcessInfos(machineName, isRemoteMachine: true) :
-                NtProcessInfoHelper.GetProcessInfos();
+            if (!IsRemoteMachine(machineName))
+            {
+                return NtProcessInfoHelper.GetProcessInfos(processNameFilter: processNameFilter);
+            }
+
+            ProcessInfo[] processInfos = NtProcessManager.GetProcessInfos(machineName, isRemoteMachine: true);
+            if (string.IsNullOrEmpty(processNameFilter))
+            {
+                return processInfos;
+            }
+
+            ArrayBuilder<ProcessInfo> results = default;
+            foreach (ProcessInfo pi in processInfos)
+            {
+                if (string.Equals(processNameFilter, pi.ProcessName, StringComparison.OrdinalIgnoreCase))
+                {
+                    results.Add(pi);
+                }
+            }
+
+            return results.ToArray();
         }
 
         /// <summary>Gets the ProcessInfo for the specified process ID on the specified machine.</summary>
@@ -121,7 +141,10 @@ namespace System.Diagnostics
                 string? processName = Interop.Kernel32.GetProcessName((uint)processId);
                 if (processName is not null)
                 {
-                    return NtProcessInfoHelper.GetProcessShortName(processName);
+                    ReadOnlySpan<char> newName = NtProcessInfoHelper.GetProcessShortName(processName);
+                    return newName.SequenceEqual(processName) ?
+                        processName :
+                        newName.ToString();
                 }
             }
 
@@ -169,7 +192,7 @@ namespace System.Diagnostics
         {
             ReadOnlySpan<char> baseName = machineName.AsSpan(machineName.StartsWith('\\') ? 2 : 0);
             return
-                !baseName.Equals(".", StringComparison.Ordinal) &&
+                baseName is not "." &&
                 !baseName.Equals(Interop.Kernel32.GetComputerName(), StringComparison.OrdinalIgnoreCase);
         }
 
@@ -209,10 +232,7 @@ namespace System.Diagnostics
             }
             finally
             {
-                if (tokenHandle != null)
-                {
-                    tokenHandle.Dispose();
-                }
+                tokenHandle?.Dispose();
             }
         }
 
@@ -224,6 +244,8 @@ namespace System.Diagnostics
             {
                 return processHandle;
             }
+
+            processHandle.Dispose();
 
             if (processId == 0)
             {
@@ -252,6 +274,7 @@ namespace System.Diagnostics
             int result = Marshal.GetLastWin32Error();
             if (threadHandle.IsInvalid)
             {
+                threadHandle.Dispose();
                 if (result == Interop.Errors.ERROR_INVALID_PARAMETER)
                     throw new InvalidOperationException(SR.Format(SR.ThreadExited, threadId.ToString()));
                 throw new Win32Exception(result);
@@ -353,17 +376,22 @@ namespace System.Diagnostics
 
         public static int[] GetProcessIds()
         {
-            int[] processIds = new int[256];
+            int[] processIds = ArrayPool<int>.Shared.Rent(256);
+
             int needed;
             while (true)
             {
                 int size = processIds.Length * sizeof(int);
                 if (!Interop.Kernel32.EnumProcesses(processIds, size, out needed))
+                {
                     throw new Win32Exception();
+                }
 
                 if (needed == size)
                 {
-                    processIds = new int[processIds.Length * 2];
+                    int newLength = processIds.Length * 2;
+                    ArrayPool<int>.Shared.Return(processIds);
+                    processIds = ArrayPool<int>.Shared.Rent(newLength);
                     continue;
                 }
 
@@ -372,6 +400,8 @@ namespace System.Diagnostics
 
             int[] ids = new int[needed / sizeof(int)];
             Array.Copy(processIds, ids, ids.Length);
+
+            ArrayPool<int>.Shared.Return(processIds);
             return ids;
         }
 
@@ -446,18 +476,25 @@ namespace System.Diagnostics
             List<ThreadInfo> threadInfos = new List<ThreadInfo>();
 
             ref readonly PERF_DATA_BLOCK dataBlock = ref MemoryMarshal.AsRef<PERF_DATA_BLOCK>(data);
+            dataBlock.Validate(data.Length);
 
             int typePos = dataBlock.HeaderLength;
+            ReadOnlySpan<byte> dataSpan;
+
             for (int i = 0; i < dataBlock.NumObjectTypes; i++)
             {
-                ref readonly PERF_OBJECT_TYPE type = ref MemoryMarshal.AsRef<PERF_OBJECT_TYPE>(data.Slice(typePos));
+                dataSpan = data.Slice(typePos);
+                ref readonly PERF_OBJECT_TYPE type = ref MemoryMarshal.AsRef<PERF_OBJECT_TYPE>(dataSpan);
+                type.Validate(dataSpan.Length);
 
                 PERF_COUNTER_DEFINITION[] counters = new PERF_COUNTER_DEFINITION[type.NumCounters];
 
                 int counterPos = typePos + type.HeaderLength;
                 for (int j = 0; j < type.NumCounters; j++)
                 {
-                    ref readonly PERF_COUNTER_DEFINITION counter = ref MemoryMarshal.AsRef<PERF_COUNTER_DEFINITION>(data.Slice(counterPos));
+                    dataSpan = data.Slice(counterPos);
+                    ref readonly PERF_COUNTER_DEFINITION counter = ref MemoryMarshal.AsRef<PERF_COUNTER_DEFINITION>(dataSpan);
+                    counter.Validate(dataSpan.Length);
 
                     string counterName = library.GetCounterName(counter.CounterNameTitleIndex);
 
@@ -473,11 +510,13 @@ namespace System.Diagnostics
                 int instancePos = typePos + type.DefinitionLength;
                 for (int j = 0; j < type.NumInstances; j++)
                 {
-                    ref readonly PERF_INSTANCE_DEFINITION instance = ref MemoryMarshal.AsRef<PERF_INSTANCE_DEFINITION>(data.Slice(instancePos));
+                    dataSpan = data.Slice(instancePos);
+                    ref readonly PERF_INSTANCE_DEFINITION instance = ref MemoryMarshal.AsRef<PERF_INSTANCE_DEFINITION>(dataSpan);
+                    instance.Validate(dataSpan.Length);
 
                     ReadOnlySpan<char> instanceName = PERF_INSTANCE_DEFINITION.GetName(in instance, data.Slice(instancePos));
 
-                    if (instanceName.Equals("_Total", StringComparison.Ordinal))
+                    if (instanceName is "_Total")
                     {
                         // continue
                     }
@@ -492,7 +531,7 @@ namespace System.Diagnostics
                         }
                         else
                         {
-                            if (processInfos.ContainsKey(processInfo.ProcessId))
+                            if (!processInfos.TryAdd(processInfo.ProcessId, processInfo))
                             {
                                 // We've found two entries in the perfcounters that claim to be the
                                 // same process.  We throw an exception.  Is this really going to be
@@ -505,7 +544,7 @@ namespace System.Diagnostics
                                 // at the end.  If instanceName ends in ".", ".e", or ".ex" we remove it.
                                 if (instanceName.Length == 15)
                                 {
-                                    if (instanceName.EndsWith(".", StringComparison.Ordinal))
+                                    if (instanceName.EndsWith("."))
                                     {
                                         instanceName = instanceName.Slice(0, 14);
                                     }
@@ -519,7 +558,6 @@ namespace System.Diagnostics
                                     }
                                 }
                                 processInfo.ProcessName = instanceName.ToString();
-                                processInfos.Add(processInfo.ProcessId, processInfo);
                             }
                         }
                     }
@@ -534,7 +572,11 @@ namespace System.Diagnostics
 
                     instancePos += instance.ByteLength;
 
-                    instancePos += MemoryMarshal.AsRef<PERF_COUNTER_BLOCK>(data.Slice(instancePos)).ByteLength;
+                    dataSpan = data.Slice(instancePos);
+                    ref readonly PERF_COUNTER_BLOCK perfCounterBlock = ref MemoryMarshal.AsRef<PERF_COUNTER_BLOCK>(dataSpan);
+                    perfCounterBlock.Validate(dataSpan.Length);
+
+                    instancePos += perfCounterBlock.ByteLength;
                 }
 
                 typePos += type.TotalByteLength;
@@ -554,7 +596,7 @@ namespace System.Diagnostics
             return temp;
         }
 
-        private static ThreadInfo GetThreadInfo(ReadOnlySpan<byte> instanceData, PERF_COUNTER_DEFINITION[] counters)
+        private static unsafe ThreadInfo GetThreadInfo(ReadOnlySpan<byte> instanceData, PERF_COUNTER_DEFINITION[] counters)
         {
             ThreadInfo threadInfo = new ThreadInfo();
             for (int i = 0; i < counters.Length; i++)
@@ -576,7 +618,7 @@ namespace System.Diagnostics
                         threadInfo._currentPriority = (int)value;
                         break;
                     case ValueId.StartAddress:
-                        threadInfo._startAddress = (IntPtr)value;
+                        threadInfo._startAddress = (void*)value;
                         break;
                     case ValueId.ThreadState:
                         threadInfo._threadState = (ThreadState)value;

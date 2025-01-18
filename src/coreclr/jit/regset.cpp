@@ -23,7 +23,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 /*****************************************************************************/
 
-#ifdef TARGET_ARM64
+#if defined(TARGET_ARM64)
 const regMaskSmall regMasks[] = {
 #define REGDEF(name, rnum, mask, xname, wname) mask,
 #include "register.h"
@@ -117,6 +117,16 @@ void RegSet::rsClearRegsModified()
 #endif // DEBUG
 
     rsModifiedRegsMask = RBM_NONE;
+
+#ifdef SWIFT_SUPPORT
+    // If this method has a SwiftError* parameter, we will return SwiftError::Value in REG_SWIFT_ERROR,
+    // so don't treat it as callee-save.
+    if (m_rsCompiler->lvaSwiftErrorArg != BAD_VAR_NUM)
+    {
+        rsAllCalleeSavedMask &= ~RBM_SWIFT_ERROR;
+        rsIntCalleeSavedMask &= ~RBM_SWIFT_ERROR;
+    }
+#endif // SWIFT_SUPPORT
 }
 
 void RegSet::rsSetRegsModified(regMaskTP mask DEBUGARG(bool suppressDump))
@@ -199,11 +209,30 @@ void RegSet::SetMaskVars(regMaskTP newMaskVars)
         }
         else
         {
-            printRegMaskInt(_rsMaskVars);
+            printRegMask(_rsMaskVars);
             m_rsCompiler->GetEmitter()->emitDispRegSet(_rsMaskVars);
+
+            // deadSet = old - new
+            regMaskTP deadSet = _rsMaskVars & ~newMaskVars;
+
+            // bornSet = new - old
+            regMaskTP bornSet = newMaskVars & ~_rsMaskVars;
+
+            if (deadSet != RBM_NONE)
+            {
+                printf(" -");
+                m_rsCompiler->GetEmitter()->emitDispRegSet(deadSet);
+            }
+
+            if (bornSet != RBM_NONE)
+            {
+                printf(" +");
+                m_rsCompiler->GetEmitter()->emitDispRegSet(bornSet);
+            }
+
             printf(" => ");
         }
-        printRegMaskInt(newMaskVars);
+        printRegMask(newMaskVars);
         m_rsCompiler->GetEmitter()->emitDispRegSet(newMaskVars);
         printf("\n");
     }
@@ -214,7 +243,9 @@ void RegSet::SetMaskVars(regMaskTP newMaskVars)
 
 /*****************************************************************************/
 
-RegSet::RegSet(Compiler* compiler, GCInfo& gcInfo) : m_rsCompiler(compiler), m_rsGCInfo(gcInfo)
+RegSet::RegSet(Compiler* compiler, GCInfo& gcInfo)
+    : m_rsCompiler(compiler)
+    , m_rsGCInfo(gcInfo)
 {
     /* Initialize the spill logic */
 
@@ -228,14 +259,19 @@ RegSet::RegSet(Compiler* compiler, GCInfo& gcInfo) : m_rsCompiler(compiler), m_r
 
     rsMaskResvd = RBM_NONE;
 
-#ifdef TARGET_ARMARCH
+#if defined(TARGET_ARMARCH) || defined(TARGET_LOONGARCH64)
     rsMaskCalleeSaved = RBM_NONE;
-#endif // TARGET_ARMARCH
+#endif // TARGET_ARMARCH || TARGET_LOONGARCH64
 
 #ifdef TARGET_ARM
     rsMaskPreSpillRegArg = RBM_NONE;
     rsMaskPreSpillAlign  = RBM_NONE;
 #endif
+
+#ifdef SWIFT_SUPPORT
+    rsAllCalleeSavedMask = RBM_CALLEE_SAVED;
+    rsIntCalleeSavedMask = RBM_INT_CALLEE_SAVED;
+#endif // SWIFT_SUPPORT
 
 #ifdef DEBUG
     rsModifiedRegsMaskInitialized = false;
@@ -292,36 +328,19 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
 {
     assert(tree != nullptr);
 
-    GenTreeCall*   call = nullptr;
-    GenTreeLclVar* lcl  = nullptr;
-    var_types      treeType;
-#if defined(TARGET_ARM)
-    GenTreePutArgSplit* splitArg = nullptr;
-    GenTreeMultiRegOp*  multiReg = nullptr;
-#endif
+    var_types treeType       = TYP_UNDEF;
+    bool      isMultiRegTree = false;
 
-    if (tree->IsMultiRegCall())
-    {
-        call                              = tree->AsCall();
-        const ReturnTypeDesc* retTypeDesc = call->GetReturnTypeDesc();
-        treeType                          = retTypeDesc->GetReturnRegType(regIdx);
-    }
-#ifdef TARGET_ARM
-    else if (tree->OperIsPutArgSplit())
-    {
-        splitArg = tree->AsPutArgSplit();
-        treeType = splitArg->GetRegType(regIdx);
-    }
-    else if (tree->OperIsMultiRegOp())
-    {
-        multiReg = tree->AsMultiRegOp();
-        treeType = multiReg->GetRegType(regIdx);
-    }
-#endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
+    if (tree->IsMultiRegLclVar())
     {
         LclVarDsc* varDsc = m_rsCompiler->lvaGetDesc(tree->AsLclVar());
         treeType          = varDsc->TypeGet();
+        isMultiRegTree    = true;
+    }
+    else if (tree->IsMultiRegNode())
+    {
+        treeType       = tree->GetRegTypeByIndex(regIdx);
+        isMultiRegTree = true;
     }
     else
     {
@@ -335,7 +354,7 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     if (isFloatRegType(treeType))
     {
         floatSpill = true;
-        mask       = genRegMaskFloat(reg, treeType);
+        mask       = genRegMaskFloat(reg ARM_ARG(treeType));
     }
     else
     {
@@ -353,29 +372,9 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     assert((tree->gtFlags & GTF_SPILL) != 0);
 
     GenTreeFlags regFlags = GTF_EMPTY;
-    if (call != nullptr)
+    if (isMultiRegTree)
     {
-        regFlags = call->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags = splitArg->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags = multiReg->GetRegSpillFlagByIdx(regIdx);
-        assert((regFlags & GTF_SPILL) != 0);
-        regFlags &= ~GTF_SPILL;
-    }
-#endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        regFlags = lcl->GetRegSpillFlagByIdx(regIdx);
+        regFlags = tree->GetRegSpillFlagByIdx(regIdx);
         assert((regFlags & GTF_SPILL) != 0);
         regFlags &= ~GTF_SPILL;
     }
@@ -385,13 +384,7 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
         tree->gtFlags &= ~GTF_SPILL;
     }
 
-#if defined(TARGET_ARM)
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNumByIdx(regIdx) == reg) ||
-           (splitArg != nullptr && splitArg->GetRegNumByIdx(regIdx) == reg) ||
-           (multiReg != nullptr && multiReg->GetRegNumByIdx(regIdx) == reg));
-#else
-    assert(tree->GetRegNum() == reg || (call != nullptr && call->GetRegNumByIdx(regIdx) == reg));
-#endif // !TARGET_ARM
+    assert(tree->GetRegByIndex(regIdx) == reg);
 
     // Are any registers free for spillage?
     SpillDsc* spill = SpillDsc::alloc(m_rsCompiler, this, tempType);
@@ -407,8 +400,12 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tThe register %s spilled with    ", m_rsCompiler->compRegVarName(reg));
+        printf("\t\t\t\t\t\t\tThe register %s spilled with ", m_rsCompiler->compRegVarName(reg));
         Compiler::printTreeID(spill->spillTree);
+        if (isMultiRegTree)
+        {
+            printf("[%u]", regIdx);
+        }
     }
 #endif
 
@@ -435,37 +432,19 @@ void RegSet::rsSpillTree(regNumber reg, GenTree* tree, unsigned regIdx /* =0 */)
     // Mark the tree node as having been spilled
     rsMarkSpill(tree, reg);
 
-    // In case of multi-reg call node also mark the specific
-    // result reg as spilled.
-    if (call != nullptr)
+    // In case of multi-reg call node also mark the specific result reg as spilled.
+    if (isMultiRegTree)
     {
         regFlags |= GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-#ifdef TARGET_ARM
-    else if (splitArg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-    else if (multiReg != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(regFlags, regIdx);
-    }
-#endif // TARGET_ARM
-    else if (lcl != nullptr)
-    {
-        regFlags |= GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(regFlags, regIdx);
+        tree->SetRegSpillFlagByIdx(regFlags, regIdx);
     }
 }
 
 #if defined(TARGET_X86)
 /*****************************************************************************
-*
-*  Spill the top of the FP x87 stack.
-*/
+ *
+ *  Spill the top of the FP x87 stack.
+ */
 void RegSet::rsSpillFPStack(GenTreeCall* call)
 {
     SpillDsc* spill;
@@ -534,56 +513,30 @@ TempDsc* RegSet::rsGetSpillTempWord(regNumber reg, SpillDsc* dsc, SpillDsc* prev
 //     oldReg  -  reg of tree that was spilled.
 //
 //  Return Value:
-//     None.
+//     TempDsc the caller is expected to release.
 //
 //  Assumptions:
-//  1. It is the responsibility of the caller to free the spill temp.
-//  2. RyuJIT backend specific: In case of multi-reg call node
-//     GTF_SPILLED flag associated with reg is cleared.  It is the
-//     responsibility of caller to clear GTF_SPILLED flag on call node
-//     itself after ensuring there are no outstanding regs in GTF_SPILLED
-//     state.
+//     In case of multi-reg node GTF_SPILLED flag associated with reg is
+//     cleared. It is the responsibility of caller to clear GTF_SPILLED
+//     flag on call node itself after ensuring there are no outstanding
+//     regs in GTF_SPILLED state.
 //
 TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regIdx /* =0 */)
 {
     // Get the tree's SpillDsc
     SpillDsc* prevDsc;
     SpillDsc* spillDsc = rsGetSpillInfo(tree, oldReg, &prevDsc);
-    PREFIX_ASSUME(spillDsc != nullptr);
+    assert(spillDsc != nullptr);
 
     // Get the temp
     TempDsc* temp = rsGetSpillTempWord(oldReg, spillDsc, prevDsc);
 
-    // The value is now unspilled
-    if (tree->IsMultiRegCall())
+    // The value is now unspilled.
+    if (tree->IsMultiRegNode())
     {
-        GenTreeCall* call  = tree->AsCall();
-        GenTreeFlags flags = call->GetRegSpillFlagByIdx(regIdx);
+        GenTreeFlags flags = tree->GetRegSpillFlagByIdx(regIdx);
         flags &= ~GTF_SPILLED;
-        call->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-#if defined(TARGET_ARM)
-    else if (tree->OperIsPutArgSplit())
-    {
-        GenTreePutArgSplit* splitArg = tree->AsPutArgSplit();
-        GenTreeFlags        flags    = splitArg->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        splitArg->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-    else if (tree->OperIsMultiRegOp())
-    {
-        GenTreeMultiRegOp* multiReg = tree->AsMultiRegOp();
-        GenTreeFlags       flags    = multiReg->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        multiReg->SetRegSpillFlagByIdx(flags, regIdx);
-    }
-#endif // TARGET_ARM
-    else if (tree->IsMultiRegLclVar())
-    {
-        GenTreeLclVar* lcl   = tree->AsLclVar();
-        GenTreeFlags   flags = lcl->GetRegSpillFlagByIdx(regIdx);
-        flags &= ~GTF_SPILLED;
-        lcl->SetRegSpillFlagByIdx(flags, regIdx);
+        tree->SetRegSpillFlagByIdx(flags, regIdx);
     }
     else
     {
@@ -593,8 +546,12 @@ TempDsc* RegSet::rsUnspillInPlace(GenTree* tree, regNumber oldReg, unsigned regI
 #ifdef DEBUG
     if (m_rsCompiler->verbose)
     {
-        printf("\t\t\t\t\t\t\tTree-Node marked unspilled from  ");
+        printf("\t\t\t\t\t\t\tTree-Node marked unspilled from ");
         Compiler::printTreeID(tree);
+        if (tree->IsMultiRegNode())
+        {
+            printf("[%u]", regIdx);
+        }
         printf("\n");
     }
 #endif
@@ -955,7 +912,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 regNumber genRegArgNext(regNumber argReg)
 {
-    assert(isValidIntArgReg(argReg) || isValidFloatArgReg(argReg));
+    assert(isValidIntArgReg(argReg, CorInfoCallConvExtension::Managed) || isValidFloatArgReg(argReg));
 
     switch (argReg)
     {
@@ -989,21 +946,18 @@ regNumber genRegArgNext(regNumber argReg)
 
 /*****************************************************************************
  *
- *  The following table determines the order in which callee-saved registers
- *  are encoded in GC information at call sites (perhaps among other things).
- *  In any case, they establish a mapping from ordinal callee-save reg "indices" to
- *  register numbers and corresponding bitmaps.
+ *  The following table determines the order in which callee registers
+ *  are encoded in GC information at call sites.
  */
 
-const regNumber raRegCalleeSaveOrder[] = {REG_CALLEE_SAVED_ORDER};
-const regMaskTP raRbmCalleeSaveOrder[] = {RBM_CALLEE_SAVED_ORDER};
+const regMaskTP raRbmCalleeSaveOrder[] = {RBM_CALL_GC_REGS_ORDER};
 
-regMaskSmall genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
+regMaskTP genRegMaskFromCalleeSavedMask(unsigned short calleeSaveMask)
 {
-    regMaskSmall res = 0;
-    for (int i = 0; i < CNT_CALLEE_SAVED; i++)
+    regMaskTP res = 0;
+    for (int i = 0; i < CNT_CALL_GC_REGS; i++)
     {
-        if ((calleeSaveMask & ((regMaskTP)1 << i)) != 0)
+        if ((calleeSaveMask & (1 << i)) != 0)
         {
             res |= raRbmCalleeSaveOrder[i];
         }

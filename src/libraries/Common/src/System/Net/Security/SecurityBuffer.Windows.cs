@@ -7,27 +7,6 @@ using System.Security.Authentication.ExtendedProtection;
 
 namespace System.Net.Security
 {
-    // Until we have stackalloc Span<ReferenceType> support, these two
-    // structs allow us to do the equivalent of stackalloc SecurityBuffer[2]
-    // and stackalloc SecurityBuffer[3], with code like:
-    //     TwoSecurityBuffers tmp = default;
-    //     Span<SecurityBuffer> buffers = MemoryMarshal.CreateSpan<ref tmp._item0, 2);
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal ref struct TwoSecurityBuffers
-    {
-        internal SecurityBuffer _item0;
-        private SecurityBuffer _item1;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal ref struct ThreeSecurityBuffers
-    {
-        internal SecurityBuffer _item0;
-        private SecurityBuffer _item1;
-        private SecurityBuffer _item2;
-    }
-
     [StructLayout(LayoutKind.Sequential)]
     internal ref struct InputSecurityBuffers
     {
@@ -57,11 +36,11 @@ namespace System.Net.Security
     }
 
     [StructLayout(LayoutKind.Auto)]
-    internal readonly ref struct InputSecurityBuffer
+    internal ref struct InputSecurityBuffer
     {
-        public readonly SecurityBufferType Type;
-        public readonly ReadOnlySpan<byte> Token;
-        public readonly SafeHandle? UnmanagedToken;
+        public SecurityBufferType Type;
+        public ReadOnlySpan<byte> Token;
+        public SafeHandle? UnmanagedToken;
 
         public InputSecurityBuffer(ReadOnlySpan<byte> data, SecurityBufferType tokentype)
         {

@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.InteropServices;
 using System.Formats.Asn1;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
@@ -31,8 +31,8 @@ internal static partial class Interop
             // wrong endianness here), DER encode it, then use the DER reader to skip past the tag
             // and length.
             byte[] derEncoded = OpenSslEncode(
-                handle => GetAsn1IntegerDerSize(handle),
-                (handle, buf) => EncodeAsn1Integer(handle, buf),
+                GetAsn1IntegerDerSize,
+                EncodeAsn1Integer,
                 asn1Integer);
 
             try

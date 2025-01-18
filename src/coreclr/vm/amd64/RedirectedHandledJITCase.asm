@@ -1,19 +1,11 @@
 ; Licensed to the .NET Foundation under one or more agreements.
 ; The .NET Foundation licenses this file to you under the MIT license.
 
-; ==++==
-;
-
-;
-; ==--==
-
 include AsmMacros.inc
 include asmconstants.inc
 
 Thread__GetAbortContext equ ?GetAbortContext@Thread@@QEAAPEAU_CONTEXT@@XZ
 
-extern FixContextHandler:proc
-extern LinkFrameAndThrow:proc
 extern GetCurrentSavedRedirectContext:proc
 extern Thread__GetAbortContext:proc
 extern HijackHandler:proc
@@ -27,7 +19,7 @@ extern FixRedirectContextHandler:proc
 ; WARNING!!  restoring the context prior to any stackwalk.  This means that
 ; WARNING!!  we need to ensure that no GC can occur while the stack is
 ; WARNING!!  unwalkable.  This further means that we cannot allow any exception
-; WARNING!!  to occure when the stack is unwalkable
+; WARNING!!  to occur when the stack is unwalkable
 ;
 
 
@@ -127,6 +119,9 @@ NESTED_ENTRY STUB, _TEXT, FILTER
         ; info.  After this push, unwinding will work.
         push            rcx
 
+        xor             rax, rax
+        rdsspq          rax
+
         test            rsp, 0fh
         jnz             STUB&_FixRsp
 
@@ -149,6 +144,7 @@ STUB&_RspAligned:
 
         mov             dword ptr [rcx], 0                                                          ; Initialize vtbl (it is not strictly necessary)
         mov             dword ptr [rcx + OFFSETOF__FaultingExceptionFrame__m_fFilterExecuted], 0    ; Initialize BOOL for personality routine
+        mov             r8, rax
 
         call            TARGET
 
@@ -189,6 +185,7 @@ NESTED_ENTRY RedirectForThrowControl2, _TEXT
 
         save_reg_postrsp    rcx, REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 8h     ; FaultingExceptionFrame
         save_reg_postrsp    rdx, REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 10h    ; Original RSP
+        save_reg_postrsp    r8, REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 18h     ; SSP
 
         END_PROLOGUE
 
@@ -201,7 +198,8 @@ NESTED_ENTRY RedirectForThrowControl2, _TEXT
         mov             rdx, [rsp + REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 10h] ; Original RSP
         mov             [rdx - 8], rax
 
-        mov             rcx, [rsp + REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 8h] ; FaultingExceptionFrame
+        mov             rcx, [rsp + REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 8h]  ; FaultingExceptionFrame
+        mov             rdx, [rsp + REDIRECT_FOR_THROW_CONTROL_FRAME_SIZE + 18h] ; SSP
         call            ThrowControlForThread
 
         ; ThrowControlForThread doesn't return.
@@ -210,26 +208,6 @@ NESTED_ENTRY RedirectForThrowControl2, _TEXT
 NESTED_END RedirectForThrowControl2, _TEXT
 
 GenerateRedirectedStubWithFrame RedirectForThrowControl, HijackHandler, RedirectForThrowControl2
-
-
-NAKED_THROW_HELPER_FRAME_SIZE = SIZEOF_MAX_OUTGOING_ARGUMENT_HOMES + 8
-
-NESTED_ENTRY NakedThrowHelper2, _TEXT
-
-        ; On entry
-        ; rcx -> FaultingExceptionFrame
-
-        alloc_stack     NAKED_THROW_HELPER_FRAME_SIZE
-        END_PROLOGUE
-
-        call            LinkFrameAndThrow
-
-        ; LinkFrameAndThrow doesn't return.
-        int             3
-
-NESTED_END NakedThrowHelper2, _TEXT
-
-GenerateRedirectedStubWithFrame NakedThrowHelper, FixContextHandler, NakedThrowHelper2
 
 
 ifdef FEATURE_SPECIAL_USER_MODE_APC
@@ -245,7 +223,8 @@ NESTED_ENTRY ApcActivationCallbackStub, _TEXT, FixRedirectContextHandler
     .errnz REDIRECTSTUB_ESTABLISHER_OFFSET_RBP, REDIRECTSTUB_ESTABLISHER_OFFSET_RBP has changed - update asm stubs
         END_PROLOGUE
 
-        ; Save the pointer to the interrupted context on the stack for the stack walker
+        ; Save a copy of the redirect CONTEXT*.
+        ; This is needed for the debugger to unwind the stack.
         mov             rax, [rcx + OFFSETOF__APC_CALLBACK_DATA__ContextRecord]
         mov             [rbp + 20h], rax
     .errnz REDIRECTSTUB_RBP_OFFSET_CONTEXT - 20h, REDIRECTSTUB_RBP_OFFSET_CONTEXT has changed - update asm stubs

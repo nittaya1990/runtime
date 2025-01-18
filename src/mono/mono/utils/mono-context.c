@@ -534,11 +534,32 @@ mono_sigctx_to_monoctx (void *sigctx, MonoContext *mctx)
 #endif
 #ifdef __linux__
 	struct fpsimd_context *fpctx = (struct fpsimd_context*)&((ucontext_t*)sigctx)->uc_mcontext.__reserved;
-	int i;
 
-	g_assert (fpctx->head.magic == FPSIMD_MAGIC);
-	for (i = 0; i < 32; ++i)
-		mctx->fregs [i] = fpctx->vregs [i];
+	size_t size = 0;
+	do {
+		struct fpsimd_context *fpctx_temp = (struct fpsimd_context*)&(((ucontext_t*)sigctx)->uc_mcontext.__reserved[size]);
+
+		if (fpctx_temp->head.magic == FPSIMD_MAGIC)
+		{
+			g_assert (fpctx_temp->head.size >= sizeof (struct fpsimd_context));
+			g_assert (size + fpctx_temp->head.size <= sizeof (((ucontext_t*)sigctx)->uc_mcontext.__reserved));
+
+			fpctx = fpctx_temp;
+			break;
+		}
+
+		if (fpctx_temp->head.size == 0)
+			break;
+
+		size += fpctx_temp->head.size;
+	} while (size + sizeof (struct fpsimd_context) <= sizeof (((ucontext_t*)sigctx)->uc_mcontext.__reserved));
+
+	if (fpctx->head.magic == FPSIMD_MAGIC)
+		for (int i = 0; i < 32; ++i)
+			mctx->fregs [i] = fpctx->vregs [i];
+	else
+		for (int i = 0; i < 32; ++i)
+			mctx->fregs [i] = 0;
 #endif
 	/* FIXME: apple */
 #endif
@@ -560,35 +581,6 @@ mono_monoctx_to_sigctx (MonoContext *mctx, void *sigctx)
 	UCONTEXT_REG_SET_SP (sigctx, mctx->regs [ARMREG_SP]);
 #endif
 #endif
-}
-
-#elif (defined(__mips__) && !defined(MONO_CROSS_COMPILE)) || (defined(TARGET_MIPS))
-
-#include <mono/utils/mono-context.h>
-#include <mono/arch/mips/mips-codegen.h>
-
-void
-mono_sigctx_to_monoctx (void *sigctx, MonoContext *mctx)
-{
-	int i;
-
-	mctx->sc_pc = UCONTEXT_REG_PC (sigctx);
-	for (i = 0; i < 32; ++i) {
-		mctx->sc_regs[i] = UCONTEXT_GREGS (sigctx) [i];
-		mctx->sc_fpregs[i] = UCONTEXT_FPREGS (sigctx) [i];
-	}
-}
-
-void
-mono_monoctx_to_sigctx (MonoContext *mctx, void *sigctx)
-{
-	int i;
-
-	UCONTEXT_REG_PC (sigctx) = mctx->sc_pc;
-	for (i = 0; i < 32; ++i) {
-		UCONTEXT_GREGS (sigctx) [i] = mctx->sc_regs[i];
-		UCONTEXT_FPREGS (sigctx) [i] = mctx->sc_fpregs[i];
-	}
 }
 
 #elif (((defined(__ppc__) || defined(__powerpc__) || defined(__ppc64__)) && !defined(MONO_CROSS_COMPILE))) || (defined(TARGET_POWERPC))

@@ -14,7 +14,7 @@ public:
     TOCElementNode* Next;
     TOCElement      tocElement;
 
-    TOCElementNode(int number, __int64 offset) : Next(nullptr), tocElement(number, offset)
+    TOCElementNode(int number, int64_t offset) : Next(nullptr), tocElement(number, offset)
     {
     }
 };
@@ -37,7 +37,7 @@ int verbTOC::DoWork(const char* nameOfInput)
         MethodContext* mc = mci.Current();
 
         TOCElementNode* nxt = new TOCElementNode(mci.MethodContextNumber(), mci.CurrentPos());
-        mc->dumpMethodMD5HashToBuffer(nxt->tocElement.Hash, MD5_HASH_BUFFER_SIZE);
+        mc->dumpMethodHashToBuffer(nxt->tocElement.Hash, MM3_HASH_BUFFER_SIZE);
 
         if (curElem != nullptr)
         {

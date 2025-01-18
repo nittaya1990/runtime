@@ -3,32 +3,37 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.Extensions.Configuration
 {
     /// <summary>
-    /// The root node for a configuration.
+    /// Represents the root node for a configuration.
     /// </summary>
+    [DebuggerDisplay("{DebuggerToString(),nq}")]
+    [DebuggerTypeProxy(typeof(ConfigurationRootDebugView))]
     public class ConfigurationRoot : IConfigurationRoot, IDisposable
     {
         private readonly IList<IConfigurationProvider> _providers;
-        private readonly IList<IDisposable> _changeTokenRegistrations;
+        private readonly List<IDisposable> _changeTokenRegistrations;
         private ConfigurationReloadToken _changeToken = new ConfigurationReloadToken();
 
         /// <summary>
         /// Initializes a Configuration root with a list of providers.
         /// </summary>
         /// <param name="providers">The <see cref="IConfigurationProvider"/>s for this configuration.</param>
-        public ConfigurationRoot(IList<IConfigurationProvider> providers!!)
+        public ConfigurationRoot(IList<IConfigurationProvider> providers)
         {
+            ThrowHelper.ThrowIfNull(providers);
+
             _providers = providers;
             _changeTokenRegistrations = new List<IDisposable>(providers.Count);
             foreach (IConfigurationProvider p in providers)
             {
                 p.Load();
-                _changeTokenRegistrations.Add(ChangeToken.OnChange(() => p.GetReloadToken(), () => RaiseChanged()));
+                _changeTokenRegistrations.Add(ChangeToken.OnChange(p.GetReloadToken, RaiseChanged));
             }
         }
 
@@ -49,7 +54,7 @@ namespace Microsoft.Extensions.Configuration
         }
 
         /// <summary>
-        /// Gets the immediate children sub-sections.
+        /// Gets the immediate children subsections.
         /// </summary>
         /// <returns>The children.</returns>
         public IEnumerable<IConfigurationSection> GetChildren() => this.GetChildrenImplementation(null);
@@ -61,19 +66,19 @@ namespace Microsoft.Extensions.Configuration
         public IChangeToken GetReloadToken() => _changeToken;
 
         /// <summary>
-        /// Gets a configuration sub-section with the specified key.
+        /// Gets a configuration subsection with the specified key.
         /// </summary>
         /// <param name="key">The key of the configuration section.</param>
         /// <returns>The <see cref="IConfigurationSection"/>.</returns>
         /// <remarks>
-        ///     This method will never return <c>null</c>. If no matching sub-section is found with the specified key,
-        ///     an empty <see cref="IConfigurationSection"/> will be returned.
+        ///     This method will never return <c>null</c>. If no matching subsection is found with the specified key,
+        ///     an empty <see cref="IConfigurationSection"/> is returned.
         /// </remarks>
         public IConfigurationSection GetSection(string key)
             => new ConfigurationSection(this, key);
 
         /// <summary>
-        /// Force the configuration values to be reloaded from the underlying sources.
+        /// Forces the configuration values to be reloaded from the underlying sources.
         /// </summary>
         public void Reload()
         {
@@ -132,6 +137,24 @@ namespace Microsoft.Extensions.Configuration
             {
                 provider.Set(key, value);
             }
+        }
+
+        private string DebuggerToString()
+        {
+            return $"Sections = {ConfigurationSectionDebugView.FromConfiguration(this, this).Count}";
+        }
+
+        private sealed class ConfigurationRootDebugView
+        {
+            private readonly ConfigurationRoot _current;
+
+            public ConfigurationRootDebugView(ConfigurationRoot current)
+            {
+                _current = current;
+            }
+
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+            public ConfigurationSectionDebugView[] Items => ConfigurationSectionDebugView.FromConfiguration(_current, _current).ToArray();
         }
     }
 }

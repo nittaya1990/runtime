@@ -23,6 +23,20 @@ HRESULT Transitions::Initialize(IUnknown* pICorProfilerInfoUnk)
         return hr;
     }
 
+    constexpr ULONG bufferSize = 1024;
+    ULONG envVarLen = 0;
+    WCHAR envVar[bufferSize];
+    if (FAILED(hr = pCorProfilerInfo->GetEnvironmentVariable(WCHAR("PInvoke_Transition_Expected_Name"), bufferSize, &envVarLen, envVar)))
+    {
+        return E_FAIL;
+    }
+    expectedPinvokeName = envVar;
+    if (FAILED(hr = pCorProfilerInfo->GetEnvironmentVariable(WCHAR("ReversePInvoke_Transition_Expected_Name"), bufferSize, &envVarLen, envVar)))
+    {
+        return E_FAIL;
+    }
+    expectedReversePInvokeName = envVar;
+
     return S_OK;
 }
 
@@ -55,6 +69,15 @@ extern "C" EXPORT void STDMETHODCALLTYPE DoPInvoke(int(*callback)(int), int i)
     printf("PInvoke received i=%d\n", callback(i));
 }
 
+extern "C" EXPORT void STDMETHODCALLTYPE DoPInvokeWithCallbackOnOtherThread(int(*callback)(int), int i)
+{
+    int j = 0;
+    std::thread t([&j, callback, i] { j = callback(i); });
+    t.join();
+    printf("PInvoke with callback on other thread received i=%d\n", j);
+}
+
+
 HRESULT Transitions::UnmanagedToManagedTransition(FunctionID functionID, COR_PRF_TRANSITION_REASON reason)
 {
     SHUTDOWNGUARD();
@@ -62,6 +85,11 @@ HRESULT Transitions::UnmanagedToManagedTransition(FunctionID functionID, COR_PRF
     TransitionInstance* inst;
     if (FunctionIsTargetFunction(functionID, &inst))
     {
+        if (inst->UnmanagedToManaged != NO_TRANSITION)
+        {
+            // Report a failure for duplicate transitions.
+            _failures++;
+        }
         inst->UnmanagedToManaged = reason;
     }
 
@@ -75,6 +103,11 @@ HRESULT Transitions::ManagedToUnmanagedTransition(FunctionID functionID, COR_PRF
     TransitionInstance* inst;
     if (FunctionIsTargetFunction(functionID, &inst))
     {
+        if (inst->ManagedToUnmanaged != NO_TRANSITION)
+        {
+            // Report a failure for duplicate transitions.
+            _failures++;
+        }
         inst->ManagedToUnmanaged = reason;
     }
 
@@ -85,11 +118,11 @@ bool Transitions::FunctionIsTargetFunction(FunctionID functionID, TransitionInst
 {
     String name = GetFunctionIDName(functionID);
 
-    if (name == WCHAR("DoPInvoke"))
+    if (name == expectedPinvokeName)
     {
         *inst = &_pinvoke;
     }
-    else if (name == WCHAR("DoReversePInvoke"))
+    else if (name == expectedReversePInvokeName)
     {
         *inst = &_reversePinvoke;
     }

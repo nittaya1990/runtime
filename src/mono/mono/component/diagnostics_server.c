@@ -18,7 +18,6 @@ static MonoComponentDiagnosticsServer fn_table = {
 	&ds_server_pause_for_diagnostics_monitor,
 	&ds_server_disable
 };
-
 static bool
 diagnostics_server_available (void)
 {

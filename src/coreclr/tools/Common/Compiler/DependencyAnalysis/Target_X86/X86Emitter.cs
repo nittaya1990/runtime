@@ -17,6 +17,37 @@ namespace ILCompiler.DependencyAnalysis.X86
         public ObjectDataBuilder Builder;
         public TargetRegisterMap TargetRegister;
 
+        public void EmitMOV(ref AddrMode addrMode, Register reg)
+        {
+            Debug.Assert(addrMode.Size != AddrModeSize.Int8 && addrMode.Size != AddrModeSize.Int16);
+            EmitIndirInstruction(0x89, (byte)reg, ref addrMode);
+        }
+
+        public void EmitMOV(Register reg, ref AddrMode addrMode)
+        {
+            Debug.Assert(addrMode.Size != AddrModeSize.Int8 && addrMode.Size != AddrModeSize.Int16);
+            EmitIndirInstruction(0x8B, (byte)reg, ref addrMode);
+        }
+
+        public void EmitMOV(ref AddrMode addrMode, ISymbolNode symbol)
+        {
+            if (symbol.RepresentsIndirectionCell)
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                EmitIndirInstruction(0xC7, (byte)0, ref addrMode);
+                Builder.EmitReloc(symbol, RelocType.IMAGE_REL_BASED_HIGHLOW);
+            }
+        }
+
+        public void EmitLEA(Register reg, ref AddrMode addrMode)
+        {
+            Debug.Assert(addrMode.Size != AddrModeSize.Int8 && addrMode.Size != AddrModeSize.Int16);
+            EmitIndirInstruction(0x8D, (byte)reg, ref addrMode);
+        }
+
         public void EmitCMP(ref AddrMode addrMode, sbyte immediate)
         {
             if (addrMode.Size == AddrModeSize.Int16)
@@ -48,16 +79,53 @@ namespace ILCompiler.DependencyAnalysis.X86
             }
         }
 
+        public void EmitJE(ISymbolNode symbol)
+        {
+            if (symbol.RepresentsIndirectionCell)
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                Builder.EmitByte(0x0f);
+                Builder.EmitByte(0x84);
+                Builder.EmitReloc(symbol, RelocType.IMAGE_REL_BASED_REL32);
+            }
+        }
+
         public void EmitXOR(Register register1, Register register2)
         {
             Builder.EmitByte(0x33);
             Builder.EmitByte((byte)(0xC0 | ((byte)register1 << 3) | (byte)register2));
         }
 
+        public void EmitZeroReg(Register reg)
+        {
+            EmitXOR(reg, reg);
+        }
+
+        public void EmitPOP(Register reg)
+        {
+            Builder.EmitByte((byte)(0x58 + (byte)reg));
+        }
+
+        public void EmitStackDup()
+        {
+            // PUSH [ESP]
+            Builder.EmitByte(0xff);
+            Builder.EmitByte(0x34);
+            Builder.EmitByte(0x24);
+        }
+
         public void EmitPUSH(sbyte imm8)
         {
             Builder.EmitByte(0x6A);
             Builder.EmitByte(unchecked((byte)imm8));
+        }
+
+        public void EmitPUSH(Register reg)
+        {
+            Builder.EmitByte((byte)(0x50 + (byte)reg));
         }
 
         public void EmitPUSH(ISymbolNode node)
@@ -103,6 +171,11 @@ namespace ILCompiler.DependencyAnalysis.X86
             Builder.EmitByte(0xCC);
         }
 
+        public void EmitJmpToAddrMode(ref AddrMode addrMode)
+        {
+            EmitIndirInstruction(0xFF, 0x4, ref addrMode);
+        }
+
         public void EmitRET()
         {
             Builder.EmitByte(0xC3);
@@ -118,7 +191,7 @@ namespace ILCompiler.DependencyAnalysis.X86
             Builder.EmitByte(0xC3);
         }
 
-        private bool InSignedByteRange(int i)
+        private static bool InSignedByteRange(int i)
         {
             return i == (int)(sbyte)i;
         }
@@ -157,8 +230,7 @@ namespace ILCompiler.DependencyAnalysis.X86
             {
                 byte lowOrderBitsOfBaseReg = (byte)((int)addrMode.BaseReg & 0x07);
                 modRM |= lowOrderBitsOfBaseReg;
-                int offsetSize = 0;
-
+                int offsetSize;
                 if (addrMode.Offset == 0 && (lowOrderBitsOfBaseReg != (byte)Register.EBP))
                 {
                     offsetSize = 0;
@@ -208,7 +280,7 @@ namespace ILCompiler.DependencyAnalysis.X86
                 {
                     modRM = (byte)((modRM & 0xF8) | (int)Register.ESP);
                     Builder.EmitByte(modRM);
-                    int indexRegAsInt = (int)(addrMode.IndexReg.HasValue ? addrMode.IndexReg.Value : Register.ESP);
+                    int indexRegAsInt = (int)(addrMode.IndexReg ?? Register.ESP);
                     Builder.EmitByte((byte)((addrMode.Scale << 6) + ((indexRegAsInt & 0x07) << 3) + ((int)sibByteBaseRegister & 0x07)));
                 }
                 EmitImmediate(addrMode.Offset, offsetSize);
@@ -226,7 +298,7 @@ namespace ILCompiler.DependencyAnalysis.X86
                 Builder.EmitByte((byte)(opcode >> 16));
             }
             Builder.EmitByte((byte)(opcode >> 8));
-        }      
+        }
 
         private void EmitIndirInstruction(int opcode, byte subOpcode, ref AddrMode addrMode)
         {

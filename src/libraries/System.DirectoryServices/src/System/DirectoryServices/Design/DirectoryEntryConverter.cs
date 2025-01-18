@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.ComponentModel;
 using System.Collections;
+using System.ComponentModel;
 using System.Globalization;
 
 namespace System.DirectoryServices.Design
@@ -38,8 +38,7 @@ namespace System.DirectoryServices.Design
                     {
                         newEntry = new DirectoryEntry(text);
                         s_componentsCreated[text] = newEntry;
-                        if (context != null)
-                            context.Container.Add(newEntry);
+                        context?.Container?.Add(newEntry);
 
                         return newEntry;
                     }
@@ -62,14 +61,8 @@ namespace System.DirectoryServices.Design
             return base.ConvertTo(context, culture, value, destinationType!);
         }
 
-        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context)
-        {
-            if (s_values == null)
-            {
-                s_values = new StandardValuesCollection(new object?[] { null });
-            }
-            return s_values;
-        }
+        public override StandardValuesCollection GetStandardValues(ITypeDescriptorContext? context) =>
+            s_values ??= new StandardValuesCollection(new object?[] { null });
 
         internal static DirectoryEntry? GetFromCache(string path)
         {

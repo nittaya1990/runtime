@@ -1,192 +1,93 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Buffers;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Runtime.CompilerServices;
+using System.IO.Pipelines;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.Text.Json
 {
-    internal sealed class PooledByteBufferWriter : IBufferWriter<byte>, IDisposable
+    internal sealed class PooledByteBufferWriter : PipeWriter, IDisposable
     {
-        private byte[] _rentedBuffer;
-        private int _index;
-
         private const int MinimumBufferSize = 256;
+
+        private ArrayBuffer _buffer;
+        private readonly Stream? _stream;
 
         public PooledByteBufferWriter(int initialCapacity)
         {
+            _buffer = new ArrayBuffer(initialCapacity, usePool: true);
+        }
+
+        public PooledByteBufferWriter(int initialCapacity, Stream stream) : this(initialCapacity)
+        {
+            _stream = stream;
+        }
+
+        public ReadOnlySpan<byte> WrittenSpan => _buffer.ActiveSpan;
+
+        public ReadOnlyMemory<byte> WrittenMemory => _buffer.ActiveMemory;
+
+        public int Capacity => _buffer.Capacity;
+
+        public void Clear() => _buffer.Discard(_buffer.ActiveLength);
+
+        public void ClearAndReturnBuffers() => _buffer.ClearAndReturnBuffer();
+
+        public void Dispose() => _buffer.Dispose();
+
+        public void InitializeEmptyInstance(int initialCapacity)
+        {
             Debug.Assert(initialCapacity > 0);
+            Debug.Assert(_buffer.ActiveLength == 0);
 
-            _rentedBuffer = ArrayPool<byte>.Shared.Rent(initialCapacity);
-            _index = 0;
+            _buffer.EnsureAvailableSpace(initialCapacity);
         }
 
-        public ReadOnlyMemory<byte> WrittenMemory
+        public static PooledByteBufferWriter CreateEmptyInstanceForCaching() => new PooledByteBufferWriter(initialCapacity: 0);
+
+        public override void Advance(int count) => _buffer.Commit(count);
+
+        public override Memory<byte> GetMemory(int sizeHint = MinimumBufferSize)
         {
-            get
-            {
-                Debug.Assert(_rentedBuffer != null);
-                Debug.Assert(_index <= _rentedBuffer.Length);
-                return _rentedBuffer.AsMemory(0, _index);
-            }
+            Debug.Assert(sizeHint > 0);
+
+            _buffer.EnsureAvailableSpace(sizeHint);
+            return _buffer.AvailableMemory;
         }
 
-        public int WrittenCount
+        public override Span<byte> GetSpan(int sizeHint = MinimumBufferSize)
         {
-            get
-            {
-                Debug.Assert(_rentedBuffer != null);
-                return _index;
-            }
+            Debug.Assert(sizeHint > 0);
+
+            _buffer.EnsureAvailableSpace(sizeHint);
+            return _buffer.AvailableSpan;
         }
 
-        public int Capacity
-        {
-            get
-            {
-                Debug.Assert(_rentedBuffer != null);
-                return _rentedBuffer.Length;
-            }
-        }
-
-        public int FreeCapacity
-        {
-            get
-            {
-                Debug.Assert(_rentedBuffer != null);
-                return _rentedBuffer.Length - _index;
-            }
-        }
-
-        public void Clear()
-        {
-            ClearHelper();
-        }
-
-        private void ClearHelper()
-        {
-            Debug.Assert(_rentedBuffer != null);
-            Debug.Assert(_index <= _rentedBuffer.Length);
-
-            _rentedBuffer.AsSpan(0, _index).Clear();
-            _index = 0;
-        }
-
-        // Returns the rented buffer back to the pool
-        public void Dispose()
-        {
-            if (_rentedBuffer == null)
-            {
-                return;
-            }
-
-            ClearHelper();
-            byte[] toReturn = _rentedBuffer;
-            _rentedBuffer = null!;
-            ArrayPool<byte>.Shared.Return(toReturn);
-        }
-
-        public void Advance(int count)
-        {
-            Debug.Assert(_rentedBuffer != null);
-            Debug.Assert(count >= 0);
-            Debug.Assert(_index <= _rentedBuffer.Length - count);
-
-            _index += count;
-        }
-
-        public Memory<byte> GetMemory(int sizeHint = 0)
-        {
-            CheckAndResizeBuffer(sizeHint);
-            return _rentedBuffer.AsMemory(_index);
-        }
-
-        public Span<byte> GetSpan(int sizeHint = 0)
-        {
-            CheckAndResizeBuffer(sizeHint);
-            return _rentedBuffer.AsSpan(_index);
-        }
-
-#if BUILDING_INBOX_LIBRARY
-        internal ValueTask WriteToStreamAsync(Stream destination, CancellationToken cancellationToken)
-        {
-            return destination.WriteAsync(WrittenMemory, cancellationToken);
-        }
-
-        internal void WriteToStream(Stream destination)
-        {
-            destination.Write(WrittenMemory.Span);
-        }
+#if NET
+        internal void WriteToStream(Stream destination) => destination.Write(_buffer.ActiveSpan);
 #else
-        internal Task WriteToStreamAsync(Stream destination, CancellationToken cancellationToken)
-        {
-            return destination.WriteAsync(_rentedBuffer, 0, _index, cancellationToken);
-        }
-
-        internal void WriteToStream(Stream destination)
-        {
-            destination.Write(_rentedBuffer, 0, _index);
-        }
+        internal void WriteToStream(Stream destination) => destination.Write(_buffer.ActiveMemory);
 #endif
 
-        private void CheckAndResizeBuffer(int sizeHint)
+        public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
         {
-            Debug.Assert(_rentedBuffer != null);
-            Debug.Assert(sizeHint >= 0);
+            Debug.Assert(_stream is not null);
+            await _stream.WriteAsync(WrittenMemory, cancellationToken).ConfigureAwait(false);
+            Clear();
 
-            if (sizeHint == 0)
-            {
-                sizeHint = MinimumBufferSize;
-            }
-
-            int availableSpace = _rentedBuffer.Length - _index;
-
-            if (sizeHint > availableSpace)
-            {
-                int currentLength = _rentedBuffer.Length;
-                int growBy = Math.Max(sizeHint, currentLength);
-
-                int newSize = currentLength + growBy;
-
-                if ((uint)newSize > int.MaxValue)
-                {
-                    newSize = currentLength + sizeHint;
-                    if ((uint)newSize > int.MaxValue)
-                    {
-                        ThrowHelper.ThrowOutOfMemoryException_BufferMaximumSizeExceeded((uint)newSize);
-                    }
-                }
-
-                byte[] oldBuffer = _rentedBuffer;
-
-                _rentedBuffer = ArrayPool<byte>.Shared.Rent(newSize);
-
-                Debug.Assert(oldBuffer.Length >= _index);
-                Debug.Assert(_rentedBuffer.Length >= _index);
-
-                Span<byte> previousBuffer = oldBuffer.AsSpan(0, _index);
-                previousBuffer.CopyTo(_rentedBuffer);
-                previousBuffer.Clear();
-                ArrayPool<byte>.Shared.Return(oldBuffer);
-            }
-
-            Debug.Assert(_rentedBuffer.Length - _index > 0);
-            Debug.Assert(_rentedBuffer.Length - _index >= sizeHint);
+            return new FlushResult(isCanceled: false, isCompleted: false);
         }
-    }
 
-    internal static partial class ThrowHelper
-    {
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowOutOfMemoryException_BufferMaximumSizeExceeded(uint capacity)
-        {
-            throw new OutOfMemoryException(SR.Format(SR.BufferMaximumSizeExceeded, capacity));
-        }
+        public override bool CanGetUnflushedBytes => true;
+        public override long UnflushedBytes => _buffer.ActiveLength;
+
+        // This type is used internally in JsonSerializer to help buffer and flush bytes to the underlying Stream.
+        // It's only pretending to be a PipeWriter and doesn't need Complete or CancelPendingFlush for the internal usage.
+        public override void CancelPendingFlush() => throw new NotImplementedException();
+        public override void Complete(Exception? exception = null) => throw new NotImplementedException();
     }
 }

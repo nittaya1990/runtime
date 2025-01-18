@@ -39,6 +39,17 @@ namespace System.Security.Cryptography
             ActualKey = ChangeKeyImpl(key);
         }
 
+        private HMACCommon(string hashAlgorithmId, HashProvider hmacProvider, int blockSize, byte[]? actualKey)
+        {
+            Debug.Assert(!string.IsNullOrEmpty(hashAlgorithmId));
+            Debug.Assert(blockSize is > 0 or -1);
+
+            _hashAlgorithmId = hashAlgorithmId;
+            _hMacProvider = hmacProvider;
+            _blockSize = blockSize;
+            ActualKey = Helpers.CloneByteArray(actualKey);
+        }
+
         public int HashSizeInBits => _hMacProvider.HashSizeInBytes * 8;
         public int HashSizeInBytes => _hMacProvider.HashSizeInBytes;
 
@@ -57,12 +68,38 @@ namespace System.Security.Cryptography
             if (key.Length > _blockSize && _blockSize > 0)
             {
                 // Perform RFC 2104, section 2 key adjustment.
-                if (_lazyHashProvider == null)
+                switch (_hashAlgorithmId)
                 {
-                    _lazyHashProvider = HashProviderDispenser.CreateHashProvider(_hashAlgorithmId);
-                }
-                _lazyHashProvider.AppendHashData(key);
-                modifiedKey = _lazyHashProvider.FinalizeHashAndReset();
+                    case HashAlgorithmNames.SHA256:
+                        modifiedKey = SHA256.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA384:
+                        modifiedKey = SHA384.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA512:
+                        modifiedKey = SHA512.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA3_256:
+                        Debug.Assert(SHA3_256.IsSupported);
+                        modifiedKey = SHA3_256.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA3_384:
+                        Debug.Assert(SHA3_384.IsSupported);
+                        modifiedKey = SHA3_384.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA3_512:
+                        Debug.Assert(SHA3_512.IsSupported);
+                        modifiedKey = SHA3_512.HashData(key);
+                        break;
+                    case HashAlgorithmNames.SHA1:
+                        modifiedKey = SHA1.HashData(key);
+                        break;
+                    case HashAlgorithmNames.MD5 when Helpers.HasMD5:
+                        modifiedKey = MD5.HashData(key);
+                        break;
+                    default:
+                        throw new CryptographicException(SR.Format(SR.Cryptography_UnknownHashAlgorithm, _hashAlgorithmId));
+                };
             }
 
             HashProvider? oldHashProvider = _hMacProvider;
@@ -99,20 +136,22 @@ namespace System.Security.Cryptography
 
         public void Reset() => _hMacProvider.Reset();
 
+        public HMACCommon Clone()
+        {
+            return new HMACCommon(_hashAlgorithmId, _hMacProvider.Clone(), _blockSize, ActualKey);
+        }
+
         public void Dispose(bool disposing)
         {
             if (disposing)
             {
                 _hMacProvider?.Dispose(true);
                 _hMacProvider = null!;
-                _lazyHashProvider?.Dispose(true);
-                _lazyHashProvider = null;
             }
         }
 
         private readonly string _hashAlgorithmId;
         private HashProvider _hMacProvider;
-        private volatile HashProvider? _lazyHashProvider;
         private readonly int _blockSize;
     }
 }

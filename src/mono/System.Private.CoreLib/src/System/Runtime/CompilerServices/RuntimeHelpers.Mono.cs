@@ -1,7 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 
 namespace System.Runtime.CompilerServices
@@ -10,37 +13,53 @@ namespace System.Runtime.CompilerServices
     {
         public static void InitializeArray(Array array, RuntimeFieldHandle fldHandle)
         {
-            if (array == null)
-                throw new ArgumentNullException(nameof(array));
-            if (fldHandle.Value == IntPtr.Zero)
-                throw new ArgumentNullException(nameof(fldHandle));
+            ArgumentNullException.ThrowIfNull(array);
+            ArgumentNullException.ThrowIfNull(fldHandle.Value, nameof(fldHandle));
 
             InitializeArray(array, fldHandle.Value);
         }
 
-        private static unsafe void* GetSpanDataFrom(
+        private static unsafe ref byte GetSpanDataFrom(
             RuntimeFieldHandle fldHandle,
             RuntimeTypeHandle targetTypeHandle,
             out int count)
         {
             fixed (int *pCount = &count)
             {
-                return (void*)GetSpanDataFrom(fldHandle.Value, targetTypeHandle.Value, new IntPtr(pCount));
+                return ref GetSpanDataFrom(fldHandle.Value, targetTypeHandle.Value, new IntPtr(pCount));
             }
         }
 
-        public static int OffsetToStringData
-        {
-            [Intrinsic]
-            get => OffsetToStringData;
-        }
+        [Obsolete("OffsetToStringData has been deprecated. Use string.GetPinnableReference() instead.")]
+        public static int OffsetToStringData => string.OFFSET_TO_STRING;
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern int InternalGetHashCode(object? o);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int GetHashCode(object? o)
         {
+            // NOTE: the interpreter does not run this code.  It intrinsifies the whole RuntimeHelpers.GetHashCode function
+            if (Threading.ObjectHeader.TryGetHashCode(o, out int hash))
+                return hash;
             return InternalGetHashCode(o);
+        }
+
+        /// <summary>
+        /// If a hash code has been assigned to the object, it is returned. Otherwise zero is
+        /// returned.
+        /// </summary>
+        /// <remarks>
+        /// The advantage of this over <see cref="GetHashCode" /> is that it avoids assigning a hash
+        /// code to the object if it does not already have one.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int TryGetHashCode(object? o)
+        {
+            // NOTE: the interpreter does not run this code.  It intrinsifies the whole RuntimeHelpers.TryGetHashCode function
+            if (Threading.ObjectHeader.TryGetHashCode(o, out int hash))
+                return hash;
+            return 0;
         }
 
         public static new bool Equals(object? o1, object? o2)
@@ -58,13 +77,14 @@ namespace System.Runtime.CompilerServices
         }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        [return: NotNullIfNotNull(nameof(obj))]
         public static extern object? GetObjectValue(object? obj);
 
         [RequiresUnreferencedCode("Trimmer can't guarantee existence of class constructor")]
         public static void RunClassConstructor(RuntimeTypeHandle type)
         {
             if (type.Value == IntPtr.Zero)
-                throw new ArgumentException("Handle is not initialized.", nameof(type));
+                throw new ArgumentException(SR.InvalidOperation_HandleIsNotInitialized, nameof(type));
 
             RunClassConstructor(type.Value);
         }
@@ -114,21 +134,24 @@ namespace System.Runtime.CompilerServices
         public static void RunModuleConstructor(ModuleHandle module)
         {
             if (module == ModuleHandle.EmptyHandle)
-                throw new ArgumentException("Handle is not initialized.", nameof(module));
+                throw new ArgumentException(SR.InvalidOperation_HandleIsNotInitialized, nameof(module));
 
             RunModuleConstructor(module.Value);
         }
 
-        public static IntPtr AllocateTypeAssociatedMemory(Type type, int size)
+        public static unsafe IntPtr AllocateTypeAssociatedMemory(Type type, int size)
         {
-            throw new PlatformNotSupportedException();
+            if (type is not RuntimeType)
+                throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
+
+            ArgumentOutOfRangeException.ThrowIfNegative(size);
+
+            // We don't support unloading; the memory will never be freed.
+            return (IntPtr)NativeMemory.AllocZeroed((uint)size);
         }
 
         [Intrinsic]
         internal static ref byte GetRawData(this object obj) => ref obj.GetRawData();
-
-        [Intrinsic]
-        public static bool IsReferenceOrContainsReferences<T>() => IsReferenceOrContainsReferences<T>();
 
         [Intrinsic]
         internal static bool IsBitwiseEquatable<T>() => IsBitwiseEquatable<T>();
@@ -154,10 +177,7 @@ namespace System.Runtime.CompilerServices
         {
             if (type is not RuntimeType rt)
             {
-                if (type is null)
-                {
-                    throw new ArgumentNullException(nameof(type), SR.ArgumentNull_Type);
-                }
+                ArgumentNullException.ThrowIfNull(type);
 
                 throw new SerializationException(SR.Format(SR.Serialization_InvalidType, type));
             }
@@ -176,7 +196,7 @@ namespace System.Runtime.CompilerServices
         private static extern void InitializeArray(Array array, IntPtr fldHandle);
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        private static extern unsafe IntPtr GetSpanDataFrom(
+        private static extern unsafe ref byte GetSpanDataFrom(
             IntPtr fldHandle,
             IntPtr targetTypeHandle,
             IntPtr count);
@@ -189,5 +209,75 @@ namespace System.Runtime.CompilerServices
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool SufficientExecutionStack();
+
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        private static extern object InternalBox(QCallTypeHandle type, ref byte target);
+
+        /// <summary>
+        /// Create a boxed object of the specified type from the data located at the target reference.
+        /// </summary>
+        /// <param name="target">The target data</param>
+        /// <param name="type">The type of box to create.</param>
+        /// <returns>A boxed object containing the specified data.</returns>
+        /// <exception cref="ArgumentNullException">The specified type handle is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">The specified type cannot have a boxed instance of itself created.</exception>
+        /// <exception cref="NotSupportedException">The passed in type is a by-ref-like type.</exception>
+        /// <remarks>This returns an object that is equivalent to executing the IL box instruction with the provided target address and type.</remarks>
+        public static object? Box(ref byte target, RuntimeTypeHandle type)
+        {
+            if (type.Value is 0)
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.type);
+
+            // Compatibility with CoreCLR, throw on a null reference to the unboxed data.
+            if (Unsafe.IsNullRef(ref target))
+                throw new NullReferenceException();
+
+            RuntimeType rtType = (RuntimeType)Type.GetTypeFromHandle(type)!;
+
+            if (rtType.ContainsGenericParameters
+                || rtType.IsPointer
+                || rtType.IsFunctionPointer
+                || rtType.IsByRef
+                || rtType.IsGenericParameter
+                || rtType == typeof(void))
+            {
+                throw new ArgumentException(SR.Arg_TypeNotSupported);
+            }
+
+            if (!rtType.IsValueType)
+            {
+                return Unsafe.As<byte, object?>(ref target);
+            }
+
+            if (rtType.IsByRefLike)
+                throw new NotSupportedException(SR.NotSupported_ByRefLike);
+
+            object? result = InternalBox(new QCallTypeHandle(ref rtType), ref target);
+            return result;
+        }
+
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        private static extern int SizeOf(QCallTypeHandle handle);
+
+        /// <summary>
+        /// Get the size of an object of the given type.
+        /// </summary>
+        /// <param name="type">The type to get the size of.</param>
+        /// <returns>The size of instances of the type.</returns>
+        /// <exception cref="ArgumentException">The passed-in type is not a valid type to get the size of.</exception>
+        /// <remarks>
+        /// This API returns the same value as <see cref="Unsafe.SizeOf{T}"/> for the type that <paramref name="type"/> represents.
+        /// </remarks>
+        public static int SizeOf(RuntimeTypeHandle type)
+        {
+            if (type.Value == IntPtr.Zero)
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.type);
+
+            Type typeObj = Type.GetTypeFromHandle(type)!;
+            if (typeObj.ContainsGenericParameters || typeObj.IsGenericParameter || typeObj == typeof(void))
+                throw new ArgumentException(SR.Arg_TypeNotSupported);
+
+            return SizeOf(new QCallTypeHandle(ref type));
+        }
     }
 }

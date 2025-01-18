@@ -15,10 +15,24 @@ namespace System.Security.Cryptography.X509Certificates
         private AsymmetricAlgorithm? _key;
 
         public PublicKey(Oid oid, AsnEncodedData parameters, AsnEncodedData keyValue)
+            : this(oid, parameters, keyValue, skipCopy: false)
+        {
+        }
+
+        internal PublicKey(Oid oid, AsnEncodedData parameters, AsnEncodedData keyValue, bool skipCopy)
         {
             _oid = oid;
-            EncodedParameters = new AsnEncodedData(parameters);
-            EncodedKeyValue = new AsnEncodedData(keyValue);
+
+            if (skipCopy)
+            {
+                EncodedParameters = parameters;
+                EncodedKeyValue = keyValue;
+            }
+            else
+            {
+                EncodedParameters = new AsnEncodedData(parameters);
+                EncodedKeyValue = new AsnEncodedData(keyValue);
+            }
         }
 
         /// <summary>
@@ -54,9 +68,9 @@ namespace System.Security.Cryptography.X509Certificates
             // will start returning non Rsa / Dsa types.
         }
 
-        public AsnEncodedData EncodedKeyValue { get; private set; }
+        public AsnEncodedData EncodedKeyValue { get; }
 
-        public AsnEncodedData EncodedParameters { get; private set; }
+        public AsnEncodedData EncodedParameters { get; }
 
         [Obsolete(Obsoletions.PublicKeyPropertyMessage, DiagnosticId = Obsoletions.PublicKeyPropertyDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public AsymmetricAlgorithm Key
@@ -136,7 +150,7 @@ namespace System.Security.Cryptography.X509Certificates
                 out AsnEncodedData localKeyValue);
 
             bytesRead = read;
-            return new PublicKey(localOid, localParameters, localKeyValue);
+            return new PublicKey(localOid, localParameters, localKeyValue, skipCopy: true);
         }
 
         /// <summary>
@@ -258,7 +272,7 @@ namespace System.Security.Cryptography.X509Certificates
             }
         }
 
-        private AsnWriter EncodeSubjectPublicKeyInfo()
+        internal AsnWriter EncodeSubjectPublicKeyInfo()
         {
             SubjectPublicKeyInfoAsn spki = new SubjectPublicKeyInfoAsn
             {
@@ -299,11 +313,32 @@ namespace System.Security.Cryptography.X509Certificates
                     throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
                 }
 
-                oid = new Oid(spki.Algorithm.Algorithm, null);
-                parameters = new AsnEncodedData(spki.Algorithm.Parameters?.ToArray() ?? Array.Empty<byte>());
-                keyValue = new AsnEncodedData(spki.SubjectPublicKey.ToArray());
+                DecodeSubjectPublicKeyInfo(ref spki, out oid, out parameters, out keyValue);
                 return read;
             }
         }
+
+        internal static PublicKey DecodeSubjectPublicKeyInfo(ref SubjectPublicKeyInfoAsn spki)
+        {
+            DecodeSubjectPublicKeyInfo(
+                ref spki,
+                out Oid oid,
+                out AsnEncodedData parameters,
+                out AsnEncodedData keyValue);
+
+            return new PublicKey(oid, parameters, keyValue, skipCopy: true);
+        }
+
+        private static void DecodeSubjectPublicKeyInfo(
+            ref SubjectPublicKeyInfoAsn spki,
+            out Oid oid,
+            out AsnEncodedData parameters,
+            out AsnEncodedData keyValue)
+        {
+            oid = new Oid(spki.Algorithm.Algorithm, null);
+            parameters = new AsnEncodedData(spki.Algorithm.Parameters.GetValueOrDefault().Span);
+            keyValue = new AsnEncodedData(spki.SubjectPublicKey.Span);
+        }
+
     }
 }

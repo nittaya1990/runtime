@@ -8,8 +8,6 @@
 #include "debugmacros.h"
 #include "interopconverter.h"
 
-struct VariantData;
-
 // Out of memory helper.
 #define IfNullThrow(EXPR) \
 do {if ((EXPR) == 0) {ThrowOutOfMemory();} } while (0)
@@ -35,31 +33,16 @@ enum DefaultInterfaceType
     DefaultInterfaceType_BaseComClass   = 4
 };
 
-// System.Drawing.Color struct definition.
-
-struct SYSTEMCOLOR
-{
-#ifdef HOST_64BIT
-    STRINGREF name;
-    INT64     value;
-#else
-    INT64     value;
-    STRINGREF name;
-#endif
-    short     knownColor;
-    short     state;
-};
-
 struct ComMethodTable;
 struct IUnkEntry;
 interface IStream;
 class ComCallWrapper;
 class InteropSyncBlockInfo;
+struct ExceptionData;
 
 #endif //FEATURE_COMINTEROP
 
 class FieldDesc;
-struct ExceptionData;
 
 //------------------------------------------------------------------
  // setup error info for exception object
@@ -100,12 +83,14 @@ int  InternalWideToAnsi(_In_reads_(iNumWideChars) LPCWSTR szWideString, int iNum
 //---------------------------------------------------------
 CorClassIfaceAttr ReadClassInterfaceTypeCustomAttribute(TypeHandle type);
 
+#ifdef FEATURE_COMINTEROP
 //-------------------------------------------------------------------
  // Used to populate ExceptionData with COM data
 //-------------------------------------------------------------------
 void FillExceptionData(
     _Inout_ ExceptionData* pedata,
     _In_ IErrorInfo* pErrInfo);
+#endif // FEATURE_COMINTEROP
 
 //---------------------------------------------------------------------------
 // If pImport has the DefaultDllImportSearchPathsAttribute,
@@ -134,10 +119,6 @@ SIZE_T GetStringizedItfDef(TypeHandle InterfaceType, CQuickArray<BYTE> &rDef);
 HRESULT GetStringizedTypeLibGuidForAssembly(Assembly *pAssembly, CQuickArray<BYTE> &rDef, ULONG cbCur, ULONG *pcbFetched);
 
 //--------------------------------------------------------------------------------
-// GetErrorInfo helper, enables and disables GC during call-outs
-HRESULT SafeGetErrorInfo(_Outptr_ IErrorInfo **ppIErrInfo);
-
-//--------------------------------------------------------------------------------
 // QI helper, enables and disables GC during call-outs
 HRESULT SafeQueryInterface(IUnknown* pUnk, REFIID riid, IUnknown** pResUnk);
 
@@ -148,6 +129,10 @@ HRESULT SafeQueryInterface(IUnknown* pUnk, REFIID riid, IUnknown** pResUnk);
 HRESULT SafeQueryInterfacePreemp(IUnknown* pUnk, REFIID riid, IUnknown** pResUnk);
 
 #ifdef FEATURE_COMINTEROP
+
+//--------------------------------------------------------------------------------
+// GetErrorInfo helper, enables and disables GC during call-outs
+HRESULT SafeGetErrorInfo(_Outptr_ IErrorInfo **ppIErrInfo);
 
 // Convert an IUnknown to CCW, does not handle aggregation and ICustomQI.
 ComCallWrapper* MapIUnknownToWrapper(IUnknown* pUnk);
@@ -274,13 +259,8 @@ MethodTable *GetDefaultInterfaceMTForClass(MethodTable *pMT, BOOL *pbDispatch);
 void GetComSourceInterfacesForClass(MethodTable *pClassMT, CQuickArray<MethodTable *> &rItfList);
 
 //--------------------------------------------------------------------------------
-// This methods converts an IEnumVARIANT to a managed IEnumerator.
-OBJECTREF ConvertEnumVariantToMngEnum(IEnumVARIANT *pNativeEnum);
-
-//--------------------------------------------------------------------------------
-// These methods convert an OLE_COLOR to a System.Color and vice versa.
-void ConvertOleColorToSystemColor(OLE_COLOR SrcOleColor, SYSTEMCOLOR *pDestSysColor);
-OLE_COLOR ConvertSystemColorToOleColor(SYSTEMCOLOR *pSrcSysColor);
+// These methods convert an OLE_COLOR to a boxed Color object and vice versa.
+void ConvertOleColorToSystemColor(OLE_COLOR SrcOleColor, OBJECTREF *pDestSysColor);
 OLE_COLOR ConvertSystemColorToOleColor(OBJECTREF *pSrcObj);
 
 //--------------------------------------------------------------------------------
@@ -325,7 +305,7 @@ BOOL MethodNeedsReverseComStub(MethodDesc *pMD);
 
 //--------------------------------------------------------------------------------
 // InvokeDispMethod will convert a set of managed objects and call IDispatch.  The
-// result will be returned as a COM+ Variant pointed to by pRetVal.
+// result will be returned as a CLR object pointed to by pRetVal.
 void IUInvokeDispMethod(
     REFLECTCLASSBASEREF* pRefClassObj,
     OBJECTREF* pTarget,
@@ -359,7 +339,6 @@ ClassFactoryBase *GetComClassFactory(MethodTable* pClassMT);
 #ifdef _DEBUG
 
 VOID LogInterop(_In_z_ LPCSTR szMsg);
-VOID LogInterop(_In_z_ LPCWSTR szMsg);
 
 VOID LogInteropLeak(IUnkEntry * pEntry);
 VOID LogInteropLeak(IUnknown* pItf);
@@ -391,9 +370,6 @@ VOID EnsureComStarted(BOOL fCoInitCurrentThread = TRUE);
 
 IUnknown* MarshalObjectToInterface(OBJECTREF* ppObject, MethodTable* pItfMT, MethodTable* pClassMT, DWORD dwFlags);
 void UnmarshalObjectFromInterface(OBJECTREF *ppObjectDest, IUnknown **ppUnkSrc, MethodTable *pItfMT, MethodTable *pClassMT, DWORD dwFlags);
-
-#define DEFINE_ASM_QUAL_TYPE_NAME(varname, typename, asmname)          static const char varname##[] = { typename##", "##asmname## };
-
 #else // FEATURE_COMINTEROP
 inline HRESULT EnsureComStartedNoThrow()
 {

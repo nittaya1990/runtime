@@ -1,8 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32;
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections;
 using System.Diagnostics;
@@ -11,6 +9,8 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security;
 using System.Security.Principal;
+using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Security.AccessControl
 {
@@ -32,7 +32,7 @@ namespace System.Security.AccessControl
 
             if (!Interop.Advapi32.ConvertSdToStringSd(binaryForm, (uint)requestedRevision, (uint)si, out ByteArray, ref ByteArraySize))
             {
-                errorCode = Marshal.GetLastWin32Error();
+                errorCode = Marshal.GetLastPInvokeError();
                 goto Error;
             }
 
@@ -168,18 +168,12 @@ namespace System.Security.AccessControl
             catch
             {
                 // protection against exception filter-based luring attacks
-                if (privilege != null)
-                {
-                    privilege.Revert();
-                }
+                privilege?.Revert();
                 throw;
             }
             finally
             {
-                if (privilege != null)
-                {
-                    privilege.Revert();
-                }
+                privilege?.Revert();
             }
 
             //
@@ -321,18 +315,12 @@ namespace System.Security.AccessControl
             catch
             {
                 // protection against exception filter-based luring attacks
-                if (securityPrivilege != null)
-                {
-                    securityPrivilege.Revert();
-                }
+                securityPrivilege?.Revert();
                 throw;
             }
             finally
             {
-                if (securityPrivilege != null)
-                {
-                    securityPrivilege.Revert();
-                }
+                securityPrivilege?.Revert();
             }
 
             return 0;

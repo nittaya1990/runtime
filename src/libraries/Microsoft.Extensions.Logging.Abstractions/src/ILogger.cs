@@ -26,7 +26,7 @@ namespace Microsoft.Extensions.Logging
         /// Checks if the given <paramref name="logLevel"/> is enabled.
         /// </summary>
         /// <param name="logLevel">Level to be checked.</param>
-        /// <returns><c>true</c> if enabled.</returns>
+        /// <returns><see langword="true" /> if enabled.</returns>
         bool IsEnabled(LogLevel logLevel);
 
         /// <summary>
@@ -35,6 +35,6 @@ namespace Microsoft.Extensions.Logging
         /// <param name="state">The identifier for the scope.</param>
         /// <typeparam name="TState">The type of the state to begin scope for.</typeparam>
         /// <returns>An <see cref="IDisposable"/> that ends the logical operation scope on dispose.</returns>
-        IDisposable BeginScope<TState>(TState state);
+        IDisposable? BeginScope<TState>(TState state) where TState : notnull;
     }
 }

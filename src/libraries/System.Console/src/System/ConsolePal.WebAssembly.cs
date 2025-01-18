@@ -3,10 +3,8 @@
 
 using System.IO;
 using System.Text;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using Microsoft.Win32.SafeHandles;
-
-using JSObject = System.Runtime.InteropServices.JavaScript.JSObject;
 
 namespace System
 {
@@ -72,10 +70,10 @@ namespace System
         }
     }
 
-    internal static class ConsolePal
+    internal static partial class ConsolePal
     {
-        private static volatile bool s_consoleInitialized;
-        private static JSObject? s_console;
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        public static extern void Clear();
 
         private static Encoding? s_outputEncoding;
 
@@ -165,17 +163,6 @@ namespace System
             int sourceWidth, int sourceHeight, int targetLeft, int targetTop,
             char sourceChar, ConsoleColor sourceForeColor,
             ConsoleColor sourceBackColor) => throw new PlatformNotSupportedException();
-
-        public static void Clear()
-        {
-            if (!s_consoleInitialized)
-            {
-                s_console = (JSObject)System.Runtime.InteropServices.JavaScript.Runtime.GetGlobalObject("console");
-                s_consoleInitialized = true;
-            }
-
-            s_console?.Invoke("clear");
-        }
 
         public static void SetCursorPosition(int left, int top) => throw new PlatformNotSupportedException();
 

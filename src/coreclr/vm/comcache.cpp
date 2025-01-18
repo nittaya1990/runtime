@@ -8,10 +8,7 @@
 #include <crtwrap.h>
 #include "comcache.h"
 #include "runtimecallablewrapper.h"
-#include "mtx.h"
-#include "contxt.h"
-#include "ctxtcall.h"
-#include "win32threadpool.h"
+#include <mtx.h>
 
 #ifdef FEATURE_COMINTEROP_APARTMENT_SUPPORT
 #include "olecontexthelpers.h"
@@ -507,7 +504,7 @@ VOID IUnkEntry::ReleaseInterface(RCW *pRCW)
     }
     CONTRACTL_END;
 
-    if (g_fProcessDetach)
+    if (IsAtProcessExit())
     {
         // The Release call is unsafe if the process is going away (calls into
         // DLLs we don't know are even mapped).
@@ -536,14 +533,14 @@ VOID IUnkEntry::Free()
         NOTHROW;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
-        PRECONDITION(g_fProcessDetach || m_pUnknown == (IUnknown *)0xBADF00D);
+        PRECONDITION(IsAtProcessExit() || m_pUnknown == (IUnknown *)0xBADF00D);
     }
     CONTRACTL_END;
 
     // Log the de-allocation of the IUnknown entry.
     LOG((LF_INTEROP, LL_INFO10000, "IUnkEntry::Free called for context 0x%08X, to release entry with m_pUnknown %p, on thread %p\n", m_pCtxCookie, m_pUnknown, GetThreadNULLOk()));
 
-    if (g_fProcessDetach)
+    if (IsAtProcessExit())
     {
         IStream *pOldStream = m_pStream;
         if (InterlockedExchangeT(&m_pStream, NULL) == pOldStream)
@@ -721,7 +718,7 @@ IUnknown* IUnkEntry::UnmarshalIUnknownForCurrContext()
 
                         // The proxy is no longer valid. This sometimes manifests itself by
                         // a failure during re-marshaling it to the stream. When this happens,
-                        // we need to release the the pUnk we extracted and the stream and try to
+                        // we need to release the pUnk we extracted and the stream and try to
                         // re-create the stream. We don't want to release the stream data since
                         // we already extracted the proxy from the stream and released it.
                         RCW_VTABLEPTR(GetRCW());
@@ -748,7 +745,7 @@ IUnknown* IUnkEntry::UnmarshalIUnknownForCurrContext()
         else
         {
             //================================================================
-            // We can potentially collide with the COM+ activity lock so spawn off
+            // We can potentially collide with the CLR activity lock so spawn off
             // another call that does its stream marshalling on the stack without
             // the need to do locking.
             fCallHelper = TRUE;
@@ -849,7 +846,7 @@ HRESULT IUnkEntry::MarshalIUnknownToStreamCallback2(LPVOID pData)
         GC_TRIGGERS;
         MODE_ANY;
         PRECONDITION(CheckPointer(pData));
-        PRECONDITION(g_fProcessDetach == FALSE);
+        PRECONDITION(IsAtProcessExit() == FALSE);
     }
     CONTRACTL_END;
 
@@ -970,7 +967,7 @@ HRESULT IUnkEntry::MarshalIUnknownToStreamCallback(LPVOID pData)
         GC_TRIGGERS;
         MODE_ANY;
         PRECONDITION(CheckPointer(pData));
-        PRECONDITION(g_fProcessDetach == FALSE);
+        PRECONDITION(IsAtProcessExit() == FALSE);
     }
     CONTRACTL_END;
 
@@ -1102,7 +1099,7 @@ HRESULT IUnkEntry::MarshalIUnknownToStream()
 
     // Try to set the stream in the IUnkEntry. If another thread already set it,
     // then we need to release the stream we just set up.
-    if (FastInterlockCompareExchangePointer(&m_pStream, pStream, NULL) != NULL)
+    if (InterlockedCompareExchangeT(&m_pStream, pStream, NULL) != NULL)
         SafeReleaseStream(pStream);
 
     return hr;
@@ -1202,7 +1199,7 @@ CtxEntry::~CtxEntry()
     CONTRACTL_END;
 
     // If the context is a valid context then release it.
-    if (m_pObjCtx && !g_fProcessDetach)
+    if (m_pObjCtx && !IsAtProcessExit())
     {
         SafeRelease(m_pObjCtx);
         m_pObjCtx = NULL;
@@ -1250,7 +1247,7 @@ DWORD CtxEntry::AddRef()
     }
     CONTRACTL_END;
 
-    ULONG cbRef = FastInterlockIncrement((LONG*)&m_dwRefCount);
+    ULONG cbRef = InterlockedIncrement((LONG*)&m_dwRefCount);
     LOG((LF_INTEROP, LL_INFO100, "CtxEntry::Addref %8.8x with %d\n", this, cbRef));
     return cbRef;
 }
@@ -1271,7 +1268,7 @@ DWORD CtxEntry::Release()
 
     LPVOID pCtxCookie = m_pCtxCookie;
 
-    LONG cbRef = FastInterlockDecrement((LONG*)&m_dwRefCount);
+    LONG cbRef = InterlockedDecrement((LONG*)&m_dwRefCount);
     LOG((LF_INTEROP, LL_INFO100, "CtxEntry::Release %8.8x with %d\n", this, cbRef));
 
     // If the ref count falls to 0, try and delete the ctx entry.
@@ -1307,7 +1304,7 @@ HRESULT CtxEntry::EnterContext(PFNCTXCALLBACK pCallbackFunc, LPVOID pData)
 
     // If we are in process detach, we cannot safely try to enter another context
     // since we don't know if OLE32 is still loaded.
-    if (g_fProcessDetach)
+    if (IsAtProcessExit())
     {
         LOG((LF_INTEROP, LL_INFO100, "Entering into context 0x08%x has failed since we are in process detach\n", m_pCtxCookie));
         return RPC_E_DISCONNECTED;

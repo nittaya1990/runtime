@@ -1,26 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if ES_BUILD_STANDALONE
-using System;
-using System.Diagnostics;
-#endif
 using System.Collections.Generic;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 
-#if ES_BUILD_STANDALONE
-namespace Microsoft.Diagnostics.Tracing
-#else
 namespace System.Diagnostics.Tracing
-#endif
 {
     /// <summary>
     /// DiagnosticCounter is an abstract class that serves as the parent class for various Counter* classes,
     /// namely EventCounter, PollingCounter, IncrementingEventCounter, and IncrementingPollingCounter.
     /// </summary>
-#if NETCOREAPP
+#if !ES_BUILD_STANDALONE
     [UnsupportedOSPlatform("browser")]
 #endif
     public abstract class DiagnosticCounter : IDisposable
@@ -31,8 +23,11 @@ namespace System.Diagnostics.Tracing
         /// </summary>
         /// <param name="Name">The name.</param>
         /// <param name="EventSource">The event source.</param>
-        internal DiagnosticCounter(string Name!!, EventSource EventSource!!)
+        internal DiagnosticCounter(string Name, EventSource EventSource)
         {
+            ArgumentNullException.ThrowIfNull(Name);
+            ArgumentNullException.ThrowIfNull(EventSource);
+
             this.Name = Name;
             this.EventSource = EventSource;
         }
@@ -85,8 +80,7 @@ namespace System.Diagnostics.Tracing
             get => _displayName;
             set
             {
-                if (value == null)
-                    throw new ArgumentNullException(nameof(DisplayName));
+                ArgumentNullException.ThrowIfNull(DisplayName);
                 _displayName = value;
             }
         }
@@ -97,8 +91,7 @@ namespace System.Diagnostics.Tracing
             get => _displayUnits;
             set
             {
-                if (value == null)
-                    throw new ArgumentNullException(nameof(DisplayUnits));
+                ArgumentNullException.ThrowIfNull(DisplayUnits);
                 _displayUnits = value;
             }
         }

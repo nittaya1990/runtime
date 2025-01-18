@@ -1,11 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Formats.Asn1;
 using System.Runtime.Versioning;
 using System.Security.Cryptography.X509Certificates.Asn1;
-using System.Collections.Generic;
 using Internal.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
@@ -44,13 +45,17 @@ namespace System.Security.Cryptography.X509Certificates
             }
         }
 
-        public int Add(X509Certificate2 certificate!!)
+        public int Add(X509Certificate2 certificate)
         {
+            ArgumentNullException.ThrowIfNull(certificate);
+
             return base.Add(certificate);
         }
 
-        public void AddRange(X509Certificate2[] certificates!!)
+        public void AddRange(X509Certificate2[] certificates)
         {
+            ArgumentNullException.ThrowIfNull(certificates);
+
             int i = 0;
             try
             {
@@ -69,8 +74,10 @@ namespace System.Security.Cryptography.X509Certificates
             }
         }
 
-        public void AddRange(X509Certificate2Collection certificates!!)
+        public void AddRange(X509Certificate2Collection certificates)
         {
+            ArgumentNullException.ThrowIfNull(certificates);
+
             int i = 0;
             try
             {
@@ -100,20 +107,25 @@ namespace System.Security.Cryptography.X509Certificates
 
         public byte[]? Export(X509ContentType contentType)
         {
-            return Export(contentType, password: null);
+            using (IExportPal storePal = StorePal.LinkFromCertificateCollection(this))
+            {
+                return storePal.Export(contentType, SafePasswordHandle.InvalidHandle);
+            }
         }
 
         public byte[]? Export(X509ContentType contentType, string? password)
         {
-            using (var safePasswordHandle = new SafePasswordHandle(password))
+            using (var safePasswordHandle = new SafePasswordHandle(password, passwordProvided: true))
             using (IExportPal storePal = StorePal.LinkFromCertificateCollection(this))
             {
                 return storePal.Export(contentType, safePasswordHandle);
             }
         }
 
-        public X509Certificate2Collection Find(X509FindType findType, object findValue!!, bool validOnly)
+        public X509Certificate2Collection Find(X509FindType findType, object findValue, bool validOnly)
         {
+            ArgumentNullException.ThrowIfNull(findValue);
+
             return FindPal.FindFromCollection(this, findType, findValue, validOnly);
         }
 
@@ -124,8 +136,11 @@ namespace System.Security.Cryptography.X509Certificates
 
         IEnumerator<X509Certificate2> IEnumerable<X509Certificate2>.GetEnumerator() => GetEnumerator();
 
-        public void Import(byte[] rawData!!)
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        public void Import(byte[] rawData)
         {
+            ArgumentNullException.ThrowIfNull(rawData);
+
             Import(rawData.AsSpan());
         }
 
@@ -135,13 +150,20 @@ namespace System.Security.Cryptography.X509Certificates
         /// <param name="rawData">
         ///   The certificate data to read.
         /// </param>
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public void Import(ReadOnlySpan<byte> rawData)
         {
-            Import(rawData, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            using (ILoaderPal storePal = StorePal.FromBlob(rawData, SafePasswordHandle.InvalidHandle, X509KeyStorageFlags.DefaultKeySet))
+            {
+                storePal.MoveTo(this);
+            }
         }
 
-        public void Import(byte[] rawData!!, string? password, X509KeyStorageFlags keyStorageFlags = 0)
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        public void Import(byte[] rawData, string? password, X509KeyStorageFlags keyStorageFlags = 0)
         {
+            ArgumentNullException.ThrowIfNull(rawData);
+
             Import(rawData.AsSpan(), password.AsSpan(), keyStorageFlags);
         }
 
@@ -157,6 +179,7 @@ namespace System.Security.Cryptography.X509Certificates
         /// <param name="keyStorageFlags">
         ///   A bitwise combination of the enumeration values that control where and how to import the certificate.
         /// </param>
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public void Import(ReadOnlySpan<byte> rawData, string? password, X509KeyStorageFlags keyStorageFlags = 0)
         {
             Import(rawData, password.AsSpan(), keyStorageFlags);
@@ -174,27 +197,37 @@ namespace System.Security.Cryptography.X509Certificates
         /// <param name="keyStorageFlags">
         ///   A bitwise combination of the enumeration values that control where and how to import the certificate.
         /// </param>
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public void Import(ReadOnlySpan<byte> rawData, ReadOnlySpan<char> password, X509KeyStorageFlags keyStorageFlags = 0)
         {
             X509Certificate.ValidateKeyStorageFlags(keyStorageFlags);
 
-            using (var safePasswordHandle = new SafePasswordHandle(password))
+            using (var safePasswordHandle = new SafePasswordHandle(password, passwordProvided: true))
             using (ILoaderPal storePal = StorePal.FromBlob(rawData, safePasswordHandle, keyStorageFlags))
             {
                 storePal.MoveTo(this);
             }
         }
 
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public void Import(string fileName)
         {
-            Import(fileName, password: null, keyStorageFlags: X509KeyStorageFlags.DefaultKeySet);
+            ArgumentNullException.ThrowIfNull(fileName);
+
+            using (ILoaderPal storePal = StorePal.FromFile(fileName, SafePasswordHandle.InvalidHandle, X509KeyStorageFlags.DefaultKeySet))
+            {
+                storePal.MoveTo(this);
+            }
         }
 
-        public void Import(string fileName!!, string? password, X509KeyStorageFlags keyStorageFlags = 0)
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        public void Import(string fileName, string? password, X509KeyStorageFlags keyStorageFlags = 0)
         {
+            ArgumentNullException.ThrowIfNull(fileName);
+
             X509Certificate.ValidateKeyStorageFlags(keyStorageFlags);
 
-            using (var safePasswordHandle = new SafePasswordHandle(password))
+            using (var safePasswordHandle = new SafePasswordHandle(password, passwordProvided: true))
             using (ILoaderPal storePal = StorePal.FromFile(fileName, safePasswordHandle, keyStorageFlags))
             {
                 storePal.MoveTo(this);
@@ -213,29 +246,38 @@ namespace System.Security.Cryptography.X509Certificates
         /// <param name="keyStorageFlags">
         ///   A bitwise combination of the enumeration values that control where and how to import the certificate.
         /// </param>
-        public void Import(string fileName!!, ReadOnlySpan<char> password, X509KeyStorageFlags keyStorageFlags = 0)
+        [Obsolete(Obsoletions.X509CtorCertDataObsoleteMessage, DiagnosticId = Obsoletions.X509CtorCertDataObsoleteDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        public void Import(string fileName, ReadOnlySpan<char> password, X509KeyStorageFlags keyStorageFlags = 0)
         {
+            ArgumentNullException.ThrowIfNull(fileName);
+
             X509Certificate.ValidateKeyStorageFlags(keyStorageFlags);
 
-            using (var safePasswordHandle = new SafePasswordHandle(password))
+            using (var safePasswordHandle = new SafePasswordHandle(password, passwordProvided: true))
             using (ILoaderPal storePal = StorePal.FromFile(fileName, safePasswordHandle, keyStorageFlags))
             {
                 storePal.MoveTo(this);
             }
         }
 
-        public void Insert(int index, X509Certificate2 certificate!!)
+        public void Insert(int index, X509Certificate2 certificate)
         {
+            ArgumentNullException.ThrowIfNull(certificate);
+
             base.Insert(index, certificate);
         }
 
-        public void Remove(X509Certificate2 certificate!!)
+        public void Remove(X509Certificate2 certificate)
         {
+            ArgumentNullException.ThrowIfNull(certificate);
+
             base.Remove(certificate);
         }
 
-        public void RemoveRange(X509Certificate2[] certificates!!)
+        public void RemoveRange(X509Certificate2[] certificates)
         {
+            ArgumentNullException.ThrowIfNull(certificates);
+
             int i = 0;
             try
             {
@@ -254,8 +296,10 @@ namespace System.Security.Cryptography.X509Certificates
             }
         }
 
-        public void RemoveRange(X509Certificate2Collection certificates!!)
+        public void RemoveRange(X509Certificate2Collection certificates)
         {
+            ArgumentNullException.ThrowIfNull(certificates);
+
             int i = 0;
             try
             {
@@ -299,8 +343,10 @@ namespace System.Security.Cryptography.X509Certificates
         /// <exception cref="ArgumentNullException">
         /// <paramref name="certPemFilePath" /> is <see langword="null" />.
         /// </exception>
-        public void ImportFromPemFile(string certPemFilePath!!)
+        public void ImportFromPemFile(string certPemFilePath)
         {
+            ArgumentNullException.ThrowIfNull(certPemFilePath);
+
             ReadOnlySpan<char> contents = System.IO.File.ReadAllText(certPemFilePath);
             ImportFromPem(contents);
         }
@@ -329,7 +375,7 @@ namespace System.Security.Cryptography.X509Certificates
 
             try
             {
-                foreach ((ReadOnlySpan<char> contents, PemFields fields) in new PemEnumerator(certPem))
+                foreach ((ReadOnlySpan<char> contents, PemFields fields) in PemEnumerator.Utf16(certPem))
                 {
                     ReadOnlySpan<char> label = contents[fields.Label];
 
@@ -356,8 +402,9 @@ namespace System.Security.Cryptography.X509Certificates
                         {
                             throw new CryptographicException(SR.Cryptography_X509_NoPemCertificate);
                         }
-
-                        Import(certBytes);
+#pragma warning disable CA1416 // X509CertificateLoader is not available on browser.
+                        Add(X509CertificateLoader.LoadCertificate(certBytes));
+#pragma warning restore CA1416
                         added++;
                     }
                 }
@@ -391,16 +438,7 @@ namespace System.Security.Cryptography.X509Certificates
                 throw new CryptographicException(SR.Cryptography_X509_ExportFailed);
             }
 
-            int encodedSize = PemEncoding.GetEncodedSize(PemLabels.Pkcs7Certificate.Length, pkcs7.Length);
-
-            return string.Create(encodedSize, pkcs7, static (destination, pkcs7) => {
-                if (!PemEncoding.TryWrite(PemLabels.Pkcs7Certificate, pkcs7, destination, out int written) ||
-                    written != destination.Length)
-                {
-                    Debug.Fail("Pre-allocated buffer was not the correct size.");
-                    throw new CryptographicException();
-                }
-            });
+            return PemEncoding.WriteString(PemLabels.Pkcs7Certificate, pkcs7);
         }
 
         /// <summary>
@@ -545,6 +583,153 @@ namespace System.Security.Cryptography.X509Certificates
 
             charsWritten = written;
             return true;
+        }
+
+        /// <summary>
+        ///   Searches the collection for certificates with a matching thumbprint.
+        /// </summary>
+        /// <param name="hashAlgorithm">The name of the hash algorithm to compute the thumbprint.</param>
+        /// <param name="thumbprintHex">The thumbprint to match, hex-encoded.</param>
+        /// <returns>A collection of certificates with a matching thumbprint.</returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="thumbprintHex"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <para>
+        ///   <paramref name="hashAlgorithm"/>.<see cref="HashAlgorithmName.Name"/> is <see langword="null"/> or empty.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   <paramref name="thumbprintHex"/> contains invalid hexadecimal characters.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   <paramref name="thumbprintHex"/> does not decode evenly and contains an odd number of characters.
+        /// </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   <paramref name="hashAlgorithm"/> specifies a hash algorithm not supported by the current platform.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        /// <para>
+        ///   <paramref name="hashAlgorithm"/> specifies an unknown hash algorithm.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   An error occured while finding the certificates with a matching thumbprint.
+        /// </para>
+        /// </exception>
+        public X509Certificate2Collection FindByThumbprint(HashAlgorithmName hashAlgorithm, string thumbprintHex)
+        {
+            ArgumentNullException.ThrowIfNull(thumbprintHex);
+            return FindByThumbprint(hashAlgorithm, thumbprintHex.AsSpan());
+        }
+
+        /// <summary>
+        ///   Searches the collection for certificates with a matching thumbprint.
+        /// </summary>
+        /// <param name="hashAlgorithm">The name of the hash algorithm to compute the thumbprint.</param>
+        /// <param name="thumbprintHex">The thumbprint to match, hex-encoded.</param>
+        /// <returns>A collection of certificates with a matching thumbprint.</returns>
+        /// <exception cref="ArgumentException">
+        /// <para>
+        ///   <paramref name="hashAlgorithm"/>.<see cref="HashAlgorithmName.Name"/> is <see langword="null"/> or empty.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   <paramref name="thumbprintHex"/> contains invalid hexadecimal characters.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   <paramref name="thumbprintHex"/> does not decode evenly and contains an odd number of characters.
+        /// </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   <paramref name="hashAlgorithm"/> specifies a hash algorithm not supported by the current platform.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        /// <para>
+        ///   <paramref name="hashAlgorithm"/> specifies an unknown hash algorithm.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   An error occured while finding the certificates with a matching thumbprint.
+        /// </para>
+        /// </exception>
+        public X509Certificate2Collection FindByThumbprint(HashAlgorithmName hashAlgorithm, ReadOnlySpan<char> thumbprintHex)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(hashAlgorithm.Name, nameof(hashAlgorithm));
+            const int MaxThumbprintStackAlloc = 64; // SHA-2/3-512 is the largest thumbprint currently known.
+
+            // Make sure the buffer is big enough even if the input string is the incorrect length so we get the proper
+            // error out of the decoder.
+            int maxDecodedLength = checked(thumbprintHex.Length + 1) / 2;
+            Span<byte> thumbprint = maxDecodedLength > MaxThumbprintStackAlloc ?
+                new byte[maxDecodedLength] :
+                stackalloc byte[MaxThumbprintStackAlloc];
+
+            OperationStatus status = Convert.FromHexString(thumbprintHex, thumbprint, out _, out int bytesWritten);
+
+            switch (status)
+            {
+                case OperationStatus.InvalidData:
+                case OperationStatus.NeedMoreData:
+                    throw new ArgumentException(SR.Argument_Thumbprint_Invalid, nameof(thumbprintHex));
+                case OperationStatus.DestinationTooSmall:
+                    Debug.Fail("Precomputed buffer was not large enough");
+                    throw new CryptographicException();
+                case OperationStatus.Done:
+                    break;
+            }
+
+            return FindByThumbprintCore(hashAlgorithm, thumbprint.Slice(0, bytesWritten));
+        }
+
+        /// <summary>
+        ///   Searches the collection for certificates with a matching thumbprint.
+        /// </summary>
+        /// <param name="hashAlgorithm">The name of the hash algorithm to compute the thumbprint.</param>
+        /// <param name="thumbprintBytes">The thumbprint to match.</param>
+        /// <returns>A collection of certificates with a matching thumbprint.</returns>
+        /// <exception cref="ArgumentException">
+        ///   <paramref name="hashAlgorithm"/>.<see cref="HashAlgorithmName.Name"/> is <see langword="null"/> or empty.
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   <paramref name="hashAlgorithm"/> specifies a hash algorithm not supported by the current platform.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        /// <para>
+        ///   <paramref name="hashAlgorithm"/> specifies an unknown hash algorithm.
+        /// </para>
+        /// <para>-or-</para>
+        /// <para>
+        ///   An error occured while finding the certificates with a matching thumbprint.
+        /// </para>
+        /// </exception>
+        public X509Certificate2Collection FindByThumbprint(HashAlgorithmName hashAlgorithm, ReadOnlySpan<byte> thumbprintBytes)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(hashAlgorithm.Name, nameof(hashAlgorithm));
+            return FindByThumbprintCore(hashAlgorithm, thumbprintBytes);
+        }
+
+        private X509Certificate2Collection FindByThumbprintCore(HashAlgorithmName hashAlgorithm, ReadOnlySpan<byte> thumbprintBytes)
+        {
+            const int MaxThumbprintStackAlloc = 64; // SHA-2/3-512 is the largest thumbprint currently known.
+            Span<byte> thumbprintBuffer = stackalloc byte[MaxThumbprintStackAlloc];
+
+            X509Certificate2Collection results = [];
+
+            foreach (X509Certificate2 cert in this)
+            {
+                int bytesWritten = CryptographicOperations.HashData(hashAlgorithm, cert.RawDataMemory.Span, thumbprintBuffer);
+
+                if (thumbprintBuffer.Slice(0, bytesWritten).SequenceEqual(thumbprintBytes))
+                {
+                    results.Add(cert);
+                }
+            }
+
+            return results;
         }
 
         private int GetCertificatePemsSize()

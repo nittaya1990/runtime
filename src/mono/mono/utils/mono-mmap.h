@@ -22,7 +22,9 @@ enum {
 	MONO_MMAP_ANON    = 1 << 6,
 	MONO_MMAP_FIXED   = 1 << 7,
 	MONO_MMAP_32BIT   = 1 << 8,
-	MONO_MMAP_JIT     = 1 << 9
+	MONO_MMAP_JIT     = 1 << 9,
+	/* do not zero the new pages */
+	MONO_MMAP_NOZERO  = 1 << 10,
 };
 
 typedef enum {
@@ -77,12 +79,6 @@ MONO_API int   mono_mprotect   (void *addr, size_t length, int flags);
 
 MONO_API const char* mono_mem_account_type_name (MonoMemAccountType type);
 MONO_API void  mono_mem_account_register_counters (void);
-
-MONO_API void* mono_shared_area         (void);
-MONO_API void  mono_shared_area_remove  (void);
-MONO_API void* mono_shared_area_for_pid (void *pid);
-MONO_API void  mono_shared_area_unload  (void *area);
-MONO_API int   mono_shared_area_instances (void **array, int count);
 
 /*
  * On systems where we have to load code into memory instead of mmaping

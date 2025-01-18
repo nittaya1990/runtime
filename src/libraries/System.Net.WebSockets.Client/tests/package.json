@@ -1,7 +1,8 @@
 {
   "name": "system.net.websockets.client.tests",
   "private": true,
+  "type": "module",
   "dependencies": {
-    "ws": "8.4.0"
+    "ws": "8.17.1"
   }
 }

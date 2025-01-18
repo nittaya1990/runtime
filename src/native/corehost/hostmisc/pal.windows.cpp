@@ -5,39 +5,128 @@
 #include "trace.h"
 #include "utils.h"
 #include "longfile.h"
-
+#include <windows.h>
 #include <cassert>
-#include <locale>
 #include <ShlObj.h>
 #include <ctime>
 
-bool GetModuleFileNameWrapper(HMODULE hModule, pal::string_t* recv)
+void pal::file_vprintf(FILE* f, const pal::char_t* format, va_list vl)
 {
-    pal::string_t path;
-    size_t dwModuleFileName = MAX_PATH / 2;
-
-    do
-    {
-        path.resize(dwModuleFileName * 2);
-        dwModuleFileName = GetModuleFileNameW(hModule, (LPWSTR)path.data(), static_cast<DWORD>(path.size()));
-    } while (dwModuleFileName == path.size());
-
-    if (dwModuleFileName == 0)
-        return false;
-
-    path.resize(dwModuleFileName);
-    recv->assign(path);
-    return true;
+    // String functions like vfwprintf convert wide to multi-byte characters as if wcrtomb were called - that is, using the current C locale (LC_TYPE).
+    // In order to properly print UTF-8 and GB18030 characters, we need to use the version of vfwprintf that takes a locale.
+    _locale_t loc = _create_locale(LC_ALL, ".utf8");
+    ::_vfwprintf_l(f, format, loc, vl);
+    ::fputwc(_X('\n'), f);
+    _free_locale(loc);
 }
 
-bool GetModuleHandleFromAddress(void *addr, HMODULE *hModule)
+namespace
 {
-    BOOL res = ::GetModuleHandleExW(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        reinterpret_cast<LPCWSTR>(addr),
-        hModule);
+    void print_line_to_handle(const pal::char_t* message, HANDLE handle, FILE* fallbackFileHandle) {
+        // String functions like vfwprintf convert wide to multi-byte characters as if wcrtomb were called - that is, using the current C locale (LC_TYPE).
+        // In order to properly print UTF-8 and GB18030 characters to the console without requiring the user to use chcp to a compatible locale, we use WriteConsoleW.
+        // However, WriteConsoleW will fail if the output is redirected to a file - in that case we will write to the fallbackFileHandle
+        DWORD output;
+        // GetConsoleMode returns FALSE when the output is redirected to a file, and we need to output to the fallback file handle.
+        BOOL isConsoleOutput = ::GetConsoleMode(handle, &output);
+        if (isConsoleOutput == FALSE)
+        {
+            // We use file_vprintf to handle UTF-8 formatting. The WriteFile api will output the bytes directly with Unicode bytes,
+            // while pal::file_vprintf will convert the characters to UTF-8.
+            pal::file_vprintf(fallbackFileHandle, message, va_list());
+        }
+        else {
+            ::WriteConsoleW(handle, message, (int)pal::strlen(message), NULL, NULL);
+            ::WriteConsoleW(handle, _X("\n"), 1, NULL, NULL);
+        }
+    }
+}
 
-    return (res != FALSE);
+void pal::err_print_line(const pal::char_t* message)
+{
+    // Forward to helper to handle UTF-8 formatting and redirection
+    print_line_to_handle(message, ::GetStdHandle(STD_ERROR_HANDLE), stderr);
+}
+
+void pal::out_vprint_line(const pal::char_t* format, va_list vl)
+{
+    va_list vl_copy;
+    va_copy(vl_copy, vl);
+    // Get the length of the formatted string + 1 for null terminator
+    int len = 1 + pal::strlen_vprintf(format, vl_copy);
+    if (len < 0)
+    {
+        return;
+    }
+    std::vector<pal::char_t> buffer(len);
+    int written = pal::str_vprintf(&buffer[0], len, format, vl);
+    if (written != len - 1)
+    {
+        return;
+    }
+    // Forward to helper to handle UTF-8 formatting and redirection
+    print_line_to_handle(&buffer[0], ::GetStdHandle(STD_OUTPUT_HANDLE), stdout);
+}
+
+namespace
+{
+    typedef DWORD(WINAPI *get_temp_path_func_ptr)(DWORD buffer_len, LPWSTR buffer);
+    static volatile get_temp_path_func_ptr s_get_temp_path_func = nullptr;
+
+    DWORD get_temp_path(DWORD buffer_len, LPWSTR buffer)
+    {
+        if (s_get_temp_path_func == nullptr)
+        {
+            HMODULE kernel32 = ::LoadLibraryExW(L"kernel32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+
+            get_temp_path_func_ptr get_temp_path_func_local = NULL;
+            if (kernel32 != NULL)
+            {
+                // store to thread local variable to prevent data race
+                get_temp_path_func_local = (get_temp_path_func_ptr)::GetProcAddress(kernel32, "GetTempPath2W");
+            }
+
+            if (get_temp_path_func_local == NULL) // method is only available with Windows 10 Creators Update or later
+            {
+                s_get_temp_path_func = &GetTempPathW;
+            }
+            else
+            {
+                s_get_temp_path_func = get_temp_path_func_local;
+            }
+        }
+
+        return s_get_temp_path_func(buffer_len, buffer);
+    }
+
+    bool GetModuleFileNameWrapper(HMODULE hModule, pal::string_t* recv)
+    {
+        pal::string_t path;
+        size_t dwModuleFileName = MAX_PATH / 2;
+
+        do
+        {
+            path.resize(dwModuleFileName * 2);
+            dwModuleFileName = GetModuleFileNameW(hModule, (LPWSTR)path.data(), static_cast<DWORD>(path.size()));
+        } while (dwModuleFileName == path.size());
+
+        if (dwModuleFileName == 0)
+            return false;
+
+        path.resize(dwModuleFileName);
+        recv->assign(path);
+        return true;
+    }
+
+    bool GetModuleHandleFromAddress(void *addr, HMODULE *hModule)
+    {
+        BOOL res = ::GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(addr),
+            hModule);
+
+        return (res != FALSE);
+    }
 }
 
 pal::string_t pal::get_timestamp()
@@ -174,9 +263,9 @@ bool pal::load_library(const string_t* in_path, dll_t* dll)
 
     if (LongFile::IsPathNotFullyQualified(path))
     {
-        if (!pal::realpath(&path))
+        if (!pal::fullpath(&path))
         {
-            trace::error(_X("Failed to load the dll from [%s], HRESULT: 0x%X"), path.c_str(), HRESULT_FROM_WIN32(GetLastError()));
+            trace::error(_X("Failed to load [%s], HRESULT: 0x%X"), path.c_str(), HRESULT_FROM_WIN32(GetLastError()));
             return false;
         }
     }
@@ -187,7 +276,13 @@ bool pal::load_library(const string_t* in_path, dll_t* dll)
     *dll = ::LoadLibraryExW(path.c_str(), NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (*dll == nullptr)
     {
-        trace::error(_X("Failed to load the dll from [%s], HRESULT: 0x%X"), path.c_str(), HRESULT_FROM_WIN32(GetLastError()));
+        int error_code = ::GetLastError();
+        trace::error(_X("Failed to load [%s], HRESULT: 0x%X"), path.c_str(), HRESULT_FROM_WIN32(error_code));
+        if (error_code == ERROR_BAD_EXE_FORMAT)
+        {
+            trace::error(_X("  - Ensure the library matches the current process architecture: ") _STRINGIFY(CURRENT_ARCH_NAME));
+        }
+
         return false;
     }
 
@@ -265,6 +360,27 @@ bool pal::get_default_servicing_directory(string_t* recv)
     return true;
 }
 
+namespace
+{
+    bool is_supported_multi_arch_install(pal::architecture arch)
+    {
+#if defined(TARGET_AMD64)
+        // x64, looking for x86 install or emulating x64, looking for arm64 install
+        return arch == pal::architecture::x86
+            || (arch == pal::architecture::arm64 && pal::is_emulating_x64());
+#elif defined(TARGET_ARM64)
+        // arm64, looking for x64 install
+        return arch == pal::architecture::x64;
+#elif defined(TARGET_X86)
+        // x86 running in WoW64, looking for x64 install
+        return arch == pal::architecture::x64 && pal::is_running_in_wow64();
+#else
+        // Others do not support default install locations on a different architecture
+        return false;
+#endif
+    }
+}
+
 bool pal::get_default_installation_dir(pal::string_t* recv)
 {
     //  ***Used only for testing***
@@ -276,13 +392,40 @@ bool pal::get_default_installation_dir(pal::string_t* recv)
     }
     //  ***************************
 
+    return get_default_installation_dir_for_arch(get_current_arch(), recv);
+}
+
+bool pal::get_default_installation_dir_for_arch(pal::architecture arch, pal::string_t* recv)
+{
+    bool is_current_arch = arch == get_current_arch();
+
+    // Bail out early for unsupported requests for different architectures
+    if (!is_current_arch && !is_supported_multi_arch_install(arch))
+        return false;
+
     const pal::char_t* program_files_dir;
-    if (pal::is_running_in_wow64())
+    if (is_current_arch)
     {
+        program_files_dir = _X("ProgramFiles");
+    }
+#if defined(TARGET_AMD64)
+    else if (arch == pal::architecture::x86)
+    {
+        // Running x64, looking for x86 install
         program_files_dir = _X("ProgramFiles(x86)");
     }
+#endif
+#if defined(TARGET_X86)
+    else if (pal::is_running_in_wow64() && arch == pal::architecture::x64)
+    {
+        // Running x86 on x64, looking for x64 install
+        program_files_dir = _X("ProgramW6432");
+    }
+#endif
     else
     {
+        // Running arm64/x64, looking for x64/arm64.
+        // Other cases should have bailed out based on is_supported_multi_arch_install
         program_files_dir = _X("ProgramFiles");
     }
 
@@ -292,18 +435,26 @@ bool pal::get_default_installation_dir(pal::string_t* recv)
     }
 
     append_path(recv, _X("dotnet"));
-    if (pal::is_emulating_x64())
+    if (is_current_arch && pal::is_emulating_x64())
     {
         // Install location for emulated x64 should be %ProgramFiles%\dotnet\x64.
-        append_path(recv, _X("x64"));
+        append_path(recv, get_arch_name(arch));
     }
+#if defined(TARGET_ARM64)
+    else if (!is_current_arch)
+    {
+        // Running arm64, looking for x64 install
+        assert(arch == pal::architecture::x64);
+        append_path(recv, get_arch_name(arch));
+    }
+#endif
 
     return true;
 }
 
 namespace
 {
-    void get_dotnet_install_location_registry_path(HKEY * key_hive, pal::string_t * sub_key, const pal::char_t ** value)
+    void get_dotnet_install_location_registry_path(pal::architecture arch, HKEY * key_hive, pal::string_t * sub_key, const pal::char_t ** value)
     {
         *key_hive = HKEY_LOCAL_MACHINE;
         // The registry search occurs in the 32-bit registry in all cases.
@@ -322,25 +473,29 @@ namespace
             dotnet_key_path = environmentRegistryPathOverride;
         }
 
-        *sub_key = dotnet_key_path + pal::string_t(_X("\\Setup\\InstalledVersions\\")) + get_arch();
+        *sub_key = dotnet_key_path + pal::string_t(_X("\\Setup\\InstalledVersions\\")) + get_arch_name(arch);
         *value = _X("InstallLocation");
+    }
+
+    pal::string_t registry_path_as_string(const HKEY& key_hive, const pal::string_t& sub_key, const pal::char_t* value)
+    {
+        assert(key_hive == HKEY_CURRENT_USER || key_hive == HKEY_LOCAL_MACHINE);
+        return (key_hive == HKEY_CURRENT_USER ? _X("HKCU\\") : _X("HKLM\\")) + sub_key + _X("\\") + value;
     }
 }
 
-pal::string_t pal::get_dotnet_self_registered_config_location()
+pal::string_t pal::get_dotnet_self_registered_config_location(pal::architecture arch)
 {
     HKEY key_hive;
     pal::string_t sub_key;
     const pal::char_t* value;
-    get_dotnet_install_location_registry_path(&key_hive, &sub_key, &value);
+    get_dotnet_install_location_registry_path(arch, &key_hive, &sub_key, &value);
 
-    return (key_hive == HKEY_CURRENT_USER ? _X("HKCU\\") : _X("HKLM\\")) + sub_key + _X("\\") + value;
+    return registry_path_as_string(key_hive, sub_key, value);
 }
 
 bool pal::get_dotnet_self_registered_dir(pal::string_t* recv)
 {
-    recv->clear();
-
     //  ***Used only for testing***
     pal::string_t environmentOverride;
     if (test_only_getenv(_X("_DOTNET_TEST_GLOBALLY_REGISTERED_PATH"), &environmentOverride))
@@ -350,10 +505,20 @@ bool pal::get_dotnet_self_registered_dir(pal::string_t* recv)
     }
     //  ***************************
 
+    return get_dotnet_self_registered_dir_for_arch(get_current_arch(), recv);
+}
+
+bool pal::get_dotnet_self_registered_dir_for_arch(pal::architecture arch, pal::string_t* recv)
+{
+    recv->clear();
+
     HKEY hkeyHive;
     pal::string_t sub_key;
     const pal::char_t* value;
-    get_dotnet_install_location_registry_path(&hkeyHive, &sub_key, &value);
+    get_dotnet_install_location_registry_path(arch, &hkeyHive, &sub_key, &value);
+
+    if (trace::is_enabled())
+        trace::verbose(_X("Looking for architecture-specific registry value in '%s'."), registry_path_as_string(hkeyHive, sub_key, value).c_str());
 
     // Must use RegOpenKeyEx to be able to specify KEY_WOW64_32KEY to access the 32-bit registry in all cases.
     // The RegGetValue has this option available only on Win10.
@@ -361,7 +526,15 @@ bool pal::get_dotnet_self_registered_dir(pal::string_t* recv)
     LSTATUS result = ::RegOpenKeyExW(hkeyHive, sub_key.c_str(), 0, KEY_READ | KEY_WOW64_32KEY, &hkey);
     if (result != ERROR_SUCCESS)
     {
-        trace::verbose(_X("Can't open the SDK installed location registry key, result: 0x%X"), result);
+        if (result == ERROR_FILE_NOT_FOUND)
+        {
+            trace::verbose(_X("The registry key ['%s'] does not exist."), sub_key.c_str());
+        }
+        else
+        {
+            trace::verbose(_X("Failed to open the registry key. Error code: 0x%X"), result);
+        }
+
         return false;
     }
 
@@ -370,7 +543,7 @@ bool pal::get_dotnet_self_registered_dir(pal::string_t* recv)
     result = ::RegGetValueW(hkey, nullptr, value, RRF_RT_REG_SZ, nullptr, nullptr, &size);
     if (result != ERROR_SUCCESS || size == 0)
     {
-        trace::verbose(_X("Can't get the size of the SDK location registry value or it's empty, result: 0x%X"), result);
+        trace::verbose(_X("Failed to get the size of the install location registry value or it's empty. Error code: 0x%X"), result);
         ::RegCloseKey(hkey);
         return false;
     }
@@ -380,13 +553,14 @@ bool pal::get_dotnet_self_registered_dir(pal::string_t* recv)
     result = ::RegGetValueW(hkey, nullptr, value, RRF_RT_REG_SZ, nullptr, &buffer[0], &size);
     if (result != ERROR_SUCCESS)
     {
-        trace::verbose(_X("Can't get the value of the SDK location registry value, result: 0x%X"), result);
+        trace::verbose(_X("Failed to get the value of the install location registry value. Error code: 0x%X"), result);
         ::RegCloseKey(hkey);
         return false;
     }
 
     recv->assign(buffer.data());
     ::RegCloseKey(hkey);
+    trace::verbose(_X("Found registered install location '%s'."), recv->c_str());
     return true;
 }
 
@@ -397,13 +571,13 @@ bool pal::get_global_dotnet_dirs(std::vector<pal::string_t>* dirs)
     bool dir_found = false;
     if (pal::get_dotnet_self_registered_dir(&custom_dir))
     {
-        remove_trailing_dir_seperator(&custom_dir);
+        remove_trailing_dir_separator(&custom_dir);
         dirs->push_back(custom_dir);
         dir_found = true;
     }
     if (get_default_installation_dir(&default_dir))
     {
-        remove_trailing_dir_seperator(&default_dir);
+        remove_trailing_dir_separator(&default_dir);
 
         // Avoid duplicate global dirs.
         if (!dir_found || !are_paths_equal_with_normalized_casing(custom_dir, default_dir))
@@ -499,20 +673,22 @@ bool pal::getenv(const char_t* name, string_t* recv)
         auto err = GetLastError();
         if (err != ERROR_ENVVAR_NOT_FOUND)
         {
-            trace::error(_X("Failed to read environment variable [%s], HRESULT: 0x%X"), name, HRESULT_FROM_WIN32(GetLastError()));
+            trace::warning(_X("Failed to read environment variable [%s], HRESULT: 0x%X"), name, HRESULT_FROM_WIN32(err));
         }
         return false;
     }
-    auto buf = new char_t[length];
-    if (::GetEnvironmentVariableW(name, buf, length) == 0)
+    std::vector<pal::char_t> buffer(length);
+    if (::GetEnvironmentVariableW(name, &buffer[0], length) == 0)
     {
-        trace::error(_X("Failed to read environment variable [%s], HRESULT: 0x%X"), name, HRESULT_FROM_WIN32(GetLastError()));
+        auto err = GetLastError();
+        if (err != ERROR_ENVVAR_NOT_FOUND)
+        {
+            trace::warning(_X("Failed to read environment variable [%s], HRESULT: 0x%X"), name, HRESULT_FROM_WIN32(err));
+        }
         return false;
     }
 
-    recv->assign(buf);
-    delete[] buf;
-
+    recv->assign(buffer.data());
     return true;
 }
 
@@ -565,7 +741,7 @@ bool get_extraction_base_parent_directory(pal::string_t& directory)
     const size_t max_len = MAX_PATH + 1;
     pal::char_t temp_path[max_len];
 
-    size_t len = GetTempPathW(max_len, temp_path);
+    size_t len = get_temp_path(max_len, temp_path);
     if (len == 0)
     {
         return false;
@@ -574,7 +750,7 @@ bool get_extraction_base_parent_directory(pal::string_t& directory)
     assert(len < max_len);
     directory.assign(temp_path);
 
-    return pal::realpath(&directory);
+    return pal::fullpath(&directory);
 }
 
 bool pal::get_default_bundle_extraction_base_dir(pal::string_t& extraction_dir)
@@ -588,7 +764,7 @@ bool pal::get_default_bundle_extraction_base_dir(pal::string_t& extraction_dir)
     append_path(&extraction_dir, _X(".net"));
     // Windows Temp-Path is already user-private.
 
-    if (realpath(&extraction_dir))
+    if (fullpath(&extraction_dir))
     {
         return true;
     }
@@ -601,7 +777,7 @@ bool pal::get_default_bundle_extraction_base_dir(pal::string_t& extraction_dir)
         return false;
     }
 
-    return realpath(&extraction_dir);
+    return fullpath(&extraction_dir);
 }
 
 static bool wchar_convert_helper(DWORD code_page, const char* cstr, size_t len, pal::string_t* out)
@@ -616,6 +792,17 @@ static bool wchar_convert_helper(DWORD code_page, const char* cstr, size_t len, 
     }
     out->resize(size, '\0');
     return ::MultiByteToWideChar(code_page, 0, cstr, static_cast<uint32_t>(len), &(*out)[0], static_cast<uint32_t>(out->size())) != 0;
+}
+
+size_t pal::pal_utf8string(const pal::string_t& str, char* out_buffer, size_t len)
+{
+    // Pass -1 as we want explicit null termination in the char buffer.
+    size_t size = ::WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (size == 0 || size > len)
+        return size;
+
+    // Pass -1 as we want explicit null termination in the char buffer.
+    return ::WideCharToMultiByte(CP_UTF8, 0, str.c_str(), -1, out_buffer, static_cast<uint32_t>(len), nullptr, nullptr);
 }
 
 bool pal::pal_utf8string(const pal::string_t& str, std::vector<char>* out)
@@ -642,8 +829,96 @@ bool pal::clr_palstring(const char* cstr, pal::string_t* out)
     return wchar_convert_helper(CP_UTF8, cstr, ::strlen(cstr), out);
 }
 
-// Return if path is valid and file exists, return true and adjust path as appropriate.
-bool pal::realpath(string_t* path, bool skip_error_logging)
+typedef std::unique_ptr<std::remove_pointer<HANDLE>::type, decltype(&::CloseHandle)> SmartHandle;
+
+// Like fullpath, but resolves file symlinks (note: not necessarily directory symlinks).
+bool pal::realpath(pal::string_t* path, bool skip_error_logging)
+{
+    if (path->empty())
+    {
+        return false;
+    }
+
+    // Use CreateFileW + GetFinalPathNameByHandleW to resolve symlinks
+    // https://learn.microsoft.com/windows/win32/fileio/symbolic-link-effects-on-file-systems-functions#createfile-and-createfiletransacted
+    SmartHandle file(
+        ::CreateFileW(
+            path->c_str(),
+            0, // Querying only
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, // default security
+            OPEN_EXISTING, // existing file
+            FILE_ATTRIBUTE_NORMAL, // normal file
+            nullptr), // No attribute template
+        &::CloseHandle);
+
+    pal::char_t buf[MAX_PATH];
+    size_t size;
+
+    if (file.get() == INVALID_HANDLE_VALUE)
+    {
+        // If we get "access denied" that may mean the path represents a directory.
+        // Even if not, we can fall back to GetFullPathNameW, which doesn't require a HANDLE
+
+        auto error = ::GetLastError();
+        file.release();
+        if (ERROR_ACCESS_DENIED != error)
+        {
+            if (!skip_error_logging)
+            {
+                trace::error(_X("Error resolving full path [%s]. Error code: %d"), path->c_str(), error);
+            }
+            return false;
+        }
+    }
+    else
+    {
+        size = ::GetFinalPathNameByHandleW(file.get(), buf, MAX_PATH, FILE_NAME_NORMALIZED);
+        // If size is 0, this call failed. Fall back to GetFullPathNameW, below
+        if (size != 0)
+        {
+            pal::string_t str;
+            if (size < MAX_PATH)
+            {
+                str.assign(buf);
+            }
+            else
+            {
+                str.resize(size, 0);
+                size = ::GetFinalPathNameByHandleW(file.get(), (LPWSTR)str.data(), static_cast<uint32_t>(size), FILE_NAME_NORMALIZED);
+                assert(size <= str.size());
+
+                if (size == 0)
+                {
+                    if (!skip_error_logging)
+                    {
+                        trace::error(_X("Error resolving full path [%s]. Error code: %d"), path->c_str(), ::GetLastError());
+                    }
+                    return false;
+                }
+            }
+
+            // Remove the UNC extended prefix (\\?\UNC\) or extended prefix (\\?\) unless it is necessary or was already there
+            if (LongFile::IsUNCExtended(str) && !LongFile::IsUNCExtended(*path) && str.length() < MAX_PATH)
+            {
+                str.replace(0, LongFile::UNCExtendedPathPrefix.size(), LongFile::UNCPathPrefix);
+            }
+            else if (LongFile::IsExtended(str) && !LongFile::IsExtended(*path) &&
+                !LongFile::ShouldNormalize(str.substr(LongFile::ExtendedPrefix.size())))
+            {
+                str.erase(0, LongFile::ExtendedPrefix.size());
+            }
+
+            *path = str;
+            return true;
+        }
+    }
+
+    // If the above fails, fall back to fullpath
+    return pal::fullpath(path, skip_error_logging);
+}
+
+bool pal::fullpath(string_t* path, bool skip_error_logging)
 {
     if (path->empty())
     {
@@ -718,7 +993,7 @@ bool pal::realpath(string_t* path, bool skip_error_logging)
 bool pal::file_exists(const string_t& path)
 {
     string_t tmp(path);
-    return pal::realpath(&tmp, true);
+    return pal::fullpath(&tmp, true);
 }
 
 static void readdir(const pal::string_t& path, const pal::string_t& pattern, bool onlydirectories, std::vector<pal::string_t>* list)
@@ -730,7 +1005,7 @@ static void readdir(const pal::string_t& path, const pal::string_t& pattern, boo
 
     if (LongFile::ShouldNormalize(normalized_path))
     {
-        if (!pal::realpath(&normalized_path))
+        if (!pal::fullpath(&normalized_path))
         {
             return;
         }
@@ -791,39 +1066,43 @@ bool pal::is_running_in_wow64()
 }
 
 typedef BOOL (WINAPI* is_wow64_process2)(
-  HANDLE hProcess,
-  USHORT *pProcessMachine,
-  USHORT *pNativeMachine
+    HANDLE hProcess,
+    USHORT *pProcessMachine,
+    USHORT *pNativeMachine
 );
 
 bool pal::is_emulating_x64()
 {
-    USHORT pProcessMachine, pNativeMachine;
+#if defined(TARGET_AMD64)
     auto kernel32 = LoadLibraryExW(L"kernel32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (kernel32)
+    if (kernel32 == nullptr)
     {
-        is_wow64_process2 isWow64Process2Func = (is_wow64_process2)GetProcAddress(kernel32, "IsWow64Process2");
-        if (!isWow64Process2Func)
-        {
-            // Could not find IsWow64Process2.
-            return false;
-        }
-
-        if (!isWow64Process2Func(GetCurrentProcess(), &pProcessMachine, &pNativeMachine))
-        {
-            // IsWow64Process2 failed. Log the error and continue.
-            trace::info(_X("Call to IsWow64Process2 failed: %s"), GetLastError());
-            return false;
-        }
-
-        // Check if we are running an x64 process on a non-x64 windows machine.
-        return pProcessMachine != pNativeMachine && pProcessMachine == IMAGE_FILE_MACHINE_AMD64;
+        // Loading kernel32.dll failed, log the error and continue.
+        trace::info(_X("Could not load 'kernel32.dll': %u"), GetLastError());
+        return false;
     }
 
-    // Loading kernel32.dll failed, log the error and continue.
-    trace::info(_X("Could not load 'kernel32.dll': %s"), GetLastError());
+    is_wow64_process2 is_wow64_process2_func = (is_wow64_process2)::GetProcAddress(kernel32, "IsWow64Process2");
+    if (is_wow64_process2_func == nullptr)
+    {
+        // Could not find IsWow64Process2.
+        return false;
+    }
 
+    USHORT process_machine;
+    USHORT native_machine;
+    if (!is_wow64_process2_func(GetCurrentProcess(), &process_machine, &native_machine))
+    {
+        // IsWow64Process2 failed. Log the error and continue.
+        trace::info(_X("Call to IsWow64Process2 failed: %u"), GetLastError());
+        return false;
+    }
+
+    // If we are running targeting x64 on a non-x64 machine, we are emulating
+    return native_machine != IMAGE_FILE_MACHINE_AMD64;
+#else
     return false;
+#endif
 }
 
 bool pal::are_paths_equal_with_normalized_casing(const string_t& path1, const string_t& path2)

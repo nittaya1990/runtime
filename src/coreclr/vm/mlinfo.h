@@ -87,9 +87,8 @@ struct OverrideProcArgs
 
         struct
         {
+            MethodTable* m_pSigMod;
             MethodTable* m_pMT;
-            MethodDesc*  m_pCopyCtor;
-            MethodDesc*  m_pDtor;
         } mm;
 
         struct
@@ -103,6 +102,13 @@ struct OverrideProcArgs
         {
             UINT32 fixedStringLength;
         } fs;
+
+#ifdef FEATURE_COMINTEROP
+        struct
+        {
+            MethodTable* m_pColorType;
+        } color;
+#endif
     };
 };
 
@@ -113,8 +119,7 @@ typedef MarshalerOverrideStatus (*OVERRIDEPROC)(NDirectStubLinker*    psl,
                                                 BOOL                  fManagedToNative,
                                                 OverrideProcArgs*     pargs,
                                                 UINT*                 pResID,
-                                                UINT                  argidx,
-                                                UINT                  nativeStackOffset);
+                                                UINT                  argidx);
 
 typedef MarshalerOverrideStatus (*RETURNOVERRIDEPROC)(NDirectStubLinker*  psl,
                                                       BOOL                fManagedToNative,
@@ -159,7 +164,7 @@ struct NativeTypeParamInfo
 
     BOOL                    m_SizeIsSpecified;  // used to do some validation
     UINT16                  m_CountParamIdx;    // index of "sizeis" parameter
-    UINT32                  m_Multiplier;       // multipler for "sizeis"
+    UINT32                  m_Multiplier;       // multiplier for "sizeis"
     UINT32                  m_Additive;         // additive for 'sizeis"
 
     // For NT_CUSTOMMARSHALER only.
@@ -190,45 +195,6 @@ BOOL ParseNativeTypeInfo(mdToken                    token,
 BOOL IsFixedBuffer(mdFieldDef field, IMDInternalImport* pInternalImport);
 #endif
 
-#ifdef FEATURE_COMINTEROP
-class OleColorMarshalingInfo
-{
-public:
-    // Constructor.
-    OleColorMarshalingInfo();
-
-    // OleColorMarshalingInfo's are always allocated on the loader heap so we need to redefine
-    // the new and delete operators to ensure this.
-    void *operator new(size_t size, LoaderHeap *pHeap);
-    void operator delete(void *pMem);
-
-    // Accessors.
-    TypeHandle GetColorType()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_hndColorType;
-    }
-    MethodDesc *GetOleColorToSystemColorMD()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_OleColorToSystemColorMD;
-    }
-    MethodDesc *GetSystemColorToOleColorMD()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_SystemColorToOleColorMD;
-    }
-
-
-private:
-    TypeHandle  m_hndColorType;
-    MethodDesc* m_OleColorToSystemColorMD;
-    MethodDesc* m_SystemColorToOleColorMD;
-};
-
-#endif // FEATURE_COMINTEROP
-
-
 class EEMarshalingData
 {
 public:
@@ -240,33 +206,48 @@ public:
     void *operator new(size_t size, LoaderHeap *pHeap);
     void operator delete(void *pMem);
 
-    // This method returns the custom marshaling helper associated with the name cookie pair. If the
-    // CM info has not been created yet for this pair then it will be created and returned.
-    CustomMarshalerHelper *GetCustomMarshalerHelper(Assembly *pAssembly, TypeHandle hndManagedType, LPCUTF8 strMarshalerTypeName, DWORD cMarshalerTypeNameBytes, LPCUTF8 strCookie, DWORD cCookieStrBytes);
+#ifndef DACCESS_COMPILE
+    MethodDesc* LookupStructILStubSpeculative(MethodTable* pMT)
+    {
+        WRAPPER_NO_CONTRACT;
+        HashDatum res = 0;
+        m_structILStubCache.GetValueSpeculative(pMT, &res);
+        return (MethodDesc*)res;
+    }
 
-    // This method returns the custom marshaling info associated with shared CM helper.
-    CustomMarshalerInfo *GetCustomMarshalerInfo(SharedCustomMarshalerHelper *pSharedCMHelper);
+    MethodDesc* LookupStructILStub(MethodTable* pMT)
+    {
+        WRAPPER_NO_CONTRACT;
+        HashDatum res = 0;
+        m_structILStubCache.GetValue(pMT, &res);
+        return (MethodDesc*)res;
+    }
+
+    void CacheStructILStub(MethodTable* pMT, MethodDesc* pStubMD);
+#endif
+
+    // This method returns the custom marshaling info associated with the name cookie pair. If the
+    // CM info has not been created yet for this pair then it will be created and returned.
+    CustomMarshalerInfo *GetCustomMarshalerInfo(Assembly *pAssembly, TypeHandle hndManagedType, LPCUTF8 strMarshalerTypeName, DWORD cMarshalerTypeNameBytes, LPCUTF8 strCookie, DWORD cCookieStrBytes);
 
 #ifdef FEATURE_COMINTEROP
-    // This method retrieves OLE_COLOR marshaling info.
-    OleColorMarshalingInfo *GetOleColorMarshalingInfo();
-
-
+    CustomMarshalerInfo *GetIEnumeratorMarshalerInfo();
 #endif // FEATURE_COMINTEROP
 
 private:
-    EECMHelperHashTable                 m_CMHelperHashtable;
-    EEPtrHashTable                      m_SharedCMHelperToCMInfoMap;
+    EEPtrHashTable                      m_structILStubCache;
+    EECMInfoHashTable                   m_CMInfoHashTable;
     LoaderAllocator*                    m_pAllocator;
     LoaderHeap*                         m_pHeap;
-    CMINFOLIST                          m_pCMInfoList;
 #ifdef FEATURE_COMINTEROP
-    OleColorMarshalingInfo*             m_pOleColorInfo;
+    CustomMarshalerInfo*                m_pIEnumeratorMarshalerInfo;
 #endif // FEATURE_COMINTEROP
     CrstBase*                           m_lock;
 };
 
 struct ItfMarshalInfo;
+
+bool IsValidForGenericMarshalling(MethodTable* pMT, bool isFieldScenario, bool builtInMarshallingEnabled = true);
 
 class MarshalInfo
 {
@@ -335,7 +316,6 @@ public:
 
     void GenerateArgumentIL(NDirectStubLinker* psl,
                             int argOffset, // the argument's index is m_paramidx + argOffset
-                            UINT nativeStackOffset, // offset of the argument on the native stack
                             BOOL fMngToNative);
 
     void GenerateReturnIL(NDirectStubLinker* psl,
@@ -511,7 +491,7 @@ private:
     BOOL            m_nolowerbounds;  // if managed type is SZARRAY, don't allow lower bounds
 
     // for NT_ARRAY only
-    UINT32          m_multiplier;     // multipler for "sizeis"
+    UINT32          m_multiplier;     // multiplier for "sizeis"
     UINT32          m_additive;       // additive for 'sizeis"
     UINT16          m_countParamIdx;  // index of "sizeis" parameter
 
@@ -525,7 +505,7 @@ private:
 #endif // FEATURE_COMINTEROP
 
     // Information used by NT_CUSTOMMARSHALER.
-    CustomMarshalerHelper* m_pCMHelper;
+    CustomMarshalerInfo* m_pCMInfo;
     VARTYPE         m_CMVt;
 
     OverrideProcArgs  m_args;

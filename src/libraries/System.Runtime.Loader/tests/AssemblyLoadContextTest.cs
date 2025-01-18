@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 
 namespace System.Runtime.Loader.Tests
@@ -15,7 +16,6 @@ namespace System.Runtime.Loader.Tests
     {
         private const string TestAssembly = "System.Runtime.Loader.Test.Assembly";
         private const string TestAssembly2 = "System.Runtime.Loader.Test.Assembly2";
-        private const string TestAssemblyNotSupported = "System.Runtime.Loader.Test.AssemblyNotSupported";
 
         [Fact]
         public static void GetAssemblyNameTest_ValidAssembly()
@@ -115,7 +115,6 @@ namespace System.Runtime.Loader.Tests
         public static void LoadFromAssemblyName_ValidTrustedPlatformAssembly()
         {
             var asmName = typeof(System.Linq.Enumerable).Assembly.GetName();
-            asmName.CodeBase = null;
             var loadContext = new CustomTPALoadContext();
 
             // We should be able to override (and thus, load) assemblies that were
@@ -131,7 +130,6 @@ namespace System.Runtime.Loader.Tests
         public static void LoadFromAssemblyName_FallbackToDefaultContext()
         {
             var asmName = typeof(System.Linq.Enumerable).Assembly.GetName();
-            asmName.CodeBase = null;
             var loadContext = new AssemblyLoadContext("FallbackToDefaultContextTest");
 
             // This should not have any special handlers, so it should just find the version in the default context
@@ -235,6 +233,51 @@ namespace System.Runtime.Loader.Tests
             Assert.Contains(typeof(ResourceAssemblyLoadContext).ToString(), alc.ToString());
             Assert.Contains(alc, AssemblyLoadContext.All);
             Assert.Empty(alc.Assemblies);
+        }
+
+        class RefEmitLoadContext : AssemblyLoadContext
+        {
+            protected override Assembly? Load(AssemblyName assemblyName)
+            {
+                return AssemblyBuilder.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/31804", TestRuntimes.Mono)]
+        public static void LoadRefEmitAssembly()
+        {
+            RefEmitLoadContext alc = new();
+            alc.Resolving += (sender, assembly) => { Assert.Fail("Resolving event not expected"); return null; };
+            Exception error = Assert.Throws<FileLoadException>(() => alc.LoadFromAssemblyName(new AssemblyName("MyAssembly")));
+            Assert.IsType<InvalidOperationException>(error.InnerException);
+        }
+
+        class NonRuntimeAssemblyContext : AssemblyLoadContext
+        {
+            class NonRuntimeAssembly : Assembly
+            {
+                private AssemblyName _name;
+
+                public NonRuntimeAssembly(AssemblyName name) => _name = name;
+
+                public override AssemblyName GetName(bool copiedName) => _name;
+            }
+
+            protected override Assembly? Load(AssemblyName assemblyName)
+            {
+                return new NonRuntimeAssembly(assemblyName);
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsAssemblyLoadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/31804", TestRuntimes.Mono)]
+        public static void LoadNonRuntimeAssembly()
+        {
+            NonRuntimeAssemblyContext alc = new();
+            alc.Resolving += (sender, assembly) => { Assert.Fail("Resolving event not expected"); return null; };
+            Exception error = Assert.Throws<FileLoadException>(() => alc.LoadFromAssemblyName(new AssemblyName("MyAssembly")));
+            Assert.IsType<InvalidOperationException>(error.InnerException);
         }
     }
 }

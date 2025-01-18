@@ -8,12 +8,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading;
-
 using Internal.Win32;
-
 using REG_TZI_FORMAT = Interop.Kernel32.REG_TZI_FORMAT;
-using TIME_ZONE_INFORMATION = Interop.Kernel32.TIME_ZONE_INFORMATION;
 using TIME_DYNAMIC_ZONE_INFORMATION = Interop.Kernel32.TIME_DYNAMIC_ZONE_INFORMATION;
+using TIME_ZONE_INFORMATION = Interop.Kernel32.TIME_ZONE_INFORMATION;
 
 namespace System
 {
@@ -32,7 +30,6 @@ namespace System
         private const string FirstEntryValue = "FirstEntry";
         private const string LastEntryValue = "LastEntry";
 
-        private const int MaxKeyLength = 255;
         private const string InvariantUtcStandardDisplayName = "Coordinated Universal Time";
 
         private sealed partial class CachedData
@@ -89,6 +86,30 @@ namespace System
             return (AdjustmentRule[])_adjustmentRules.Clone();
         }
 
+        private static string? PopulateDisplayName()
+        {
+            // Keep window's implementation to populate via constructor
+            // This should not be reached
+            Debug.Assert(false);
+            return null;
+        }
+
+        private static string? PopulateStandardDisplayName()
+        {
+            // Keep window's implementation to populate via constructor
+            // This should not be reached
+            Debug.Assert(false);
+            return null;
+        }
+
+        private static string? PopulateDaylightDisplayName()
+        {
+            // Keep window's implementation to populate via constructor
+            // This should not be reached
+            Debug.Assert(false);
+            return null;
+        }
+
         private static void PopulateAllSystemTimeZones(CachedData cachedData)
         {
             Debug.Assert(Monitor.IsEntered(cachedData));
@@ -131,7 +152,7 @@ namespace System
                 AdjustmentRule? rule = CreateAdjustmentRuleFromTimeZoneInformation(regZone, DateTime.MinValue.Date, DateTime.MaxValue.Date, zone.Bias);
                 if (rule != null)
                 {
-                    _adjustmentRules = new[] { rule };
+                    _adjustmentRules = [rule];
                 }
             }
 
@@ -314,54 +335,13 @@ namespace System
 
         /// <summary>
         /// Helper function for retrieving a TimeZoneInfo object by time_zone_name.
-        /// This function wraps the logic necessary to keep the private
-        /// SystemTimeZones cache in working order
         ///
-        /// This function will either return a valid TimeZoneInfo instance or
-        /// it will throw 'InvalidTimeZoneException' / 'TimeZoneNotFoundException'.
+        /// This function may return null.
+        ///
+        /// assumes cachedData lock is taken
         /// </summary>
-        public static TimeZoneInfo FindSystemTimeZoneById(string id!!)
-        {
-            // Special case for Utc to avoid having TryGetTimeZone creating a new Utc object
-            if (string.Equals(id, UtcId, StringComparison.OrdinalIgnoreCase))
-            {
-                return Utc;
-            }
-
-            if (id.Length == 0 || id.Length > MaxKeyLength || id.Contains('\0'))
-            {
-                throw new TimeZoneNotFoundException(SR.Format(SR.TimeZoneNotFound_MissingData, id));
-            }
-
-            TimeZoneInfo? value;
-            Exception? e;
-
-            TimeZoneInfoResult result;
-
-            CachedData cachedData = s_cachedData;
-
-            lock (cachedData)
-            {
-                result = TryGetTimeZone(id, false, out value, out e, cachedData);
-            }
-
-            if (result == TimeZoneInfoResult.Success)
-            {
-                return value!;
-            }
-            else if (result == TimeZoneInfoResult.InvalidTimeZoneException)
-            {
-                throw new InvalidTimeZoneException(SR.Format(SR.InvalidTimeZone_InvalidRegistryData, id), e);
-            }
-            else if (result == TimeZoneInfoResult.SecurityException)
-            {
-                throw new SecurityException(SR.Format(SR.Security_CannotReadRegistryData, id), e);
-            }
-            else
-            {
-                throw new TimeZoneNotFoundException(SR.Format(SR.TimeZoneNotFound_MissingData, id), e);
-            }
-        }
+        private static TimeZoneInfoResult TryGetTimeZone(string id, out TimeZoneInfo? timeZone, out Exception? e, CachedData cachedData)
+            => TryGetTimeZone(id, false, out timeZone, out e, cachedData);
 
         // DateTime.Now fast path that avoids allocating an historically accurate TimeZoneInfo.Local and just creates a 1-year (current year) accurate time zone
         internal static TimeSpan GetDateTimeNowUtcOffsetFromUtc(DateTime time, out bool isAmbiguousLocalDst)
@@ -544,7 +524,7 @@ namespace System
                             defaultTimeZoneInformation, DateTime.MinValue.Date, DateTime.MaxValue.Date, defaultBaseUtcOffset);
                         if (rule != null)
                         {
-                            rules = new[] { rule };
+                            rules = [rule];
                         }
                         return true;
                     }
@@ -578,7 +558,7 @@ namespace System
                         AdjustmentRule? rule = CreateAdjustmentRuleFromTimeZoneInformation(dtzi, DateTime.MinValue.Date, DateTime.MaxValue.Date, defaultBaseUtcOffset);
                         if (rule != null)
                         {
-                            rules = new[] { rule };
+                            rules = [rule];
                         }
                         return true;
                     }
@@ -660,7 +640,7 @@ namespace System
 
         private static unsafe bool TryGetTimeZoneEntryFromRegistry(RegistryKey key, string name, out REG_TZI_FORMAT dtzi)
         {
-            if (!(key.GetValue(name, null) is byte[] regValue) || regValue.Length != sizeof(REG_TZI_FORMAT))
+            if (key.GetValue(name, null) is not byte[] regValue || regValue.Length != sizeof(REG_TZI_FORMAT))
             {
                 dtzi = default;
                 return false;
@@ -711,7 +691,7 @@ namespace System
 
                 result = dstDisabled || CheckDaylightSavingTimeNotSupported(timeZone) ||
                     //
-                    // since Daylight Saving Time is not "disabled", do a straight comparision between
+                    // since Daylight Saving Time is not "disabled", do a straight comparison between
                     // the Win32 API data and the registry data ...
                     //
                     (timeZone.DaylightBias == registryTimeZoneInfo.DaylightBias &&
@@ -750,14 +730,16 @@ namespace System
             // filePath   = "C:\Windows\System32\tzres.dll"
             // resourceId = -100
             //
-            string[] resources = resource.Split(',');
+            ReadOnlySpan<char> resourceSpan = resource;
+            Span<Range> resources = stackalloc Range[3];
+            resources = resources.Slice(0, resourceSpan.Split(resources, ','));
             if (resources.Length != 2)
             {
                 return string.Empty;
             }
 
             // Get the resource ID
-            if (!int.TryParse(resources[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int resourceId))
+            if (!int.TryParse(resourceSpan[resources[1]], NumberStyles.Integer, CultureInfo.InvariantCulture, out int resourceId))
             {
                 return string.Empty;
             }
@@ -770,7 +752,7 @@ namespace System
             string system32 = Environment.SystemDirectory;
 
             // trim the string "@tzres.dll" to "tzres.dll" and append the "mui" file extension to it.
-            string tzresDll = $"{resources[0].AsSpan().TrimStart('@')}.mui";
+            string tzresDll = $"{resourceSpan[resources[0]].TrimStart('@')}.mui";
 
             try
             {
@@ -940,9 +922,9 @@ namespace System
                     value = new TimeZoneInfo(
                         id,
                         new TimeSpan(0, -(defaultTimeZoneInformation.Bias), 0),
-                        displayName,
-                        standardName,
-                        daylightName,
+                        displayName ?? string.Empty,
+                        standardName ?? string.Empty,
+                        daylightName ?? string.Empty,
                         adjustmentRules,
                         disableDaylightSavingTime: false);
 
@@ -1004,7 +986,7 @@ namespace System
         }
 
         // Helper function to get the full display name for the UTC static time zone instance
-        private static string GetUtcFullDisplayName(string timeZoneId, string standardDisplayName)
+        private static string GetUtcFullDisplayName(string _ /*timeZoneId*/, string standardDisplayName)
         {
             return $"(UTC) {standardDisplayName}";
         }

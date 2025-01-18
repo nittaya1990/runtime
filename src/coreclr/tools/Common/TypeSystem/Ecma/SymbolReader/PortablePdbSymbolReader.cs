@@ -62,19 +62,26 @@ namespace Internal.TypeSystem.Ecma
             }
         }
 
-        public static PdbSymbolReader TryOpen(string pdbFilename, MetadataStringDecoder stringDecoder)
+        public static PdbSymbolReader TryOpen(string pdbFilename, MetadataStringDecoder stringDecoder, BlobContentId expectedContentId)
         {
             MemoryMappedViewAccessor mappedViewAccessor;
             MetadataReader reader = TryOpenMetadataFile(pdbFilename, stringDecoder, out mappedViewAccessor);
             if (reader == null)
                 return null;
 
+            var foundContentId = new BlobContentId(reader.DebugMetadataHeader.Id);
+            if (foundContentId != expectedContentId)
+            {
+                mappedViewAccessor.Dispose();
+                return null;
+            }
+
             return new PortablePdbSymbolReader(reader, mappedViewAccessor);
         }
 
         public static PdbSymbolReader TryOpenEmbedded(PEReader peReader, MetadataStringDecoder stringDecoder)
         {
-            foreach (DebugDirectoryEntry debugEntry in peReader.ReadDebugDirectory())
+            foreach (DebugDirectoryEntry debugEntry in peReader.SafeReadDebugDirectory())
             {
                 if (debugEntry.Type != DebugDirectoryEntryType.EmbeddedPortablePdb)
                     continue;
@@ -98,8 +105,7 @@ namespace Internal.TypeSystem.Ecma
 
         public override void Dispose()
         {
-            if (_mappedViewAccessor != null)
-                _mappedViewAccessor.Dispose();
+            _mappedViewAccessor?.Dispose();
         }
 
         public override int GetStateMachineKickoffMethod(int methodToken)
@@ -111,6 +117,21 @@ namespace Internal.TypeSystem.Ecma
             var kickoffMethod = debugInformation.GetStateMachineKickoffMethod();
             return kickoffMethod.IsNil ? 0 : MetadataTokens.GetToken(kickoffMethod);
         }
+
+        private Dictionary<DocumentHandle, string> _urlCache;
+
+        private string GetUrl(DocumentHandle handle)
+        {
+            lock (this)
+            {
+                _urlCache ??= new Dictionary<DocumentHandle, string>();
+                if (!_urlCache.TryGetValue(handle, out var url))
+                    _urlCache.Add(handle, url = _reader.GetString(_reader.GetDocument(handle).Name));
+
+                return url;
+            }
+        }
+
 
         public override IEnumerable<ILSequencePoint> GetSequencePointsForMethod(int methodToken)
         {
@@ -135,7 +156,7 @@ namespace Internal.TypeSystem.Ecma
                 }
                 else
                 {
-                    url = _reader.GetString(_reader.GetDocument(sequencePoint.Document).Name);
+                    url = GetUrl(sequencePoint.Document);
                     previousDocumentHandle = sequencePoint.Document;
                     previousDocumentUrl = url;
                 }
@@ -185,6 +206,22 @@ namespace Internal.TypeSystem.Ecma
                 ProbeScopeForLocals(variables, localScopeHandle);
             }
             return variables;
+        }
+
+        public override unsafe ReadOnlySpan<byte> GetSourceLinkData()
+        {
+            // {CC110556-A091-4D38-9FEC-25AB9A351A6A}
+            Guid sourceLinkDataGuid = new Guid(0xCC110556, 0xA091, 0x4D38, 0x9F, 0xEC, 0x25, 0xAB, 0x9A, 0x35, 0x1A, 0x6A);
+            foreach (CustomDebugInformationHandle cdiHandle in _reader.GetCustomDebugInformation(Handle.ModuleDefinition))
+            {
+                CustomDebugInformation cdi = _reader.GetCustomDebugInformation(cdiHandle);
+                if (_reader.GetGuid(cdi.Kind) == sourceLinkDataGuid)
+                {
+                    BlobReader br = _reader.GetBlobReader(cdi.Value);
+                    return new ReadOnlySpan<byte>(br.StartPointer, br.Length);
+                }
+            }
+            return ReadOnlySpan<byte>.Empty;
         }
     }
 }

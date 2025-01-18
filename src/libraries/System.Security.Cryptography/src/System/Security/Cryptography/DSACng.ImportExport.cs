@@ -23,18 +23,47 @@ namespace System.Security.Cryptography
                 CngKeyBlobFormat.GenericPublicBlob;
 
             CngKey newKey = CngKey.Import(dsaBlob, blobFormat);
-            newKey.ExportPolicy |= CngExportPolicies.AllowPlaintextExport;
-
-            Key = newKey;
+            try
+            {
+                newKey.ExportPolicy |= CngExportPolicies.AllowPlaintextExport;
+                Key = newKey;
+            }
+            catch
+            {
+                newKey.Dispose();
+                throw;
+            }
         }
 
         private void AcceptImport(CngPkcs8.Pkcs8Response response)
         {
-            Key = response.Key;
+            try
+            {
+                Key = response.Key;
+            }
+            catch
+            {
+                response.FreeKey();
+                throw;
+            }
         }
 
         public override bool TryExportPkcs8PrivateKey(Span<byte> destination, out int bytesWritten)
         {
+            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(Key);
+
+            if (encryptedOnlyExport)
+            {
+                const string TemporaryExportPassword = "DotnetExportPhrase";
+                byte[] exported = ExportEncryptedPkcs8(TemporaryExportPassword, 1);
+                DSAKeyFormatHelper.ReadEncryptedPkcs8(
+                    exported,
+                    TemporaryExportPassword,
+                    out _,
+                    out DSAParameters dsaParameters);
+                return DSAKeyFormatHelper.WritePkcs8(dsaParameters).TryEncode(destination, out bytesWritten);
+            }
+
             return Key.TryExportKeyBlob(
                 Interop.NCrypt.NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
                 destination,

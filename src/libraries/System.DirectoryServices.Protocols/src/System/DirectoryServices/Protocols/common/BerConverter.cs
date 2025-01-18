@@ -10,14 +10,15 @@ namespace System.DirectoryServices.Protocols
 {
     public static partial class BerConverter
     {
-        public static byte[] Encode(string format!!, params object[] value)
+        public static byte[] Encode(string format, params object[] value)
         {
+            ArgumentNullException.ThrowIfNull(format);
+
             // no need to turn on invalid encoding detection as we just do string->byte[] conversion.
             UTF8Encoding utf8Encoder = new UTF8Encoding();
             byte[] encodingResult = null;
             // value is allowed to be null in certain scenario, so if it is null, just set it to empty array.
-            if (value == null)
-                value = Array.Empty<object>();
+            value ??= Array.Empty<object>();
 
             Debug.WriteLine("Begin encoding\n");
 
@@ -268,15 +269,15 @@ namespace System.DirectoryServices.Protocols
                     Marshal.PtrToStructure(flattenptr, binaryValue);
                 }
 
-                if (binaryValue == null || binaryValue.bv_len == 0)
+                if (binaryValue == null || binaryValue.bv_len.Value == 0)
                 {
                     encodingResult = Array.Empty<byte>();
                 }
                 else
                 {
-                    encodingResult = new byte[binaryValue.bv_len];
+                    encodingResult = new byte[binaryValue.bv_len.Value];
 
-                    Marshal.Copy(binaryValue.bv_val, encodingResult, 0, binaryValue.bv_len);
+                    Marshal.Copy(binaryValue.bv_val, encodingResult, 0, (int)binaryValue.bv_len.Value);
                 }
             }
             finally
@@ -298,8 +299,10 @@ namespace System.DirectoryServices.Protocols
                 throw new BerConversionException();
         }
 
-        internal static object[] TryDecode(string format!!, byte[] value, out bool decodeSucceeded)
+        internal static object[] TryDecode(string format, byte[] value, out bool decodeSucceeded)
         {
+            ArgumentNullException.ThrowIfNull(format);
+
             Debug.WriteLine("Begin decoding");
 
             UTF8Encoding utf8Encoder = new UTF8Encoding(false, true);
@@ -312,12 +315,12 @@ namespace System.DirectoryServices.Protocols
 
             if (value == null)
             {
-                berValue.bv_len = 0;
+                berValue.bv_len = new CLong(0);
                 berValue.bv_val = IntPtr.Zero;
             }
             else
             {
-                berValue.bv_len = value.Length;
+                berValue.bv_len = new CLong(value.Length);
                 berValue.bv_val = Marshal.AllocHGlobal(value.Length);
                 Marshal.Copy(value, 0, berValue.bv_val, value.Length);
             }
@@ -325,126 +328,125 @@ namespace System.DirectoryServices.Protocols
             try
             {
                 berElement = new SafeBerHandle(berValue);
-            }
-            finally
-            {
-                if (berValue.bv_val != IntPtr.Zero)
-                    Marshal.FreeHGlobal(berValue.bv_val);
-            }
-
-            int error;
-
-            for (int formatCount = 0; formatCount < format.Length; formatCount++)
-            {
-                char fmt = format[formatCount];
-                if (fmt == '{' || fmt == '}' || fmt == '[' || fmt == ']' || fmt == 'n' || fmt == 'x')
+                int error;
+                for (int formatCount = 0; formatCount < format.Length; formatCount++)
                 {
-                    error = BerPal.ScanNext(berElement, new string(fmt, 1));
-
-                    if (BerPal.IsBerDecodeError(error))
-                        Debug.WriteLine("ber_scanf for {, }, [, ], n or x failed");
-                }
-                else if (fmt == 'i' || fmt == 'e' || fmt == 'b')
-                {
-                    int result = 0;
-                    error = BerPal.ScanNextInt(berElement, new string(fmt, 1), ref result);
-
-                    if (!BerPal.IsBerDecodeError(error))
+                    char fmt = format[formatCount];
+                    if (fmt == '{' || fmt == '}' || fmt == '[' || fmt == ']' || fmt == 'n' || fmt == 'x')
                     {
-                        if (fmt == 'b')
+                        error = BerPal.ScanNext(berElement, new string(fmt, 1));
+
+                        if (BerPal.IsBerDecodeError(error))
+                            Debug.WriteLine("ber_scanf for {, }, [, ], n or x failed");
+                    }
+                    else if (fmt == 'i' || fmt == 'e' || fmt == 'b')
+                    {
+                        int result = 0;
+                        error = BerPal.ScanNextInt(berElement, new string(fmt, 1), ref result);
+
+                        if (!BerPal.IsBerDecodeError(error))
                         {
-                            // should return a bool
-                            bool boolResult;
-                            if (result == 0)
-                                boolResult = false;
+                            if (fmt == 'b')
+                            {
+                                // should return a bool
+                                bool boolResult;
+                                if (result == 0)
+                                    boolResult = false;
+                                else
+                                    boolResult = true;
+                                resultList.Add(boolResult);
+                            }
                             else
-                                boolResult = true;
-                            resultList.Add(boolResult);
+                            {
+                                resultList.Add(result);
+                            }
                         }
                         else
+                            Debug.WriteLine("ber_scanf for format character 'i', 'e' or 'b' failed");
+                    }
+                    else if (fmt == 'a')
+                    {
+                        // return a string
+                        byte[] byteArray = DecodingByteArrayHelper(berElement, 'O', out error);
+                        if (!BerPal.IsBerDecodeError(error))
+                        {
+                            string s = null;
+                            if (byteArray != null)
+                                s = utf8Encoder.GetString(byteArray);
+
+                            resultList.Add(s);
+                        }
+                    }
+                    else if (fmt == 'O')
+                    {
+                        // return BerVal
+                        byte[] byteArray = DecodingByteArrayHelper(berElement, fmt, out error);
+                        if (!BerPal.IsBerDecodeError(error))
+                        {
+                            // add result to the list
+                            resultList.Add(byteArray);
+                        }
+                    }
+                    else if (fmt == 'B')
+                    {
+                        error = DecodeBitStringHelper(resultList, berElement);
+                    }
+                    else if (fmt == 'v')
+                    {
+                        //null terminate strings
+                        byte[][] byteArrayresult;
+                        string[] stringArray = null;
+
+                        byteArrayresult = DecodingMultiByteArrayHelper(berElement, 'V', out error);
+                        if (!BerPal.IsBerDecodeError(error))
+                        {
+                            if (byteArrayresult != null)
+                            {
+                                stringArray = new string[byteArrayresult.Length];
+                                for (int i = 0; i < byteArrayresult.Length; i++)
+                                {
+                                    if (byteArrayresult[i] == null)
+                                    {
+                                        stringArray[i] = null;
+                                    }
+                                    else
+                                    {
+                                        stringArray[i] = utf8Encoder.GetString(byteArrayresult[i]);
+                                    }
+                                }
+                            }
+
+                            resultList.Add(stringArray);
+                        }
+                    }
+                    else if (fmt == 'V')
+                    {
+                        byte[][] result;
+
+                        result = DecodingMultiByteArrayHelper(berElement, fmt, out error);
+                        if (!BerPal.IsBerDecodeError(error))
                         {
                             resultList.Add(result);
                         }
                     }
                     else
-                        Debug.WriteLine("ber_scanf for format character 'i', 'e' or 'b' failed");
-                }
-                else if (fmt == 'a')
-                {
-                    // return a string
-                    byte[] byteArray = DecodingByteArrayHelper(berElement, 'O', out error);
-                    if (!BerPal.IsBerDecodeError(error))
                     {
-                        string s = null;
-                        if (byteArray != null)
-                            s = utf8Encoder.GetString(byteArray);
+                        Debug.WriteLine("Format string contains undefined character\n");
+                        throw new ArgumentException(SR.BerConverterUndefineChar);
+                    }
 
-                        resultList.Add(s);
+                    if (BerPal.IsBerDecodeError(error))
+                    {
+                        // decode failed, just return
+                        return decodeResult;
                     }
                 }
-                else if (fmt == 'O')
-                {
-                    // return BerVal
-                    byte[] byteArray = DecodingByteArrayHelper(berElement, fmt, out error);
-                    if (!BerPal.IsBerDecodeError(error))
-                    {
-                        // add result to the list
-                        resultList.Add(byteArray);
-                    }
-                }
-                else if (fmt == 'B')
-                {
-                    error = DecodeBitStringHelper(resultList, berElement);
-                }
-                else if (fmt == 'v')
-                {
-                    //null terminate strings
-                    byte[][] byteArrayresult;
-                    string[] stringArray = null;
-
-                    byteArrayresult = DecodingMultiByteArrayHelper(berElement, 'V', out error);
-                    if (!BerPal.IsBerDecodeError(error))
-                    {
-                        if (byteArrayresult != null)
-                        {
-                            stringArray = new string[byteArrayresult.Length];
-                            for (int i = 0; i < byteArrayresult.Length; i++)
-                            {
-                                if (byteArrayresult[i] == null)
-                                {
-                                    stringArray[i] = null;
-                                }
-                                else
-                                {
-                                    stringArray[i] = utf8Encoder.GetString(byteArrayresult[i]);
-                                }
-                            }
-                        }
-
-                        resultList.Add(stringArray);
-                    }
-                }
-                else if (fmt == 'V')
-                {
-                    byte[][] result;
-
-                    result = DecodingMultiByteArrayHelper(berElement, fmt, out error);
-                    if (!BerPal.IsBerDecodeError(error))
-                    {
-                        resultList.Add(result);
-                    }
-                }
-                else
-                {
-                    Debug.WriteLine("Format string contains undefined character\n");
-                    throw new ArgumentException(SR.BerConverterUndefineChar);
-                }
-
-                if (BerPal.IsBerDecodeError(error))
-                {
-                    // decode failed, just return
-                    return decodeResult;
-                }
+            }
+            finally
+            {
+                if (berValue.bv_val != IntPtr.Zero)
+                    Marshal.FreeHGlobal(berValue.bv_val);
+                berElement?.Dispose();
             }
 
             decodeResult = new object[resultList.Count];
@@ -466,12 +468,12 @@ namespace System.DirectoryServices.Protocols
             {
                 IntPtr tmp = Marshal.AllocHGlobal(tempValue.Length);
                 Marshal.Copy(tempValue, 0, tmp, tempValue.Length);
-                HGlobalMemHandle memHandle = new HGlobalMemHandle(tmp);
+                using HGlobalMemHandle memHandle = new HGlobalMemHandle(tmp);
                 error = BerPal.PrintByteArray(berElement, new string(fmt, 1), memHandle, (uint)tempValue.Length, tag);
             }
             else
             {
-                HGlobalMemHandle memHandle = new HGlobalMemHandle(HGlobalMemHandle._dummyPointer);
+                using HGlobalMemHandle memHandle = new HGlobalMemHandle(HGlobalMemHandle._dummyPointer);
                 error = BerPal.PrintByteArray(berElement, new string(fmt, 1), memHandle, 0, tag);
             }
 
@@ -496,8 +498,8 @@ namespace System.DirectoryServices.Protocols
                     {
                         Marshal.PtrToStructure(result, binaryValue);
 
-                        byteArray = new byte[binaryValue.bv_len];
-                        Marshal.Copy(binaryValue.bv_val, byteArray, 0, binaryValue.bv_len);
+                        byteArray = new byte[binaryValue.bv_len.Value];
+                        Marshal.Copy(binaryValue.bv_val, byteArray, 0, (int)binaryValue.bv_len.Value);
                     }
                 }
                 else
@@ -512,10 +514,9 @@ namespace System.DirectoryServices.Protocols
             return byteArray;
         }
 
-        private static int EncodingMultiByteArrayHelper(SafeBerHandle berElement, byte[][] tempValue, char fmt, nuint tag)
+        private static unsafe int EncodingMultiByteArrayHelper(SafeBerHandle berElement, byte[][] tempValue, char fmt, nuint tag)
         {
             IntPtr berValArray = IntPtr.Zero;
-            IntPtr tempPtr;
             BerVal[] managedBervalArray = null;
             int error = 0;
 
@@ -525,8 +526,9 @@ namespace System.DirectoryServices.Protocols
                 {
                     int i = 0;
                     berValArray = Utility.AllocHGlobalIntPtrArray(tempValue.Length + 1);
-                    int structSize = Marshal.SizeOf(typeof(BerVal));
+                    int structSize = Marshal.SizeOf<BerVal>();
                     managedBervalArray = new BerVal[tempValue.Length];
+                    void** pBerValArray = (void**)berValArray;
 
                     for (i = 0; i < tempValue.Length; i++)
                     {
@@ -537,7 +539,7 @@ namespace System.DirectoryServices.Protocols
 
                         if (byteArray != null)
                         {
-                            managedBervalArray[i].bv_len = byteArray.Length;
+                            managedBervalArray[i].bv_len = new CLong(byteArray.Length);
                             managedBervalArray[i].bv_val = Marshal.AllocHGlobal(byteArray.Length);
                             Marshal.Copy(byteArray, 0, managedBervalArray[i].bv_val, byteArray.Length);
                         }
@@ -546,12 +548,10 @@ namespace System.DirectoryServices.Protocols
                         IntPtr valPtr = Marshal.AllocHGlobal(structSize);
                         Marshal.StructureToPtr(managedBervalArray[i], valPtr, false);
 
-                        tempPtr = (IntPtr)((long)berValArray + IntPtr.Size * i);
-                        Marshal.WriteIntPtr(tempPtr, valPtr);
+                        pBerValArray[i] = (void*)valPtr;
                     }
 
-                    tempPtr = (IntPtr)((long)berValArray + IntPtr.Size * i);
-                    Marshal.WriteIntPtr(tempPtr, IntPtr.Zero);
+                    pBerValArray[i] = null;
                 }
 
                 error = BerPal.PrintBerArray(berElement, new string(fmt, 1), berValArray, tag);
@@ -606,8 +606,8 @@ namespace System.DirectoryServices.Protocols
                             BerVal ber = new BerVal();
                             Marshal.PtrToStructure(tempPtr, ber);
 
-                            byte[] berArray = new byte[ber.bv_len];
-                            Marshal.Copy(ber.bv_val, berArray, 0, ber.bv_len);
+                            byte[] berArray = new byte[ber.bv_len.Value];
+                            Marshal.Copy(ber.bv_val, berArray, 0, (int)ber.bv_len.Value);
 
                             binaryList.Add(berArray);
 

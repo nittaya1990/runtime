@@ -10,3 +10,5 @@
 [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(System.Buffers.MemoryHandle))]
 [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(System.Buffers.MemoryManager<>))]
 [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(System.Buffers.OperationStatus))]
+[assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(System.Buffers.Text.Base64))]
+[assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(System.Runtime.InteropServices.MemoryMarshal))]

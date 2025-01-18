@@ -58,48 +58,18 @@ namespace System.Security.Cryptography.Pkcs
             _document = ownerDocument;
         }
 
-        public CryptographicAttributeObjectCollection SignedAttributes
-        {
-            get
-            {
-                if (_parsedSignedAttrs == null)
-                {
-                    _parsedSignedAttrs = MakeAttributeCollection(_signedAttributes);
-                }
+        public CryptographicAttributeObjectCollection SignedAttributes =>
+            _parsedSignedAttrs ??= MakeAttributeCollection(_signedAttributes);
 
-                return _parsedSignedAttrs;
-            }
-        }
-
-        public CryptographicAttributeObjectCollection UnsignedAttributes
-        {
-            get
-            {
-                if (_parsedUnsignedAttrs == null)
-                {
-                    _parsedUnsignedAttrs = MakeAttributeCollection(_unsignedAttributes);
-                }
-
-                return _parsedUnsignedAttrs;
-            }
-        }
+        public CryptographicAttributeObjectCollection UnsignedAttributes =>
+            _parsedUnsignedAttrs ??= MakeAttributeCollection(_unsignedAttributes);
 
         internal ReadOnlyMemory<byte> GetSignatureMemory() => _signature;
 
         public byte[] GetSignature() => _signature.ToArray();
 
-        public X509Certificate2? Certificate
-        {
-            get
-            {
-                if (_signerCertificate == null)
-                {
-                    _signerCertificate = FindSignerCertificate();
-                }
-
-                return _signerCertificate;
-            }
-        }
+        public X509Certificate2? Certificate =>
+            _signerCertificate ??= FindSignerCertificate();
 
         public SignerInfoCollection CounterSignerInfos
         {
@@ -292,7 +262,7 @@ namespace System.Security.Cryptography.Pkcs
             return new SignerInfoCollection(signerInfos.ToArray());
         }
 
-#if NETCOREAPP
+#if NET
         [Obsolete(Obsoletions.SignerInfoCounterSigMessage, DiagnosticId = Obsoletions.SignerInfoCounterSigDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
  #endif
         [EditorBrowsable(EditorBrowsableState.Never)]
@@ -435,8 +405,13 @@ namespace System.Security.Cryptography.Pkcs
             }
         }
 
-        public void RemoveCounterSignature(SignerInfo counterSignerInfo!!)
+        public void RemoveCounterSignature(SignerInfo counterSignerInfo)
         {
+            if (counterSignerInfo is null)
+            {
+                throw new ArgumentNullException(nameof(counterSignerInfo));
+            }
+
             SignerInfoCollection docSigners = _document.SignerInfos;
             int index = docSigners.FindIndexForSigner(this);
 
@@ -459,8 +434,13 @@ namespace System.Security.Cryptography.Pkcs
         public void CheckSignature(bool verifySignatureOnly) =>
             CheckSignature(new X509Certificate2Collection(), verifySignatureOnly);
 
-        public void CheckSignature(X509Certificate2Collection extraStore!!, bool verifySignatureOnly)
+        public void CheckSignature(X509Certificate2Collection extraStore, bool verifySignatureOnly)
         {
+            if (extraStore is null)
+            {
+                throw new ArgumentNullException(nameof(extraStore));
+            }
+
             X509Certificate2? certificate = Certificate;
 
             if (certificate == null)
@@ -570,7 +550,17 @@ namespace System.Security.Cryptography.Pkcs
         {
             HashAlgorithmName hashAlgorithmName = GetDigestAlgorithm();
 
-            IncrementalHash hasher = IncrementalHash.CreateHash(hashAlgorithmName);
+
+            IncrementalHash hasher;
+
+            try
+            {
+                hasher = IncrementalHash.CreateHash(hashAlgorithmName);
+            }
+            catch (PlatformNotSupportedException ex)
+            {
+                throw new CryptographicException(SR.Format(SR.Cryptography_UnknownHashAlgorithm, hashAlgorithmName), ex);
+            }
 
             if (_parentSignerInfo == null)
             {
@@ -663,7 +653,15 @@ namespace System.Security.Cryptography.Pkcs
                     {
                         writer.PopSetOf();
 
+#if NET9_0_OR_GREATER
+                        writer.Encode(hasher, static (hasher, encoded) =>
+                        {
+                            hasher.AppendData(encoded);
+                            return (object?)null;
+                        });
+#else
                         hasher.AppendData(writer.Encode());
+#endif
                     }
                 }
             }
@@ -756,7 +754,7 @@ namespace System.Security.Cryptography.Pkcs
                     return false;
                 }
 
-#if NETCOREAPP || NETSTANDARD2_1
+#if NET || NETSTANDARD2_1
                 // SHA-2-512 is the biggest digest type we know about.
                 Span<byte> digestValue = stackalloc byte[512 / 8];
                 ReadOnlySpan<byte> digest = digestValue;

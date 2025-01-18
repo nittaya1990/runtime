@@ -15,19 +15,34 @@ namespace System.Security.Cryptography
         private static readonly CngKeyBlobFormat s_rsaPublicBlob =
             new CngKeyBlobFormat(Interop.BCrypt.KeyBlobType.BCRYPT_RSAPUBLIC_KEY_BLOB);
 
-        private void ImportKeyBlob(byte[] rsaBlob, bool includePrivate)
+        private void ImportKeyBlob(ReadOnlySpan<byte> rsaBlob, bool includePrivate)
         {
             CngKeyBlobFormat blobFormat = includePrivate ? s_rsaPrivateBlob : s_rsaPublicBlob;
 
             CngKey newKey = CngKey.Import(rsaBlob, blobFormat);
-            newKey.ExportPolicy |= CngExportPolicies.AllowPlaintextExport;
-
-            Key = newKey;
+            try
+            {
+                newKey.ExportPolicy |= CngExportPolicies.AllowPlaintextExport;
+                Key = newKey;
+            }
+            catch
+            {
+                newKey.Dispose();
+                throw;
+            }
         }
 
         private void AcceptImport(CngPkcs8.Pkcs8Response response)
         {
-            Key = response.Key;
+            try
+            {
+                Key = response.Key;
+            }
+            catch
+            {
+                response.FreeKey();
+                throw;
+            }
         }
 
         private byte[] ExportKeyBlob(bool includePrivateParameters)
@@ -37,6 +52,20 @@ namespace System.Security.Cryptography
 
         public override bool TryExportPkcs8PrivateKey(Span<byte> destination, out int bytesWritten)
         {
+            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(Key);
+
+            if (encryptedOnlyExport)
+            {
+                const string TemporaryExportPassword = "DotnetExportPhrase";
+                byte[] exported = ExportEncryptedPkcs8(TemporaryExportPassword, 1);
+                RSAKeyFormatHelper.ReadEncryptedPkcs8(
+                    exported,
+                    TemporaryExportPassword,
+                    out _,
+                    out RSAParameters rsaParameters);
+                return RSAKeyFormatHelper.WritePkcs8PrivateKey(rsaParameters).TryEncode(destination, out bytesWritten);
+            }
+
             return Key.TryExportKeyBlob(
                 Interop.NCrypt.NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
                 destination,

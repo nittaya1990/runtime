@@ -23,7 +23,7 @@ namespace System.Security.Cryptography
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
                 key,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 Interop.Crypto.EvpCipherDirection.NoChange);
         }
 
@@ -36,7 +36,7 @@ namespace System.Security.Cryptography
         {
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 nonce,
                 Interop.Crypto.EvpCipherDirection.Encrypt);
 
@@ -106,7 +106,7 @@ namespace System.Security.Cryptography
                 out int bytesWritten))
             {
                 CryptographicOperations.ZeroMemory(plaintext);
-                throw new CryptographicException(SR.Cryptography_AuthTagMismatch);
+                throw new AuthenticationTagMismatchException();
             }
 
             plaintextBytesWritten += bytesWritten;

@@ -13,7 +13,7 @@ using Microsoft.Extensions.Primitives;
 namespace Microsoft.Extensions.Configuration
 {
     /// <summary>
-    /// Base class for file based <see cref="ConfigurationProvider"/>.
+    /// Provides the base class for file-based <see cref="ConfigurationProvider"/> providers.
     /// </summary>
     public abstract class FileConfigurationProvider : ConfigurationProvider, IDisposable
     {
@@ -23,8 +23,10 @@ namespace Microsoft.Extensions.Configuration
         /// Initializes a new instance with the specified source.
         /// </summary>
         /// <param name="source">The source settings.</param>
-        public FileConfigurationProvider(FileConfigurationSource source!!)
+        public FileConfigurationProvider(FileConfigurationSource source)
         {
+            ThrowHelper.ThrowIfNull(source);
+
             Source = source;
 
             if (Source.ReloadOnChange && Source.FileProvider != null)
@@ -40,14 +42,14 @@ namespace Microsoft.Extensions.Configuration
         }
 
         /// <summary>
-        /// The source settings for this provider.
+        /// Gets the source settings for this provider.
         /// </summary>
         public FileConfigurationSource Source { get; }
 
         /// <summary>
         /// Generates a string representing this provider name and relevant details.
         /// </summary>
-        /// <returns> The configuration name. </returns>
+        /// <returns>The configuration name.</returns>
         public override string ToString()
             => $"{GetType().Name} for '{Source.Path}' ({(Source.Optional ? "Optional" : "Required")})";
 
@@ -154,7 +156,7 @@ namespace Microsoft.Extensions.Configuration
         public void Dispose() => Dispose(true);
 
         /// <summary>
-        /// Dispose the provider.
+        /// Disposes the provider.
         /// </summary>
         /// <param name="disposing"><c>true</c> if invoked from <see cref="IDisposable.Dispose"/>.</param>
         protected virtual void Dispose(bool disposing)

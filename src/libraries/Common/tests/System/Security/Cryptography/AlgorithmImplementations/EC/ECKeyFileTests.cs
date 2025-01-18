@@ -18,7 +18,9 @@ namespace System.Security.Cryptography.Tests
 
         // This would need to be virtualized if there was ever a platform that
         // allowed explicit in ECDH or ECDSA but not the other.
-        public static bool SupportsExplicitCurves { get; } = EcDiffieHellman.Tests.ECDiffieHellmanFactory.ExplicitCurvesSupported;
+        public static bool SupportsExplicitCurves { get; } =
+            EcDiffieHellman.Tests.ECDiffieHellmanFactory.ExplicitCurvesSupported ||
+            EcDiffieHellman.Tests.ECDiffieHellmanFactory.ExplicitCurvesSupportFailOnUseOnly;
 
         public static bool CanDeriveNewPublicKey { get; } = EcDiffieHellman.Tests.ECDiffieHellmanFactory.CanDeriveNewPublicKey;
 
@@ -93,7 +95,7 @@ namespace System.Security.Cryptography.Tests
             // Check encrypted import with the wrong password.
             // It shouldn't do enough work to realize it was wrong.
             pwBytes = Array.Empty<byte>();
-            Assert.Throws<ObjectDisposedException>(() => key.ImportEncryptedPkcs8PrivateKey("", pkcs8EncryptedPrivate, out _));
+            Assert.Throws<ObjectDisposedException>(() => key.ImportEncryptedPkcs8PrivateKey((ReadOnlySpan<char>)"", pkcs8EncryptedPrivate, out _));
             Assert.Throws<ObjectDisposedException>(() => key.ImportEncryptedPkcs8PrivateKey(pwBytes, pkcs8EncryptedPrivate, out _));
         }
 
@@ -195,7 +197,7 @@ qtlbnispri1a/EghiaPQ0po=";
 
             ReadWriteBase64EncryptedPkcs8(
                 base64,
-                Encoding.UTF8.GetBytes("qwerty"),
+                "qwerty"u8.ToArray(),
                 new PbeParameters(
                     PbeEncryptionAlgorithm.Aes256Cbc,
                     HashAlgorithmName.SHA1,
@@ -980,7 +982,7 @@ Tj/54rcY3i0gXT6da/r/o+qV");
             using (T key = CreateKey())
             {
                 Assert.ThrowsAny<CryptographicException>(
-                    () => key.ImportEncryptedPkcs8PrivateKey("test", high3DesIterationKey, out _));
+                    () => key.ImportEncryptedPkcs8PrivateKey((ReadOnlySpan<char>)"test", high3DesIterationKey, out _));
             }
         }
 
@@ -1081,7 +1083,7 @@ xoMaz20Yx+2TSN5dSm2FcD+0YFI=",
                         () => key.ImportEncryptedPkcs8PrivateKey(wrongPassword, encrypted, out _));
 
                     Assert.ThrowsAny<CryptographicException>(
-                        () => key.ImportEncryptedPkcs8PrivateKey("ThisBetterNotBeThePassword!", encrypted, out _));
+                        () => key.ImportEncryptedPkcs8PrivateKey((ReadOnlySpan<char>)"ThisBetterNotBeThePassword!", encrypted, out _));
 
                     int bytesRead = -1;
 

@@ -30,5 +30,13 @@ namespace Microsoft.Extensions.Caching.Memory
         /// </summary>
         /// <param name="key">An object identifying the entry.</param>
         void Remove(object key);
+
+#if NET
+        /// <summary>
+        /// Gets a snapshot of the cache statistics if available.
+        /// </summary>
+        /// <returns>An instance of <see cref="MemoryCacheStatistics"/> containing a snapshot of the cache statistics.</returns>
+        MemoryCacheStatistics? GetCurrentStatistics() => null;
+#endif
     }
 }

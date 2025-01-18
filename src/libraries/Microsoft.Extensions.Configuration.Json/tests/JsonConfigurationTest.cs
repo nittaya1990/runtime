@@ -4,8 +4,10 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Configuration.Test;
+using Microsoft.Extensions.FileProviders;
 using Xunit;
 
 namespace Microsoft.Extensions.Configuration
@@ -152,7 +154,6 @@ namespace Microsoft.Extensions.Configuration
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/50868", TestPlatforms.Android)]
         public void ThrowExceptionWhenUnexpectedEndFoundBeforeFinishParsing()
         {
             var json = @"{
@@ -167,7 +168,6 @@ namespace Microsoft.Extensions.Configuration
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/50868", TestPlatforms.Android)]
         public void ThrowExceptionWhenMissingCurlyBeforeFinishParsing()
         {
             var json = @"
@@ -200,7 +200,6 @@ namespace Microsoft.Extensions.Configuration
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/50868", TestPlatforms.Android)]
         public void JsonConfiguration_Throws_On_Missing_Configuration_File()
         {
             var config = new ConfigurationBuilder().AddJsonFile("NotExistingConfig.json", optional: false);
@@ -217,11 +216,39 @@ namespace Microsoft.Extensions.Configuration
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/50868", TestPlatforms.Android)]
         public void ThrowFormatExceptionWhenFileIsEmpty()
         {
             var exception = Assert.Throws<FormatException>(() => LoadProvider(@""));
             Assert.Contains("Could not parse the JSON file.", exception.Message);
+        }
+
+        [Fact]
+        public void AddJsonFile_FileProvider_Is_Not_Disposed_When_SourcesGetReloaded()
+        {
+            string filePath = Path.Combine(Path.GetTempPath(), $"{nameof(AddJsonFile_FileProvider_Is_Not_Disposed_When_SourcesGetReloaded)}.json");
+            File.WriteAllText(filePath, @"{ ""some"": ""value"" }");
+
+            IConfigurationBuilder builder = new ConfigurationManager();
+
+            builder.AddJsonFile(filePath, optional: false);
+
+            FileConfigurationSource fileConfigurationSource = (FileConfigurationSource)builder.Sources.Last();
+            PhysicalFileProvider fileProvider = (PhysicalFileProvider)fileConfigurationSource.FileProvider;
+
+            Assert.False(GetIsDisposed(fileProvider));
+
+            builder.Properties.Add("simplest", "repro");
+
+            Assert.False(GetIsDisposed(fileProvider));
+
+            fileProvider.Dispose();
+            Assert.True(GetIsDisposed(fileProvider));
+        }
+
+        private static bool GetIsDisposed(PhysicalFileProvider fileProvider)
+        {
+            System.Reflection.FieldInfo isDisposedField = typeof(PhysicalFileProvider).GetField("_disposed", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            return (bool)isDisposedField.GetValue(fileProvider);
         }
     }
 }

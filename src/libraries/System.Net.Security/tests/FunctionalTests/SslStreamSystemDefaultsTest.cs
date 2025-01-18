@@ -78,12 +78,6 @@ namespace System.Net.Security.Tests
         [MemberData(nameof(OneOrBothUseDefaulData))]
         public async Task ClientAndServer_OneOrBothUseDefault_Ok(SslProtocols? clientProtocols, SslProtocols? serverProtocols)
         {
-            if (PlatformDetection.IsWindows10Version20348OrGreater)
-            {
-                // [ActiveIssue("https://github.com/dotnet/runtime/issues/58927")]
-                throw new SkipTestException("Unstable on Windows 11");
-            }
-
             using (X509Certificate2 serverCertificate = Configuration.Certificates.GetServerCertificate())
             using (X509Certificate2 clientCertificate = Configuration.Certificates.GetClientCertificate())
             {
@@ -101,6 +95,7 @@ namespace System.Net.Security.Tests
 #pragma warning restore 0618
                 {
                     Assert.True(
+#pragma warning disable SYSLIB0058 // Use NegotiatedCipherSuite.
 #pragma warning disable SYSLIB0039 // TLS 1.0 and 1.1 are obsolete
                         (_clientStream.SslProtocol == SslProtocols.Tls11 && _clientStream.HashAlgorithm == HashAlgorithmType.Sha1) ||
 #pragma warning restore SYSLIB0039
@@ -108,6 +103,7 @@ namespace System.Net.Security.Tests
                         _clientStream.HashAlgorithm == HashAlgorithmType.Sha384 ||
                         _clientStream.HashAlgorithm == HashAlgorithmType.Sha512,
                         _clientStream.SslProtocol + " " + _clientStream.HashAlgorithm);
+#pragma warning restore SYSLIB0058 // Use NegotiatedCipherSuite.
                 }
             }
         }

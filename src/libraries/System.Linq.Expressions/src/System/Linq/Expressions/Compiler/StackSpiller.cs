@@ -4,10 +4,10 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic.Utils;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Linq.Expressions.Compiler
 {
@@ -462,6 +462,8 @@ namespace System.Linq.Expressions.Compiler
             return cr.Finish(expr);
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050:RequiresDynamicCode",
+            Justification = "A NewArrayExpression has already been created. The original creator will get a warning that it is not trim compatible.")]
         private Result RewriteNewArrayExpression(Expression expr, Stack stack)
         {
             var node = (NewArrayExpression)expr;
@@ -919,10 +921,7 @@ namespace System.Linq.Expressions.Compiler
 
                     @case = new SwitchCase(body.Node, testValues);
 
-                    if (clone == null)
-                    {
-                        clone = Clone(cases, i);
-                    }
+                    clone ??= Clone(cases, i);
                 }
 
                 if (clone != null)
@@ -987,10 +986,7 @@ namespace System.Linq.Expressions.Compiler
                     {
                         handler = Expression.MakeCatchBlock(handler.Test, handler.Variable, rbody.Node, filter);
 
-                        if (clone == null)
-                        {
-                            clone = Clone(handlers, i);
-                        }
+                        clone ??= Clone(handlers, i);
                     }
 
                     if (clone != null)

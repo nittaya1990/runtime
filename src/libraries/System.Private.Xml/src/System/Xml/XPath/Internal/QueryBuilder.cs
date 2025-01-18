@@ -269,10 +269,7 @@ namespace MS.Internal.Xml.XPath
             {
                 qyInput = ((DocumentOrderQuery)qyInput).input;
             }
-            if (_firstInput == null)
-            {
-                _firstInput = qyInput as BaseAxisQuery;
-            }
+            _firstInput ??= qyInput as BaseAxisQuery;
 
             bool merge = (qyInput.Properties & QueryProps.Merge) != 0;
             bool reverse = (qyInput.Properties & QueryProps.Reverse) != 0;
@@ -339,7 +336,7 @@ namespace MS.Internal.Xml.XPath
             }
         }
 
-        private Query ProcessVariable(Variable root)
+        private VariableQuery ProcessVariable(Variable root)
         {
             _needContext = true;
             if (!_allowVar)
@@ -464,7 +461,7 @@ namespace MS.Internal.Xml.XPath
                 throw XPathException.Create(SR.Xp_QueryTooComplex);
             }
 
-            Debug.Assert(root != null, "root != null");
+            Debug.Assert(root != null);
             Query? result = null;
             props = Props.None;
             switch (root.Type)

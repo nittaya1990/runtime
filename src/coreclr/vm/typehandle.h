@@ -27,7 +27,6 @@ class MethodTable;
 class EEClass;
 class Module;
 class Assembly;
-class BaseDomain;
 class MethodDesc;
 class TypeKey;
 class TypeHandleList;
@@ -268,7 +267,8 @@ public:
     // Note that if the TypeHandle is a valuetype, the caller is responsible
     // for checking that the valuetype is in its boxed form before calling
     // CanCastTo. Otherwise, the caller should be using IsBoxedAndCanCastTo()
-    typedef enum { CannotCast, CanCast, MaybeCast } CastResult;
+    // See CastCache.cs for matching managed type.
+    typedef enum { CannotCast = 0, CanCast = 1, MaybeCast = 2 } CastResult;
 
     BOOL CanCastTo(TypeHandle type, TypeHandlePairList *pVisited = NULL) const;
     BOOL IsBoxedAndCanCastTo(TypeHandle type, TypeHandlePairList *pVisited) const;
@@ -323,6 +323,16 @@ public:
     //
     BOOL IsCanonicalSubtype() const;
 
+#ifndef DACCESS_COMPILE
+    bool IsManagedClassObjectPinned() const;
+
+    // Allocates a RuntimeType object with the given TypeHandle. If the LoaderAllocator
+    // represents a not-unloadable context, it allocates the object on a frozen segment
+    // so the direct reference will be stored to the pDest argument. In case of unloadable
+    // context, an index to the pinned table will be saved.
+    void AllocateManagedClassObject(RUNTIMETYPEHANDLE* pDest);
+#endif
+
     // Similar to IsCanonicalSubtype, but applied to a vector.
     static BOOL IsCanonicalSubtypeInstantiation(Instantiation inst);
 
@@ -359,7 +369,7 @@ public:
 #ifdef _DEBUG
     // Check that this type matches the key given
     // i.e. that all aspects (element type, module/token, rank for arrays, instantiation for generic types) match up
-    CHECK CheckMatchesKey(TypeKey *pKey) const;
+    CHECK CheckMatchesKey(const TypeKey *pKey) const;
 
     // Check that this type is loaded up to the level indicated
     // Also check that it is non-null
@@ -423,19 +433,12 @@ public:
     PTR_Module GetModule() const;
 
     // The module where this type lives for the purposes of loading and prejitting
-    // Note: NGen time result might differ from runtime result for parametrized types (generics, arrays, etc.)
+    // Note: NGen time result might differ from runtime result for parameterized types (generics, arrays, etc.)
     // See code:ClassLoader::ComputeLoaderModule or file:clsload.hpp#LoaderModule for more information
     PTR_Module GetLoaderModule() const;
 
     // The assembly that defined this type (== GetModule()->GetAssembly())
     Assembly * GetAssembly() const;
-
-    // GetDomain on an instantiated type, e.g. C<ty1,ty2> returns the SharedDomain if all the
-    // constituent parts of the type are SharedDomain (i.e. domain-neutral),
-    // and returns an AppDomain if any of the parts are from an AppDomain,
-    // i.e. are domain-bound.  If any of the parts are domain-bound
-    // then they will all belong to the same domain.
-    PTR_BaseDomain GetDomain() const;
 
     PTR_LoaderAllocator GetLoaderAllocator() const;
 
@@ -460,24 +463,14 @@ public:
     // PTR
     BOOL IsPointer() const;
 
+    // String
+    BOOL IsString() const;
+
     // True if this type *is* a formal generic type parameter or any component of it is a formal generic type parameter
     BOOL ContainsGenericVariables(BOOL methodOnly=FALSE) const;
 
-    Module* GetDefiningModuleForOpenType() const;
-
     // Is type that has a type parameter (ARRAY, SZARRAY, BYREF, PTR)
     BOOL HasTypeParam() const;
-
-    BOOL IsRestored_NoLogging() const;
-    BOOL IsRestored() const;
-
-    // Does this type have zap-encoded components (generic arguments, etc)?
-    BOOL HasUnrestoredTypeKey() const;
-
-    // True if this type handle is a zap-encoded fixup
-    BOOL IsEncodedFixup() const;
-
-    void DoRestoreTypeKey();
 
     void CheckRestore() const;
     BOOL IsExternallyVisible() const;
@@ -510,7 +503,7 @@ public:
 #endif
 
     OBJECTREF GetManagedClassObject() const;
-    OBJECTREF GetManagedClassObjectFast() const;
+    OBJECTREF GetManagedClassObjectIfExists() const;
 
     static TypeHandle MergeArrayTypeHandlesToCommonParent(
         TypeHandle ta, TypeHandle tb);
@@ -518,9 +511,8 @@ public:
     static TypeHandle MergeTypeHandlesToCommonParent(
         TypeHandle ta, TypeHandle tb);
 
-
-    BOOL NotifyDebuggerLoad(AppDomain *domain, BOOL attaching) const;
-    void NotifyDebuggerUnload(AppDomain *domain) const;
+    BOOL NotifyDebuggerLoad(BOOL attaching) const;
+    void NotifyDebuggerUnload() const;
 
     // Execute the callback functor for each MethodTable that makes up the given type handle.  This method
     // does not invoke the functor for generic variables
@@ -609,6 +601,15 @@ public:
 };
 
 #if CHECK_INVARIANTS
+template <typename Dummy = TypeHandle>
+typename std::enable_if<has_Check<Dummy>::value, CHECK>::type CheckPointerImpl(Dummy th, IsNullOK ok)
+{
+    CHECK(th.Check());
+}
+
+template <typename Dummy = TypeHandle>
+typename std::enable_if<!has_Check<Dummy>::value, CHECK>::type CheckPointerImpl(Dummy th, IsNullOK ok) { CHECK_OK; }
+
 inline CHECK CheckPointer(TypeHandle th, IsNullOK ok = NULL_NOT_OK)
 {
     STATIC_CONTRACT_NOTHROW;
@@ -623,10 +624,7 @@ inline CHECK CheckPointer(TypeHandle th, IsNullOK ok = NULL_NOT_OK)
     }
     else
     {
-        __if_exists(TypeHandle::Check)
-        {
-            CHECK(th.Check());
-        }
+        CheckPointerImpl(th, ok);
 #if 0
         CHECK(CheckInvariant(o));
 #endif
@@ -634,14 +632,11 @@ inline CHECK CheckPointer(TypeHandle th, IsNullOK ok = NULL_NOT_OK)
 
     CHECK_OK;
 }
-
 #endif  // CHECK_INVARIANTS
 
 /*************************************************************************/
 // Instantiation is representation of generic instantiation.
-// It is simple read-only array of TypeHandles. In NGen, the type handles
-// may be encoded using indirections. That's one reason why it is convenient
-// to have wrapper class that performs the decoding.
+// It is simple read-only array of TypeHandles.
 class Instantiation
 {
 public:
@@ -686,6 +681,14 @@ public:
         _ASSERTE(m_nArgs == 0 || m_pArgs != NULL);
     }
 #endif
+
+    Instantiation& operator=(const Instantiation& inst)
+    {
+        _ASSERTE(this != &inst);
+        m_pArgs = inst.m_pArgs;
+        m_nArgs = inst.m_nArgs;
+        return *this;
+    }
 
     // Return i-th instantiation argument
     TypeHandle operator[](DWORD iArg) const

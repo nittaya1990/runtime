@@ -121,7 +121,7 @@ namespace System.Security.AccessControl
             try
             {
                 AccessControlSections persistRules = GetAccessControlSectionsFromChanges();
-                base.Persist(fullPath, persistRules);
+                base.Persist(PathInternal.EnsureExtendedPrefixIfNeeded(fullPath), persistRules);
                 OwnerModified = GroupModified = AuditRulesModified = AccessRulesModified = false;
             }
             finally
@@ -130,7 +130,7 @@ namespace System.Security.AccessControl
             }
         }
 
-        internal void Persist(SafeFileHandle handle, string fullPath)
+        internal void Persist(SafeFileHandle handle, string _ /*fullPath*/)
         {
             WriteLock();
 
@@ -162,8 +162,10 @@ namespace System.Security.AccessControl
             base.ResetAccessRule(rule);
         }
 
-        public bool RemoveAccessRule(FileSystemAccessRule rule!!)
+        public bool RemoveAccessRule(FileSystemAccessRule rule)
         {
+            ArgumentNullException.ThrowIfNull(rule);
+
             // If the rule to be removed matches what is there currently then
             // remove it unaltered. That is, don't mask off the Synchronize bit.
             // This is to avoid dangling synchronize bit
@@ -203,8 +205,10 @@ namespace System.Security.AccessControl
             base.RemoveAccessRuleAll(rule);
         }
 
-        public void RemoveAccessRuleSpecific(FileSystemAccessRule rule!!)
+        public void RemoveAccessRuleSpecific(FileSystemAccessRule rule)
         {
+            ArgumentNullException.ThrowIfNull(rule);
+
             // If the rule to be removed matches what is there currently then
             // remove it unaltered. That is, don't mask off the Synchronize bit
             // This is to avoid dangling synchronize bit

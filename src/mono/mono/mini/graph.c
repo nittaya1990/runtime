@@ -46,7 +46,7 @@ static void
 dtree_emit_one_loop_level (MonoCompile *cfg, FILE *fp, MonoBasicBlock *h)
 {
 	MonoBasicBlock *bb;
-	int i, level = 0;
+	gint8 level = 0;
 
 	if (h) {
 		level = h->nesting;
@@ -54,7 +54,7 @@ dtree_emit_one_loop_level (MonoCompile *cfg, FILE *fp, MonoBasicBlock *h)
 		fprintf (fp, "label=\"loop_%d\"\n", h->block_num);
 	}
 
-	for (i = 1; i < cfg->num_bblocks; ++i) {
+	for (guint i = 1; i < cfg->num_bblocks; ++i) {
 		bb = cfg->bblocks [i];
 
 		if (!h || (g_list_find (h->loop_blocks, bb) && bb != h)) {
@@ -200,10 +200,8 @@ mono_draw_graph (MonoCompile *cfg, MonoGraphOptions draw_options)
 {
 #ifdef HAVE_SYSTEM
 	char *com;
-#endif
 	const char *fn;
 	FILE *fp;
-	int _i G_GNUC_UNUSED;
 
 	fn = "/tmp/minidtree.graph";
 	fp = fopen (fn, "w+");
@@ -225,9 +223,9 @@ mono_draw_graph (MonoCompile *cfg, MonoGraphOptions draw_options)
 
 	fclose (fp);
 
-#ifdef HAVE_SYSTEM
 	//com = g_strdup_printf ("dot %s -Tpng -o %s.png; eog %s.png", fn, fn, fn);
 	com = g_strdup_printf ("dot %s -Tps -o %s.ps;gv %s.ps", fn, fn, fn);
+	int _i G_GNUC_UNUSED;
 	_i = system (com);
 	g_free (com);
 #else

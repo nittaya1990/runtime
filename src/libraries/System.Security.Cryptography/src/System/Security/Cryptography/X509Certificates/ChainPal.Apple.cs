@@ -16,7 +16,7 @@ namespace System.Security.Cryptography.X509Certificates
             X509ChainStatusFlags.Revoked |
             X509ChainStatusFlags.OfflineRevocation;
 
-        private static readonly SafeCreateHandle s_emptyArray = Interop.CoreFoundation.CFArrayCreate(Array.Empty<IntPtr>(), UIntPtr.Zero);
+        private static readonly SafeCreateHandle s_emptyArray = Interop.CoreFoundation.CFArrayCreate([], UIntPtr.Zero);
         private Stack<SafeHandle> _extraHandles;
         private SafeX509ChainHandle? _chainHandle;
         public X509ChainElement[]? ChainElements { get; private set; }
@@ -118,7 +118,7 @@ namespace System.Security.Cryptography.X509Certificates
 
         private SafeCreateHandle PreparePoliciesArray(bool checkRevocation)
         {
-            IntPtr[] policies = new IntPtr[checkRevocation ? 2 : 1];
+            Span<IntPtr> policies = checkRevocation ? stackalloc IntPtr[2] : stackalloc IntPtr[1];
 
             SafeHandle defaultPolicy = Interop.AppleCrypto.X509ChainCreateDefaultPolicy();
 
@@ -138,8 +138,7 @@ namespace System.Security.Cryptography.X509Certificates
                 policies[1] = revPolicy.DangerousGetHandle();
             }
 
-            SafeCreateHandle policiesArray =
-                Interop.CoreFoundation.CFArrayCreate(policies, (UIntPtr)policies.Length);
+            SafeCreateHandle policiesArray = Interop.CoreFoundation.CFArrayCreate(policies);
 
             _extraHandles.Push(policiesArray);
             return policiesArray;
@@ -191,7 +190,7 @@ namespace System.Security.Cryptography.X509Certificates
             return GetCertsArray(rootCertificates);
         }
 
-        private SafeCreateHandle GetCertsArray(IList<SafeHandle> safeHandles)
+        private SafeCreateHandle GetCertsArray(List<SafeHandle> safeHandles)
         {
             int idx = 0;
 
@@ -306,7 +305,7 @@ namespace System.Security.Cryptography.X509Certificates
             return elements;
         }
 
-        private bool IsPolicyMatch(
+        private static bool IsPolicyMatch(
             (X509Certificate2, int)[] elements,
             OidCollection? applicationPolicy,
             OidCollection? certificatePolicy)
@@ -349,16 +348,14 @@ namespace System.Security.Cryptography.X509Certificates
 
             for (int i = 0; i < elementTuples.Length; i++)
             {
-                (X509Certificate2, int) tuple = elementTuples[i];
+                (X509Certificate2 cert, int chainStatus) = elementTuples[i];
 
-                elements[i] = BuildElement(tuple.Item1, tuple.Item2);
-                allStatus |= tuple.Item2;
+                elements[i] = new X509ChainElement(cert, BuildChainElementStatuses(cert, chainStatus), "");
+                allStatus |= chainStatus;
             }
 
             ChainElements = elements;
-
-            X509ChainElement rollupElement = BuildElement(null!, allStatus);
-            ChainStatus = rollupElement.ChainElementStatus;
+            ChainStatus = BuildChainElementStatuses(null, allStatus);
         }
 
         private static void FixupRevocationStatus(
@@ -458,11 +455,11 @@ namespace System.Security.Cryptography.X509Certificates
             return X509ChainStatusFlags.UntrustedRoot;
         }
 
-        private X509ChainElement BuildElement(X509Certificate2 cert, int dwStatus)
+        private X509ChainStatus[] BuildChainElementStatuses(X509Certificate2? cert, int dwStatus)
         {
             if (dwStatus == 0)
             {
-                return new X509ChainElement(cert, Array.Empty<X509ChainStatus>(), "");
+                return Array.Empty<X509ChainStatus>();
             }
 
             List<X509ChainStatus> statuses = new List<X509ChainStatus>();
@@ -500,7 +497,7 @@ namespace System.Security.Cryptography.X509Certificates
                 }
             }
 
-            return new X509ChainElement(cert, statuses.ToArray(), "");
+            return statuses.ToArray();
         }
 
         private readonly struct X509ChainErrorMapping
@@ -549,6 +546,7 @@ namespace System.Security.Cryptography.X509Certificates
 
     internal sealed partial class ChainPal
     {
+#pragma warning disable IDE0060
         internal static partial IChainPal FromHandle(IntPtr chainContext)
         {
             // This is possible to do on Apple's platform, but is tricky in execution.
@@ -638,5 +636,6 @@ namespace System.Security.Cryptography.X509Certificates
 
             return chainPal;
         }
+#pragma warning restore IDE0060
     }
 }

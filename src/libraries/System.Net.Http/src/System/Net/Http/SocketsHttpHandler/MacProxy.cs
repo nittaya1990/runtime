@@ -2,13 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Net.Http;
-using System.Net;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
 using Microsoft.Win32.SafeHandles;
 using static Interop.CoreFoundation;
 using static Interop.RunLoop;
-
 using CFRunLoopRef = System.IntPtr;
 using CFRunLoopSourceRef = System.IntPtr;
 
@@ -30,7 +29,7 @@ namespace System.Net.Http
             return uriBuilder.Uri;
         }
 
-        public Uri? ExecuteProxyAutoConfiguration(SafeCreateHandle cfurl, CFProxy proxy)
+        private static Uri? ExecuteProxyAutoConfiguration(SafeCreateHandle cfurl, CFProxy proxy)
         {
             Uri? result = null;
             CFRunLoopRef runLoop = CFRunLoopGetCurrent();
@@ -111,8 +110,10 @@ namespace System.Net.Http
             return null;
         }
 
-        public bool IsBypassed(Uri targetUri!!)
+        public bool IsBypassed(Uri targetUri)
         {
+            ArgumentNullException.ThrowIfNull(targetUri);
+
             Uri? proxyUri = GetProxy(targetUri);
             return Equals(proxyUri, targetUri) || proxyUri == null;
         }

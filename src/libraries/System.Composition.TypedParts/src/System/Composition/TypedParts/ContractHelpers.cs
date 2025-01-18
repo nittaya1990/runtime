@@ -2,11 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
+using System.Composition.Hosting;
 using System.Composition.Hosting.Core;
 using System.Composition.TypedParts.ActivationFeatures;
-using System.Composition.Hosting;
+using System.Linq;
+using System.Reflection;
 
 namespace System.Composition.TypedParts
 {
@@ -29,7 +29,7 @@ namespace System.Composition.TypedParts
         public static ImportInfo GetImportInfo(Type memberType, object[] attributes, object site)
         {
             var importedContract = new CompositionContract(memberType);
-            IDictionary<string, object> importMetadata = null;
+            Dictionary<string, object> importMetadata = null;
             var allowDefault = false;
             var explicitImportsApplied = 0;
 
@@ -47,7 +47,7 @@ namespace System.Composition.TypedParts
                     var ima = attr as ImportManyAttribute;
                     if (ima != null)
                     {
-                        importMetadata = importMetadata ?? new Dictionary<string, object>();
+                        importMetadata ??= new Dictionary<string, object>();
                         importMetadata.Add(ImportManyImportMetadataConstraintName, true);
                         importedContract = new CompositionContract(memberType, ima.ContractName);
                         explicitImportsApplied++;
@@ -57,7 +57,7 @@ namespace System.Composition.TypedParts
                         var imca = attr as ImportMetadataConstraintAttribute;
                         if (imca != null)
                         {
-                            importMetadata = importMetadata ?? new Dictionary<string, object>();
+                            importMetadata ??= new Dictionary<string, object>();
                             importMetadata.Add(imca.Name, imca.Value);
                         }
                     }
@@ -72,7 +72,7 @@ namespace System.Composition.TypedParts
                         .GetRuntimeProperties()
                         .Where(p => p.GetMethod.IsPublic && p.DeclaringType == attrType && p.CanRead))
                     {
-                        importMetadata = importMetadata ?? new Dictionary<string, object>();
+                        importMetadata ??= new Dictionary<string, object>();
                         importMetadata.Add(prop.Name, prop.GetValue(attr, null));
                     }
                 }

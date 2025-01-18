@@ -16,6 +16,8 @@ import logging
 import shutil
 import sys
 import zipfile
+import stat
+import tempfile
 
 from os import path
 from coreclr_arguments import *
@@ -72,9 +74,9 @@ def determine_native_name(coreclr_args, base_lib_name, target_os):
         (str) : name of the native lib for this OS
     """
 
-    if target_os == "OSX":
+    if target_os == "osx":
         return "lib" + base_lib_name + ".dylib"
-    elif target_os == "Linux":
+    elif target_os == "linux":
         return "lib" + base_lib_name + ".so"
     elif target_os == "windows":
         return base_lib_name + ".dll"
@@ -96,14 +98,14 @@ def determine_benchmark_machine(coreclr_args):
 
     if coreclr_args.arch == "x64":
         if coreclr_args.host_os == "windows":
-#            return "aspnet-perf-win"
-            return "aspnet-citrine-win"
-        elif coreclr_args.host_os == "Linux":
+            return "aspnet-perf-win"
+#            return "aspnet-citrine-win"
+        elif coreclr_args.host_os == "linux":
             return "aspnet-perf-lin"
         else:
             raise RuntimeError("Invalid OS for x64.")
     elif coreclr_args.arch == "arm64":
-        if coreclr_args.host_os == "Linux":
+        if coreclr_args.host_os == "linux":
             return "aspnet-citrine-arm"
         else:
             raise RuntimeError("Invalid OS for arm64.")
@@ -128,17 +130,18 @@ def build_and_run(coreclr_args):
     dotnet_install_script_name = "dotnet-install.cmd" if is_windows else "dotnet-install.sh"
     dotnet_install_script_path = path.join(source_directory, "eng", "common", dotnet_install_script_name)
 
-    with TempDir(skip_cleanup=True) as temp_location:
+    with tempfile.TemporaryDirectory() as temp_location:
 
         print ("Executing in " + temp_location)
+        os.chdir(temp_location)
 
-        # install dotnet 5.0
-        run_command([dotnet_install_script_path, "-Version", "5.0.3"], temp_location, _exit_on_fail=True)
+        # install dotnet 8.0
+        run_command([dotnet_install_script_path, "-Version", "8.0.0"], temp_location, _exit_on_fail=True)
         os.environ['DOTNET_MULTILEVEL_LOOKUP'] = '0'
         os.environ['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
         dotnet_path = path.join(source_directory, ".dotnet")
         dotnet_exe = path.join(dotnet_path, "dotnet.exe") if is_windows else path.join(dotnet_path, "dotnet")
-        run_command([dotnet_exe, "--info"], temp_location, _exit_on_fail=True)
+        # run_command([dotnet_exe, "--info"], temp_location, _exit_on_fail=True)
         os.environ['DOTNET_ROOT'] = dotnet_path
 
         ## install crank as local tool
@@ -162,23 +165,37 @@ def build_and_run(coreclr_args):
 
         # todo: add grpc/signalr, perhaps
 
-        configname_scenario_list = [("platform", "plaintext"),
+        configname_scenario_list = [
+                                    ("platform", "plaintext"),
                                     ("json", "json"),
                                     ("plaintext", "mvc"),
                                     ("database", "fortunes_dapper"),
                                     ("database", "fortunes_ef_mvc_https"),
+                                    ("database", "updates"),
                                     ("proxy", "proxy-yarp"),
-                                    ("staticfiles", "static")]
+                                    ("staticfiles", "static"),
+                                    ("websocket", "websocket"),
+                                    ("orchard", "about-sqlite"),
+                                    ("signalr", "signalr"),
+                                    ("grpc", "grpcaspnetcoreserver-grpcnetclient"),
+                                    ("efcore", "NavigationsQuery"),
+                                    ("efcore", "Funcletization")
+                                    ]
 
-        # configname_scenario_list = [("platform", "plaintext")]
+        # configname_scenario_list = [("quic", "read-write")]
 
         # note tricks to get one element tuples
 
-        runtime_options_list = [("Dummy=0",), ("TieredCompilation=0", ), ("TieredPGO=1", "TC_QuickJitForLoops=1"), ("TieredPGO=1", "TC_QuickJitForLoops=1", "ReadyToRun=0"),
-            ("TC_QuickJitForLoops=1", "ReadyToRun=0", "TC_OnStackReplacement=1", "OSR_HitLimit=0", "TC_OnStackReplacement_InitialCounter=0"),
-            ("TieredPGO=1", "TC_QuickJitForLoops=1", "ReadyToRun=0", "TC_OnStackReplacement=1", "OSR_HitLimit=0", "TC_OnStackReplacement_InitialCounter=100")]
+        runtime_options_list = [
+            ("Dummy=0",),
+            ("TieredCompilation=0", ),
+            ("TieredPGO=0",),
+            ("TieredPGO=1", "ReadyToRun=0"),
+            ("ReadyToRun=0", "OSR_HitLimit=0", "TC_OnStackReplacement_InitialCounter=10"),
+            ("TC_PartialCompilation=1",)
+            ]
 
-        # runtime_options_list = [("TieredCompilation=0", )]
+        # runtime_options_list = [("Dummy=0", )]
 
         mch_file = path.join(coreclr_args.output_mch_path, "aspnet.run." + target_os + "." + target_arch + ".checked.mch")
         benchmark_machine = determine_benchmark_machine(coreclr_args)
@@ -201,13 +218,13 @@ def build_and_run(coreclr_args):
             crank_arguments = ["--config", configFile,
                                "--profile", benchmark_machine,
                                "--scenario", scenario,
-                               "--application.framework", "net7.0",
+                               "--application.framework", "net9.0",
                                "--application.channel", "edge",
                                "--application.sdkVersion", "latest",
-                               "--application.environmentVariables", "COMPlus_JitName=" + spminame,
+                               "--application.environmentVariables", "DOTNET_JitName=" + spminame,
                                "--application.environmentVariables", "SuperPMIShimLogPath=.",
                                "--application.environmentVariables", "SuperPMIShimPath=" + jitpath,
-                               "--application.environmentVariables", "COMPlus_EnableExtraSuperPmiQueries=1",
+                               "--application.environmentVariables", "DOTNET_EnableExtraSuperPmiQueries=1",
                                "--application.options.downloadFiles", "*.mc",
                                "--application.options.displayOutput", "true",
 #                               "--application.options.dumpType", "full",
@@ -221,7 +238,7 @@ def build_and_run(coreclr_args):
                 runtime_arguments = []
                 for runtime_option in runtime_options:
                     runtime_arguments.append("--application.environmentVariables")
-                    runtime_arguments.append("COMPlus_" + runtime_option)
+                    runtime_arguments.append("DOTNET_" + runtime_option)
 
                 print("")
                 print("================================")
@@ -258,6 +275,8 @@ def build_and_run(coreclr_args):
         print("Merged summary for " + mch_file)
         command = [mcs_path, "-jitflags", mch_file]
         run_command(command, temp_location)
+
+        os.chdir(source_directory )
 
 def main(main_args):
     """ Main entry point

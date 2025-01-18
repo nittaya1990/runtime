@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Runtime.Serialization;
+using System.Xml;
 
 namespace System.ServiceModel.Syndication
 {
@@ -16,8 +16,13 @@ namespace System.ServiceModel.Syndication
             _item = null;
         }
 
-        protected SyndicationItemFormatter(SyndicationItem itemToWrite!!)
+        protected SyndicationItemFormatter(SyndicationItem itemToWrite)
         {
+            if (itemToWrite is null)
+            {
+                throw new ArgumentNullException(nameof(itemToWrite));
+            }
+
             _item = itemToWrite;
         }
 
@@ -33,8 +38,13 @@ namespace System.ServiceModel.Syndication
 
         public abstract void WriteTo(XmlWriter writer);
 
-        protected internal virtual void SetItem(SyndicationItem item!!)
+        protected internal virtual void SetItem(SyndicationItem item)
         {
+            if (item is null)
+            {
+                throw new ArgumentNullException(nameof(item));
+            }
+
             _item = item;
         }
 

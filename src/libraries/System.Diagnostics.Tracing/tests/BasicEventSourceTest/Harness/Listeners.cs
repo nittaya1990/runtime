@@ -3,16 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
 using System.Diagnostics.Tracing;
-#endif
-using System.IO;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using Xunit;
 
 namespace BasicEventSourceTests
@@ -62,11 +55,7 @@ namespace BasicEventSourceTests
         public EventLevel Level;
         public IDictionary<string, string> Args;
 
-        public override string ToString()
-        {
-            return string.Format("<Options Keywords='{0}' Level'{1}' ArgsCount='{2}'",
-                ((ulong)Keywords).ToString("x"), Level, Args.Count);
-        }
+        public override string ToString() => $"<Options Keywords='{(ulong)Keywords:x}' Level'{Level}' ArgsCount='{Args.Count}'";
     }
 
     /// <summary>

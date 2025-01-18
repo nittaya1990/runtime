@@ -75,7 +75,7 @@ namespace System.Threading
             /// - Sleep(0) intentionally does not acquire any lock, so it uses an interlocked compare-exchange for the read and
             ///   reset, see <see cref="CheckAndResetPendingInterrupt_NotLocked"/>
             /// </summary>
-            private int _isPendingInterrupt;
+            private bool _isPendingInterrupt;
 
             ////////////////////////////////////////////////////////////////
 
@@ -118,7 +118,7 @@ namespace System.Threading
 
             /// <summary>
             /// Callers must ensure to clear the array after use. Once <see cref="RegisterWait(int, bool, bool)"/> is called (followed
-            /// by a call to <see cref="Wait(int, bool, bool)"/>, the array will be cleared automatically.
+            /// by a call to <see cref="Wait(int, bool, bool, ref LockHolder)"/>, the array will be cleared automatically.
             /// </summary>
             public WaitableObject?[] GetWaitedObjectArray(int requiredCapacity)
             {
@@ -276,7 +276,7 @@ namespace System.Threading
                 }
             }
 
-            public int Wait(int timeoutMilliseconds, bool interruptible, bool isSleep)
+            public int Wait(int timeoutMilliseconds, bool interruptible, bool isSleep, ref LockHolder lockHolder)
             {
                 if (isSleep)
                 {
@@ -299,7 +299,7 @@ namespace System.Threading
                 _waitMonitor.Acquire();
                 if (!isSleep)
                 {
-                    s_lock.Release();
+                    lockHolder.Dispose();
                 }
 
                 Debug.Assert(_waitedObjectIndexThatSatisfiedWait < 0);
@@ -404,11 +404,12 @@ namespace System.Threading
                     return;
                 }
 
+                LockHolder dummyLockHolder = default;
                 int waitResult =
                     Thread
                         .CurrentThread
                         .WaitInfo
-                        .Wait(timeoutMilliseconds, interruptible, isSleep: true);
+                        .Wait(timeoutMilliseconds, interruptible, isSleep: true, ref dummyLockHolder);
                 Debug.Assert(waitResult == WaitHandle.WaitTimeout);
             }
 
@@ -507,7 +508,7 @@ namespace System.Threading
                 s_lock.VerifyIsLocked();
                 _waitMonitor.VerifyIsLocked();
 
-                _isPendingInterrupt = 1;
+                _isPendingInterrupt = true;
             }
 
             public bool CheckAndResetPendingInterrupt
@@ -518,11 +519,11 @@ namespace System.Threading
                     Debug.Assert(s_lock.IsLocked || _waitMonitor.IsLocked);
 #endif
 
-                    if (_isPendingInterrupt == 0)
+                    if (!_isPendingInterrupt)
                     {
                         return false;
                     }
-                    _isPendingInterrupt = 0;
+                    _isPendingInterrupt = false;
                     return true;
                 }
             }
@@ -534,7 +535,7 @@ namespace System.Threading
                     s_lock.VerifyIsNotLocked();
                     _waitMonitor.VerifyIsNotLocked();
 
-                    return Interlocked.CompareExchange(ref _isPendingInterrupt, 0, 1) != 0;
+                    return Interlocked.CompareExchange(ref _isPendingInterrupt, false, true);
                 }
             }
 

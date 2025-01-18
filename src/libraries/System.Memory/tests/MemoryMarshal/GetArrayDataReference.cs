@@ -17,7 +17,7 @@ namespace System.SpanTests
             Assert.Throws<NullReferenceException>(() => MemoryMarshal.GetArrayDataReference((Array)null));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNonZeroLowerBoundArraySupported))]
         public static void GetArrayDataReference_NonEmptyInput_ReturnsRefToFirstElement()
         {
             // szarray
@@ -43,14 +43,14 @@ namespace System.SpanTests
 
             ref int theRef = ref MemoryMarshal.GetArrayDataReference(theArray);
 
-            Assert.True(Unsafe.AsPointer(ref theRef) != null);
+            Assert.False(Unsafe.IsNullRef(ref theRef));
             Assert.True(Unsafe.AreSame(ref theRef, ref MemoryMarshal.GetReference(theArray.AsSpan())));
 
             ref int theMdArrayRef = ref Unsafe.As<byte, int>(ref MemoryMarshal.GetArrayDataReference((Array)theArray)); // szarray passed to generalized Array helper
             Assert.True(Unsafe.AreSame(ref theRef, ref theMdArrayRef));
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNonZeroLowerBoundArraySupported))]
         [InlineData(1)]
         [InlineData(2)]
         [InlineData(3)]

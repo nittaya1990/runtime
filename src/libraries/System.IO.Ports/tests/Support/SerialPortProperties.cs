@@ -251,7 +251,7 @@ namespace Legacy.Support
                     sb.AppendLine($"{key}={badProps[key]} expected {GetProperty((string)key)}");
                 }
 
-                Assert.True(false, sb.ToString());
+                Assert.Fail(sb.ToString());
             }
         }
 
@@ -287,7 +287,7 @@ namespace Legacy.Support
         {
             _properties.Clear();
 
-            // For each key in the defaultProperties Hashtable set poperties[key]
+            // For each key in the defaultProperties Hashtable set properties[key]
             // with the corresponding value in defaultProperties
             foreach (object key in defaultProperties.Keys)
             {

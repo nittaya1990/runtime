@@ -16,15 +16,13 @@ namespace System.Net.Http
 {
     internal sealed class WinHttpRequestStream : Stream
     {
-        private static readonly byte[] s_crLfTerminator = new byte[] { 0x0d, 0x0a }; // "\r\n"
-        private static readonly byte[] s_endChunk = new byte[] { 0x30, 0x0d, 0x0a, 0x0d, 0x0a }; // "0\r\n\r\n"
+        private static readonly byte[] s_crLfTerminator = "\r\n"u8.ToArray();
+        private static readonly byte[] s_endChunk = "0\r\n\r\n"u8.ToArray();
 
         private volatile bool _disposed;
         private readonly WinHttpRequestState _state;
         private readonly SafeWinHttpHandle _requestHandle;
         private readonly WinHttpChunkMode _chunkedMode;
-
-        private GCHandle _cachedSendPinnedBuffer;
 
         internal WinHttpRequestStream(WinHttpRequestState state, WinHttpChunkMode chunkedMode)
         {
@@ -97,8 +95,13 @@ namespace System.Net.Http
                 Task.CompletedTask;
         }
 
-        public override Task WriteAsync(byte[] buffer!!, int offset, int count, CancellationToken token)
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
+            if (buffer is null)
+            {
+                throw new ArgumentNullException(nameof(buffer));
+            }
+
             if (offset < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(offset));
@@ -138,10 +141,10 @@ namespace System.Net.Http
         }
 
         public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? asyncCallback, object? asyncState) =>
-            TaskToApm.Begin(WriteAsync(buffer, offset, count, CancellationToken.None), asyncCallback, asyncState);
+            TaskToAsyncResult.Begin(WriteAsync(buffer, offset, count, CancellationToken.None), asyncCallback, asyncState);
 
         public override void EndWrite(IAsyncResult asyncResult) =>
-            TaskToApm.End(asyncResult);
+            TaskToAsyncResult.End(asyncResult);
 
         public override long Seek(long offset, SeekOrigin origin)
         {
@@ -177,15 +180,7 @@ namespace System.Net.Http
 
         protected override void Dispose(bool disposing)
         {
-            if (!_disposed)
-            {
-                _disposed = true;
-                if (_cachedSendPinnedBuffer.IsAllocated)
-                {
-                    _cachedSendPinnedBuffer.Free();
-                }
-            }
-
+            _disposed = true;
             base.Dispose(disposing);
         }
 
@@ -229,16 +224,7 @@ namespace System.Net.Http
         {
             Debug.Assert(count > 0);
 
-            if (!_cachedSendPinnedBuffer.IsAllocated || _cachedSendPinnedBuffer.Target != buffer)
-            {
-                if (_cachedSendPinnedBuffer.IsAllocated)
-                {
-                    _cachedSendPinnedBuffer.Free();
-                }
-
-                _cachedSendPinnedBuffer = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            }
-
+            _state.PinSendBuffer(buffer);
             _state.TcsInternalWriteDataToRequestStream =
                 new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 

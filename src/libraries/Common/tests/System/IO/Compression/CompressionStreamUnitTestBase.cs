@@ -13,6 +13,35 @@ namespace System.IO.Compression
     {
         private const int TaskTimeout = 30 * 1000; // Generous timeout for official test runs
 
+        [Fact]
+        public async Task EmptyWritesAreEquivalentToNoWrites()
+        {
+            var dest = new MemoryStream();
+
+            CreateStream(dest, CompressionMode.Compress, leaveOpen: true).Dispose();
+            long noWritesLength = dest.Length;
+
+            dest.Position = 0;
+            using (Stream compress = CreateStream(dest, CompressionMode.Compress, leaveOpen: true))
+            {
+                compress.Write(new byte[1], 0, 0);
+                compress.Write(ReadOnlySpan<byte>.Empty);
+                await compress.WriteAsync(new byte[1], 0, 0);
+                await compress.WriteAsync(ReadOnlyMemory<byte>.Empty);
+            }
+
+            Assert.Equal(noWritesLength, dest.Length);
+        }
+
+        [Fact]
+        public void EmptyStreamDecompresses()
+        {
+            using (Stream decompress = CreateStream(new MemoryStream(), CompressionMode.Decompress))
+            {
+                Assert.Equal(-1, decompress.ReadByte());
+            }
+        }
+
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public virtual void FlushAsync_DuringWriteAsync()
         {
@@ -47,7 +76,6 @@ namespace System.IO.Compression
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task FlushAsync_DuringReadAsync()
         {
             byte[] buffer = new byte[32];
@@ -75,7 +103,6 @@ namespace System.IO.Compression
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task FlushAsync_DuringFlushAsync()
         {
             byte[] buffer = null;
@@ -117,7 +144,6 @@ namespace System.IO.Compression
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public virtual async Task Dispose_WithUnfinishedReadAsync()
         {
             string compressedPath = CompressedTestFile(UncompressedTestFile());
@@ -126,7 +152,7 @@ namespace System.IO.Compression
 
             using (var readStream = await ManualSyncMemoryStream.GetStreamFromFileAsync(compressedPath, false))
             {
-                var decompressor = CreateStream(readStream, CompressionMode.Decompress, true);
+                using var decompressor = CreateStream(readStream, CompressionMode.Decompress, true);
                 Task task = decompressor.ReadAsync(uncompressedBytes, 0, uncompressedBytes.Length);
                 decompressor.Dispose();
                 readStream.manualResetEvent.Set();
@@ -136,12 +162,11 @@ namespace System.IO.Compression
 
         [Theory]
         [MemberData(nameof(UncompressedTestFiles))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task Read(string testFile)
         {
             var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
             var compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(testFile));
-            var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
+            using var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
             var decompressorOutput = new MemoryStream();
 
             int _bufferSize = 1024;
@@ -172,7 +197,6 @@ namespace System.IO.Compression
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task Read_EndOfStreamPosition()
         {
             var compressedStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(UncompressedTestFile()));
@@ -185,20 +209,19 @@ namespace System.IO.Compression
             compressedStream.Write(bytes, 0, _bufferSize);
             compressedStream.Write(bytes, 0, _bufferSize);
             compressedStream.Position = 0;
-            var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
+            using var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
 
             while (decompressor.Read(bytes, 0, _bufferSize) > 0);
             Assert.Equal(((compressedEndPosition / BufferSize) + 1) * BufferSize, compressedStream.Position);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task Read_BaseStreamSlowly()
         {
             string testFile = UncompressedTestFile();
             var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
             var compressedStream = new BadWrappedStream(BadWrappedStream.Mode.ReadSlowly, File.ReadAllBytes(CompressedTestFile(testFile)));
-            var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
+            using var decompressor = CreateStream(compressedStream, CompressionMode.Decompress);
             var decompressorOutput = new MemoryStream();
 
             int _bufferSize = 1024;
@@ -228,13 +251,11 @@ namespace System.IO.Compression
             }
         }
 
-        [Theory]
-        [InlineData(CompressionMode.Compress)]
-        [InlineData(CompressionMode.Decompress)]
-        public void CanDisposeBaseStream(CompressionMode mode)
+        [Fact]
+        public void CanDisposeBaseStream()
         {
             var ms = new MemoryStream();
-            var compressor = CreateStream(ms, mode);
+            using var compressor = CreateStream(ms, CompressionMode.Decompress);
             ms.Dispose(); // This would throw if this was invalid
         }
 
@@ -294,7 +315,8 @@ namespace System.IO.Compression
                 int _bufferSize = 1024;
                 var bytes = new byte[_bufferSize];
                 var baseStream = new MemoryStream(bytes, writable: true);
-                Stream compressor = create(baseStream);
+
+                using Stream compressor = create(baseStream);
 
                 //Write some data and Close the stream
                 string strData = "Test Data";
@@ -308,7 +330,7 @@ namespace System.IO.Compression
                 //Read the data
                 byte[] data2 = new byte[_bufferSize];
                 baseStream = new MemoryStream(bytes, writable: false);
-                var decompressor = CreateStream(baseStream, CompressionMode.Decompress);
+                using var decompressor = CreateStream(baseStream, CompressionMode.Decompress);
                 int size = decompressor.Read(data2, 0, _bufferSize - 5);
 
                 //Verify the data roundtripped
@@ -327,7 +349,6 @@ namespace System.IO.Compression
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task TestLeaveOpenAfterValidDecompress()
         {
             //Create the Stream
@@ -348,13 +369,14 @@ namespace System.IO.Compression
         [Fact]
         public void Ctor_ArgumentValidation()
         {
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionLevel.Fastest));
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionMode.Decompress));
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionMode.Compress));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionLevel.Fastest));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionMode.Decompress));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionMode.Compress));
 
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionLevel.Fastest, true));
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionMode.Decompress, false));
-            Assert.Throws<ArgumentNullException>(() => CreateStream(null, CompressionMode.Compress, true));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionLevel.Fastest, true));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionMode.Decompress, false));
+            Assert.Throws<ArgumentNullException>("stream", () => CreateStream(null, CompressionMode.Compress, true));
+            Assert.Throws<ArgumentNullException>("compressionOptions", () => CreateStream(new MemoryStream(), null, true));
 
             AssertExtensions.Throws<ArgumentException>("mode", () => CreateStream(new MemoryStream(), (CompressionMode)42));
             AssertExtensions.Throws<ArgumentException>("mode", () => CreateStream(new MemoryStream(), (CompressionMode)43, true));
@@ -402,7 +424,6 @@ namespace System.IO.Compression
         [Theory]
         [InlineData(CompressionMode.Compress)]
         [InlineData(CompressionMode.Decompress)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task BaseStream_Modify(CompressionMode mode)
         {
             using (var baseStream = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(UncompressedTestFile())))
@@ -423,7 +444,7 @@ namespace System.IO.Compression
         public void BaseStream_NullAfterDisposeWithFalseLeaveOpen(CompressionMode mode)
         {
             var ms = new MemoryStream();
-            var compressor = CreateStream(ms, mode);
+            using var compressor = CreateStream(ms, mode);
             compressor.Dispose();
 
             Assert.Null(BaseStream(compressor));
@@ -434,11 +455,10 @@ namespace System.IO.Compression
         [Theory]
         [InlineData(CompressionMode.Compress)]
         [InlineData(CompressionMode.Decompress)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/36845", TestPlatforms.Android)]
         public async Task BaseStream_ValidAfterDisposeWithTrueLeaveOpen(CompressionMode mode)
         {
             var ms = await LocalMemoryStream.readAppFileAsync(CompressedTestFile(UncompressedTestFile()));
-            var decompressor = CreateStream(ms, mode, leaveOpen: true);
+            using var decompressor = CreateStream(ms, mode, leaveOpen: true);
             var baseStream = BaseStream(decompressor);
             Assert.Same(ms, baseStream);
             decompressor.Dispose();
@@ -452,17 +472,18 @@ namespace System.IO.Compression
         }
 
         [Theory]
-        [MemberData(nameof(UncompressedTestFiles))]
+        [MemberData(nameof(UncompressedTestFilesZLib))]
         public async Task CompressionLevel_SizeInOrder(string testFile)
         {
             using var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
 
             async Task<long> GetLengthAsync(CompressionLevel compressionLevel)
             {
+                uncompressedStream.Position = 0;
                 using var mms = new MemoryStream();
                 using var compressor = CreateStream(mms, compressionLevel);
                 await uncompressedStream.CopyToAsync(compressor);
-                compressor.Flush();
+                await compressor.FlushAsync();
                 return mms.Length;
             }
 
@@ -475,6 +496,81 @@ namespace System.IO.Compression
             Assert.True(fastestLength >= optimalLength);
             Assert.True(optimalLength >= smallestLength);
         }
+
+        [Theory]
+        [MemberData(nameof(UncompressedTestFilesZLib))]
+        public async Task ZLibCompressionOptions_SizeInOrder(string testFile)
+        {
+            using var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
+
+            async Task<long> GetLengthAsync(int compressionLevel)
+            {
+                uncompressedStream.Position = 0;
+                using var mms = new MemoryStream();
+                using var compressor = CreateStream(mms, new ZLibCompressionOptions() { CompressionLevel = compressionLevel, CompressionStrategy = ZLibCompressionStrategy.Default }, leaveOpen: false);
+                await uncompressedStream.CopyToAsync(compressor);
+                await compressor.FlushAsync();
+                return mms.Length;
+            }
+            
+            long fastestLength = await GetLengthAsync(1);
+            long optimalLength = await GetLengthAsync(5);
+            long smallestLength = await GetLengthAsync(9);
+
+            Assert.True(fastestLength >= optimalLength);
+            Assert.True(optimalLength >= smallestLength);
+        }
+
+        [Theory]
+        [MemberData(nameof(ZLibOptionsRoundTripTestData))]
+        public async Task RoundTripWithZLibCompressionOptions(string testFile, ZLibCompressionOptions options)
+        {
+            using var uncompressedStream = await LocalMemoryStream.readAppFileAsync(testFile);
+            var compressedStream = await CompressTestFile(uncompressedStream, options);
+            using var decompressor = CreateStream(compressedStream, mode: CompressionMode.Decompress);
+            using var decompressorOutput = new MemoryStream();
+            await decompressor.CopyToAsync(decompressorOutput);
+            await decompressor.DisposeAsync();
+            decompressorOutput.Position = 0;
+            uncompressedStream.Position = 0;
+
+            byte[] uncompressedStreamBytes = uncompressedStream.ToArray();
+            byte[] decompressorOutputBytes = decompressorOutput.ToArray();
+
+            Assert.Equal(uncompressedStreamBytes.Length, decompressorOutputBytes.Length);
+            for (int i = 0; i < uncompressedStreamBytes.Length; i++)
+            {
+                Assert.Equal(uncompressedStreamBytes[i], decompressorOutputBytes[i]);
+            }
+        }
+
+        private async Task<MemoryStream> CompressTestFile(LocalMemoryStream testStream, ZLibCompressionOptions options)
+        {
+            var compressorOutput = new MemoryStream();
+            using (var compressionStream = CreateStream(compressorOutput, options, leaveOpen: true))
+            {
+                var buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = await testStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await compressionStream.WriteAsync(buffer, 0, bytesRead);
+                }
+            }
+
+            compressorOutput.Position = 0;
+            return compressorOutput;
+        }
+
+    }
+
+    public enum TestScenario
+    {
+        ReadByte,
+        ReadByteAsync,
+        Read,
+        ReadAsync,
+        Copy,
+        CopyAsync
     }
 
     internal sealed class BadWrappedStream : MemoryStream
@@ -549,10 +645,10 @@ namespace System.IO.Compression
             isSync = sync;
         }
 
-        public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state) => TaskToApm.Begin(ReadAsync(buffer, offset, count), callback, state);
-        public override int EndRead(IAsyncResult asyncResult) => TaskToApm.End<int>(asyncResult);
-        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state) => TaskToApm.Begin(WriteAsync(buffer, offset, count), callback, state);
-        public override void EndWrite(IAsyncResult asyncResult) => TaskToApm.End(asyncResult);
+        public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state) => TaskToAsyncResult.Begin(ReadAsync(buffer, offset, count), callback, state);
+        public override int EndRead(IAsyncResult asyncResult) => TaskToAsyncResult.End<int>(asyncResult);
+        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state) => TaskToAsyncResult.Begin(WriteAsync(buffer, offset, count), callback, state);
+        public override void EndWrite(IAsyncResult asyncResult) => TaskToAsyncResult.End(asyncResult);
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {

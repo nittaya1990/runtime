@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,7 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
 
-namespace Microsoft.Extensions.Logging.Test
+namespace Microsoft.Extensions.Logging.Console.Test
 {
     public class ConsoleLoggerExtensionsTests
     {
@@ -272,11 +273,13 @@ namespace Microsoft.Extensions.Logging.Test
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void AddJsonConsole_ChangeProperties_IsReadFromLoggingConfiguration()
         {
+            var newLine = Environment.NewLine.Length is 2 ? "\n" : "\r\n";
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(new[] {
                 new KeyValuePair<string, string>("Console:FormatterOptions:TimestampFormat", "HH:mm "),
                 new KeyValuePair<string, string>("Console:FormatterOptions:UseUtcTimestamp", "true"),
                 new KeyValuePair<string, string>("Console:FormatterOptions:IncludeScopes", "true"),
                 new KeyValuePair<string, string>("Console:FormatterOptions:JsonWriterOptions:Indented", "true"),
+                new KeyValuePair<string, string>("Console:FormatterOptions:JsonWriterOptions:NewLine", newLine),
             }).Build();
 
             var loggerProvider = new ServiceCollection()
@@ -295,11 +298,13 @@ namespace Microsoft.Extensions.Logging.Test
             Assert.True(formatter.FormatterOptions.UseUtcTimestamp);
             Assert.True(formatter.FormatterOptions.IncludeScopes);
             Assert.True(formatter.FormatterOptions.JsonWriterOptions.Indented);
+            Assert.Equal(newLine, formatter.FormatterOptions.JsonWriterOptions.NewLine);
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void AddJsonConsole_OutsideConfig_TakesProperty()
         {
+            var newLine = Environment.NewLine.Length is 2 ? "\n" : "\r\n";
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(new[] {
                 new KeyValuePair<string, string>("Console:FormatterOptions:TimestampFormat", "HH:mm "),
                 new KeyValuePair<string, string>("Console:FormatterOptions:UseUtcTimestamp", "true"),
@@ -313,7 +318,8 @@ namespace Microsoft.Extensions.Logging.Test
                         o.JsonWriterOptions = new JsonWriterOptions()
                         {
                             Indented = false,
-                            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                            NewLine = newLine
                         };
                     })
                 )
@@ -328,6 +334,7 @@ namespace Microsoft.Extensions.Logging.Test
             Assert.True(formatter.FormatterOptions.UseUtcTimestamp);
             Assert.True(formatter.FormatterOptions.IncludeScopes);
             Assert.False(formatter.FormatterOptions.JsonWriterOptions.Indented);
+            Assert.Equal(newLine, formatter.FormatterOptions.JsonWriterOptions.NewLine);
             Assert.Equal(JavaScriptEncoder.UnsafeRelaxedJsonEscaping, formatter.FormatterOptions.JsonWriterOptions.Encoder);
         }
 
@@ -354,6 +361,47 @@ namespace Microsoft.Extensions.Logging.Test
             Assert.Null(logger.Options.FormatterName);
             var formatter = Assert.IsType<SystemdConsoleFormatter>(logger.Formatter);
             Assert.Equal("HH:mm:ss ", formatter.FormatterOptions.TimestampFormat);
+        }
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [InlineData(-1)]
+        [InlineData(0)]
+        public void AddConsole_MaxQueueLengthSetToNegativeOrZero_Throws(int invalidMaxQueueLength)
+        {
+            var configs = new[] {
+                new KeyValuePair<string, string>("Console:MaxQueueLength", invalidMaxQueueLength.ToString()),
+            };
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(configs).Build();
+
+            IServiceProvider serviceProvider = new ServiceCollection()
+                .AddLogging(builder => builder
+                    .AddConfiguration(configuration)
+                    .AddConsole(o => { })
+                )
+                .BuildServiceProvider();
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => serviceProvider.GetRequiredService<ILoggerProvider>());
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        public void AddConsole_MaxQueueLengthLargerThanZero_ConfiguredProperly()
+        {
+            var configs = new[] {
+                new KeyValuePair<string, string>("Console:MaxQueueLength", "12345"),
+            };
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(configs).Build();
+
+            var loggerProvider = new ServiceCollection()
+                .AddLogging(builder => builder
+                    .AddConfiguration(configuration)
+                    .AddConsole(o => { })
+                )
+                .BuildServiceProvider()
+                .GetRequiredService<ILoggerProvider>();
+
+            var consoleLoggerProvider = Assert.IsType<ConsoleLoggerProvider>(loggerProvider);
+            var logger = (ConsoleLogger)consoleLoggerProvider.CreateLogger("Category");
+            Assert.Equal(12345, logger.Options.MaxQueueLength);
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
@@ -519,6 +567,45 @@ namespace Microsoft.Extensions.Logging.Test
                 data.Add(ConsoleFormatterNames.Systemd);
                 data.Add(ConsoleFormatterNames.Json);
                 return data;
+            }
+        }
+
+        /// <summary>
+        /// Tests to ensure the suppression of IL3050 on ConsoleLoggerExtensions.AddConsole is valid.
+        /// </summary>
+        [Theory]
+        [InlineData(typeof(JsonConsoleFormatterOptions))]
+        [InlineData(typeof(ConsoleFormatterOptions))]
+        [InlineData(typeof(SimpleConsoleFormatterOptions))]
+        [InlineData(typeof(ConsoleLoggerOptions))]
+        public void EnsureFormatterOptions_OnlyHaveSimpleProperties(Type type)
+        {
+            VerifyHasOnlySimpleProperties(type);
+        }
+
+        private static void VerifyHasOnlySimpleProperties(Type type)
+        {
+            foreach (PropertyInfo prop in type.GetProperties())
+            {
+                if (type == typeof(JsonConsoleFormatterOptions) && prop.Name == "JsonWriterOptions")
+                {
+                    VerifyHasOnlySimpleProperties(prop.PropertyType);
+                    continue;
+                }
+
+                if (type == typeof(JsonWriterOptions) && prop.Name == "Encoder")
+                {
+                    // skip JsonWriterOptions.Encoder, since that can't be set through IConfiguration
+                    continue;
+                }
+
+                // verify only "simple" types are used in the Options classes, there can't be any generic collections
+                // or else NativeAOT would break
+                Assert.True(prop.PropertyType == typeof(string) ||
+                    prop.PropertyType == typeof(bool) ||
+                    prop.PropertyType == typeof(char) ||
+                    prop.PropertyType == typeof(int) ||
+                    prop.PropertyType.IsEnum, $"ConsoleOptions property '{type.Name}.{prop.Name}' must be a simple type in order for NativeAOT to work");
             }
         }
     }

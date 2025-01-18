@@ -69,8 +69,10 @@ namespace System.Collections.Specialized
         /// <devdoc>
         /// <para>Copies the elements of a string array to the end of the <see cref='System.Collections.Specialized.StringCollection'/>.</para>
         /// </devdoc>
-        public void AddRange(string[] value!!)
+        public void AddRange(string?[] value)
         {
+            ArgumentNullException.ThrowIfNull(value);
+
             data.AddRange(value);
         }
 
@@ -97,7 +99,7 @@ namespace System.Collections.Specialized
         /// <para>Copies the <see cref='System.Collections.Specialized.StringCollection'/> values to a one-dimensional <see cref='System.Array'/> instance at the
         ///    specified index.</para>
         /// </devdoc>
-        public void CopyTo(string[] array, int index)
+        public void CopyTo(string?[] array, int index)
         {
             data.CopyTo(array, index);
         }
@@ -233,12 +235,10 @@ namespace System.Collections.Specialized
     public class StringEnumerator
     {
         private readonly System.Collections.IEnumerator _baseEnumerator;
-        private readonly System.Collections.IEnumerable _temp;
 
         internal StringEnumerator(StringCollection mappings)
         {
-            _temp = (IEnumerable)(mappings);
-            _baseEnumerator = _temp.GetEnumerator();
+            _baseEnumerator = ((IEnumerable)mappings).GetEnumerator();
         }
 
         public string? Current

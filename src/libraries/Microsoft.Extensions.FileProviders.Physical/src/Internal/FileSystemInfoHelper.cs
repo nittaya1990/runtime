@@ -31,7 +31,7 @@ namespace Microsoft.Extensions.FileProviders.Physical
 
         public static DateTime? GetFileLinkTargetLastWriteTimeUtc(string filePath)
         {
-#if NETCOREAPP
+#if NET
             var fileInfo = new FileInfo(filePath);
             if (fileInfo.Exists)
             {
@@ -47,7 +47,7 @@ namespace Microsoft.Extensions.FileProviders.Physical
         // If file is not a link, return null to inform the caller that file is not a link.
         public static DateTime? GetFileLinkTargetLastWriteTimeUtc(FileInfo fileInfo)
         {
-#if NETCOREAPP
+#if NET
             Debug.Assert(fileInfo.Exists);
             if (fileInfo.LinkTarget != null)
             {
@@ -59,9 +59,9 @@ namespace Microsoft.Extensions.FileProviders.Physical
                         return targetInfo.LastWriteTimeUtc;
                     }
                 }
-                catch (FileNotFoundException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // The file ceased to exist between LinkTarget and ResolveLinkTarget.
+                    // The target or the link ceased to exist between LinkTarget and ResolveLinkTarget.
                 }
 
                 return DateTime.MinValue;

@@ -2,11 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using System.Diagnostics;
 
 namespace System.Net.Sockets
 {
@@ -23,7 +23,9 @@ namespace System.Net.Sockets
         internal bool ExposedHandleOrUntrackedConfiguration { get; private set; }
         internal bool PreferInlineCompletions { get; set; } = SocketAsyncEngine.InlineSocketCompletionsEnabled;
         internal bool IsSocket { get; set; } = true; // (ab)use Socket class for performing async I/O on non-socket fds.
-
+#if SYSTEM_NET_SOCKETS_APPLE_PLATFROM
+        internal bool TfoEnabled { get; set; }
+#endif
         internal void RegisterConnectResult(SocketError error)
         {
             switch (error)
@@ -44,6 +46,9 @@ namespace System.Net.Sockets
             target.DualMode = DualMode;
             target.ExposedHandleOrUntrackedConfiguration = ExposedHandleOrUntrackedConfiguration;
             target.IsSocket = IsSocket;
+#if SYSTEM_NET_SOCKETS_APPLE_PLATFROM
+            target.TfoEnabled = TfoEnabled;
+#endif
         }
 
         internal void SetExposed() => ExposedHandleOrUntrackedConfiguration = true;
@@ -96,18 +101,10 @@ namespace System.Net.Sockets
             ExposedHandleOrUntrackedConfiguration = true;
         }
 
-        internal SocketAsyncContext AsyncContext
-        {
-            get
-            {
-                if (Volatile.Read(ref _asyncContext) == null)
-                {
-                    Interlocked.CompareExchange(ref _asyncContext, new SocketAsyncContext(this), null);
-                }
-
-                return _asyncContext!;
-            }
-        }
+        internal SocketAsyncContext AsyncContext =>
+            _asyncContext ??
+            Interlocked.CompareExchange(ref _asyncContext, new SocketAsyncContext(this), null) ??
+            _asyncContext!;
 
         /// <summary>
         /// This represents whether the Socket instance is blocking or non-blocking *from the user's point of view*,
@@ -189,6 +186,12 @@ namespace System.Net.Sockets
             // On OSX, TCP connections will be closed with a FIN close instead of an abortive RST close.
             // And, pending TCP connect operations and UDP receive are not abortable.
 
+            // Don't disconnect sockets we don't own.
+            if (!OwnsHandle)
+            {
+                return false;
+            }
+
             // Unless we're doing an abortive close, don't touch sockets which don't have the CLOEXEC flag set.
             // These may be shared with other processes and we want to avoid disconnecting them.
             if (!abortive)
@@ -226,6 +229,11 @@ namespace System.Net.Sockets
 
             if (!IsSocket)
             {
+                return SocketPal.GetSocketErrorForErrorCode(CloseHandle(handle));
+            }
+            if (OperatingSystem.IsWasi())
+            {
+                // WASI never blocks and doesn't support linger options
                 return SocketPal.GetSocketErrorForErrorCode(CloseHandle(handle));
             }
 

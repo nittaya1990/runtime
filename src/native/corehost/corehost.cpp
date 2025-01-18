@@ -9,6 +9,7 @@
 #include "trace.h"
 #include "utils.h"
 #include "hostfxr_resolver.h"
+#include <cinttypes>
 
 #if defined(FEATURE_APPHOST)
 #include "bundle_marker.h"
@@ -18,7 +19,6 @@
 #endif
 
 #define CURHOST_TYPE    _X("apphost")
-#define CUREXE_PKG_VER  COMMON_HOST_PKG_VER
 #define CURHOST_EXE
 
 /**
@@ -59,15 +59,23 @@ bool is_exe_enabled_for_execution(pal::string_t* app_dll)
         return false;
     }
 
+    std::string binding(&embed[0]);
+
+    // Check if the path exceeds the max allowed size
+    if (binding.size() > EMBED_MAX - 1) // -1 for null terminator
+    {
+        trace::error(_X("The managed DLL bound to this executable is longer than the max allowed length (%d)"), EMBED_MAX - 1);
+        return false;
+    }
+
+    // Check if the value is the same as the placeholder
     // Since the single static string is replaced by editing the executable, a reference string is needed to do the compare.
     // So use two parts of the string that will be unaffected by the edit.
     size_t hi_len = (sizeof(hi_part) / sizeof(hi_part[0])) - 1;
     size_t lo_len = (sizeof(lo_part) / sizeof(lo_part[0])) - 1;
-
-    std::string binding(&embed[0]);
-    if ((binding.size() >= (hi_len + lo_len)) &&
-        binding.compare(0, hi_len, &hi_part[0]) == 0 &&
-        binding.compare(hi_len, lo_len, &lo_part[0]) == 0)
+    if (binding.size() >= (hi_len + lo_len)
+        && binding.compare(0, hi_len, &hi_part[0]) == 0
+        && binding.compare(hi_len, lo_len, &lo_part[0]) == 0)
     {
         trace::error(_X("This executable is not bound to a managed DLL to execute. The binding value is: '%s'"), app_dll->c_str());
         return false;
@@ -79,27 +87,38 @@ bool is_exe_enabled_for_execution(pal::string_t* app_dll)
 
 #elif !defined(FEATURE_LIBHOST)
 #define CURHOST_TYPE    _X("dotnet")
-#define CUREXE_PKG_VER  HOST_PKG_VER
 #define CURHOST_EXE
 #endif
 
-void need_newer_framework_error()
+void need_newer_framework_error(const pal::string_t& dotnet_root, const pal::string_t& host_path)
 {
-    pal::string_t url = get_download_url();
-    trace::error(_X("  _ To run this application, you need to install a newer version of .NET Core."));
-    trace::error(_X(""));
-    trace::error(_X("  - %s&apphost_version=%s"), url.c_str(), _STRINGIFY(COMMON_HOST_PKG_VER));
+    trace::error(
+        MISSING_RUNTIME_ERROR_FORMAT,
+        INSTALL_OR_UPDATE_NET_ERROR_MESSAGE,
+        host_path.c_str(),
+        get_current_arch_name(),
+        _STRINGIFY(HOST_VERSION),
+        dotnet_root.c_str(),
+        get_download_url().c_str(),
+        _STRINGIFY(HOST_VERSION));
 }
 
 #if defined(CURHOST_EXE)
 
 int exe_start(const int argc, const pal::char_t* argv[])
 {
+#if defined(FEATURE_STATIC_HOST) && (defined(TARGET_OSX) || defined(TARGET_LINUX)) && !defined(TARGET_X86)
+    extern void initialize_static_createdump();
+    initialize_static_createdump();
+#endif
+
+    // Use realpath to find the path of the host, resolving any symlinks.
+    // hostfxr (for dotnet) and the app dll (for apphost) are found relative to the host.
     pal::string_t host_path;
     if (!pal::get_own_executable_path(&host_path) || !pal::realpath(&host_path))
     {
         trace::error(_X("Failed to resolve full path of the current executable [%s]"), host_path.c_str());
-        return StatusCode::CoreHostCurHostFindFailure;
+        return StatusCode::CurrentHostFindFailure;
     }
 
     pal::string_t app_path;
@@ -110,7 +129,6 @@ int exe_start(const int argc, const pal::char_t* argv[])
     pal::string_t embedded_app_name;
     if (!is_exe_enabled_for_execution(&embedded_app_name))
     {
-        trace::error(_X("A fatal error was encountered. This executable was not bound to load a managed DLL."));
         return StatusCode::AppHostExeNotBoundFailure;
     }
 
@@ -132,10 +150,10 @@ int exe_start(const int argc, const pal::char_t* argv[])
     {
         trace::info(_X("Detected Single-File app bundle"));
     }
-    else if (!pal::realpath(&app_path))
+    else if (!pal::fullpath(&app_path))
     {
         trace::error(_X("The application to execute does not exist: '%s'."), app_path.c_str());
-        return StatusCode::LibHostAppRootFindFailure;
+        return StatusCode::AppPathFindFailure;
     }
 
     app_root.assign(get_directory(app_path));
@@ -149,7 +167,7 @@ int exe_start(const int argc, const pal::char_t* argv[])
         // dotnet.exe is signed by Microsoft. It is technically possible to rename the file MyApp.exe and include it in the application.
         // Then one can create a shortcut for "MyApp.exe MyApp.dll" which works. The end result is that MyApp looks like it's signed by Microsoft.
         // To prevent this dotnet.exe must not be renamed, otherwise it won't run.
-        trace::error(_X("A fatal error was encountered. Cannot execute %s when renamed to %s."), CURHOST_TYPE, own_name.c_str());
+        trace::error(_X("Error: cannot execute %s when renamed to %s."), CURHOST_TYPE, own_name.c_str());
         return StatusCode::CoreHostEntryPointFailure;
     }
 
@@ -200,7 +218,7 @@ int exe_start(const int argc, const pal::char_t* argv[])
             trace::info(_X("Host path: [%s]"), host_path.c_str());
             trace::info(_X("Dotnet path: [%s]"), fxr.dotnet_root().c_str());
             trace::info(_X("App path: [%s]"), app_path.c_str());
-            trace::info(_X("Bundle Header Offset: [%lx]"), bundle_header_offset);
+            trace::info(_X("Bundle Header Offset: [%" PRId64 "]"), bundle_header_offset);
 
             auto set_error_writer = fxr.resolve_set_error_writer();
             propagate_error_writer_t propagate_error_writer_to_hostfxr(set_error_writer);
@@ -209,8 +227,8 @@ int exe_start(const int argc, const pal::char_t* argv[])
         else
         {
             // An outdated hostfxr can only be found for framework-related apps.
-            trace::error(_X("The required library %s does not support single-file apps."), fxr.fxr_path().c_str());			
-            need_newer_framework_error();
+            trace::error(_X("The required library %s does not support single-file apps."), fxr.fxr_path().c_str());
+            need_newer_framework_error(fxr.dotnet_root(), host_path);
             rc = StatusCode::FrameworkMissingFailure;
         }
     }
@@ -234,10 +252,12 @@ int exe_start(const int argc, const pal::char_t* argv[])
 
             rc = hostfxr_main_startupinfo(argc, argv, host_path_cstr, dotnet_root_cstr, app_path_cstr);
 
-            // This check exists to provide an error message for UI apps when running 3.0 apps on 2.0 only hostfxr, which doesn't support error writer redirection. 
+            // This check exists to provide an error message for apps when running 3.0 apps on 2.0 only hostfxr, which doesn't support error writer redirection.
+            // Note that this is not only for UI apps - on Windows we always write errors to event log as well (regardless of UI) and it uses
+            // the same mechanism of redirecting error writers.
             if (trace::get_error_writer() != nullptr && rc == static_cast<int>(StatusCode::FrameworkMissingFailure) && set_error_writer == nullptr)
             {
-                need_newer_framework_error();
+                need_newer_framework_error(fxr.dotnet_root(), host_path);
             }
         }
 #if !defined(FEATURE_STATIC_HOST)
@@ -285,7 +305,7 @@ int main(const int argc, const pal::char_t* argv[])
 
     if (trace::is_enabled())
     {
-        trace::info(_X("--- Invoked %s [version: %s, commit hash: %s] main = {"), CURHOST_TYPE, _STRINGIFY(CUREXE_PKG_VER), _STRINGIFY(REPO_COMMIT_HASH));
+        trace::info(_X("--- Invoked %s [version: %s] main = {"), CURHOST_TYPE, get_host_version_description().c_str());
         for (int i = 0; i < argc; ++i)
         {
             trace::info(_X("%s"), argv[i]);

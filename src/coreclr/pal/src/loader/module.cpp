@@ -21,7 +21,6 @@ Abstract:
 SET_DEFAULT_DEBUG_CHANNEL(LOADER); // some headers have code with asserts, so do this first
 
 #include "pal/thread.hpp"
-#include "pal/malloc.hpp"
 #include "pal/file.hpp"
 #include "pal/palinternal.h"
 #include "pal/module.h"
@@ -106,34 +105,6 @@ static BOOL LOADCallDllMainSafe(MODSTRUCT *module, DWORD dwReason, LPVOID lpRese
 
 /*++
 Function:
-  LoadLibraryA
-
-See MSDN doc.
---*/
-HMODULE
-PALAPI
-LoadLibraryA(
-    IN LPCSTR lpLibFileName)
-{
-    return LoadLibraryExA(lpLibFileName, nullptr, 0);
-}
-
-/*++
-Function:
-  LoadLibraryW
-
-See MSDN doc.
---*/
-HMODULE
-PALAPI
-LoadLibraryW(
-    IN LPCWSTR lpLibFileName)
-{
-    return LoadLibraryExW(lpLibFileName, nullptr, 0);
-}
-
-/*++
-Function:
 LoadLibraryExA
 
 See MSDN doc.
@@ -152,10 +123,9 @@ LoadLibraryExA(
         return nullptr;
     }
 
-    LPSTR lpstr = nullptr;
     HMODULE hModule = nullptr;
 
-    PERF_ENTRY(LoadLibraryA);
+    PERF_ENTRY(LoadLibraryExA);
     ENTRY("LoadLibraryExA (lpLibFileName=%p (%s)) \n",
           (lpLibFileName) ? lpLibFileName : "NULL",
           (lpLibFileName) ? lpLibFileName : "NULL");
@@ -166,23 +136,10 @@ LoadLibraryExA(
     }
 
     /* do the Dos/Unix conversion on our own copy of the name */
-    lpstr = strdup(lpLibFileName);
-    if (!lpstr)
-    {
-        ERROR("strdup failure!\n");
-        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
-        goto Done;
-    }
-    FILEDosToUnixPathA(lpstr);
-
-    hModule = LOADLoadLibrary(lpstr, TRUE);
+    hModule = LOADLoadLibrary(lpLibFileName, TRUE);
 
     /* let LOADLoadLibrary call SetLastError */
  Done:
-    if (lpstr != nullptr)
-    {
-        free(lpstr);
-    }
 
     LOGEXIT("LoadLibraryExA returns HMODULE %p\n", hModule);
     PERF_EXIT(LoadLibraryExA);
@@ -235,8 +192,6 @@ LoadLibraryExW(
         goto done;
     }
 
-    /* do the Dos/Unix conversion on our own copy of the name */
-    FILEDosToUnixPathA(lpstr);
     pathstr.CloseBuffer(name_length);
 
     /* let LOADLoadLibrary call SetLastError in case of failure */
@@ -400,28 +355,6 @@ FreeLibrary(
 
 /*++
 Function:
-  FreeLibraryAndExitThread
-
-See MSDN doc.
-
---*/
-PALIMPORT
-VOID
-PALAPI
-FreeLibraryAndExitThread(
-    IN HMODULE hLibModule,
-    IN DWORD dwExitCode)
-{
-    PERF_ENTRY(FreeLibraryAndExitThread);
-    ENTRY("FreeLibraryAndExitThread()\n");
-    FreeLibrary(hLibModule);
-    ExitThread(dwExitCode);
-    LOGEXIT("FreeLibraryAndExitThread\n");
-    PERF_EXIT(FreeLibraryAndExitThread);
-}
-
-/*++
-Function:
   GetModuleFileNameA
 
 See MSDN doc.
@@ -563,6 +496,7 @@ LPCSTR FixLibCName(LPCSTR shortAsciiName)
     //   As a result, we have to use the full name (i.e. lib.so.6) that is defined by LIBC_SO.
     // * For macOS, use constant value absolute path "/usr/lib/libc.dylib".
     // * For FreeBSD, use constant value "libc.so.7".
+    // * For Haiku, use constant value "libroot.so".
     // * For rest of Unices, use constant value "libc.so".
     if (strcmp(shortAsciiName, LIBC_NAME_WITHOUT_EXTENSION) == 0)
     {
@@ -570,6 +504,8 @@ LPCSTR FixLibCName(LPCSTR shortAsciiName)
         return "/usr/lib/libc.dylib";
 #elif defined(__FreeBSD__)
         return "libc.so.7";
+#elif defined(__HAIKU__)
+        return "libroot.so";
 #elif defined(LIBC_SO)
         return LIBC_SO;
 #else
@@ -626,8 +562,6 @@ PAL_LoadLibraryDirect(
         goto done;
     }
 
-    /* do the Dos/Unix conversion on our own copy of the name */
-    FILEDosToUnixPathA(lpstr);
     pathstr.CloseBuffer(name_length);
     lpcstr = FixLibCName(lpstr);
 
@@ -1604,7 +1538,7 @@ Parameters :
                         goes in MODSTRUCT::lib_name
 
 Return value:
-    a pointer to a new, initialized MODSTRUCT strucutre, or NULL on failure.
+    a pointer to a new, initialized MODSTRUCT structure, or NULL on failure.
 
 Notes :
     'name' is used to initialize MODSTRUCT::lib_name. The other member is set to NULL
@@ -1616,7 +1550,7 @@ static MODSTRUCT *LOADAllocModule(NATIVE_LIBRARY_HANDLE dl_handle, LPCSTR name)
     LPWSTR wide_name;
 
     /* no match found : try to create a new module structure */
-    module = (MODSTRUCT *)InternalMalloc(sizeof(MODSTRUCT));
+    module = (MODSTRUCT *)malloc(sizeof(MODSTRUCT));
     if (nullptr == module)
     {
         ERROR("malloc() failed! errno is %d (%s)\n", errno, strerror(errno));
@@ -1873,11 +1807,11 @@ MODSTRUCT *LOADGetPalLibrary()
         if (g_szCoreCLRPath == nullptr)
         {
             size_t  cbszCoreCLRPath = strlen(info.dli_fname) + 1;
-            g_szCoreCLRPath = (char*) InternalMalloc(cbszCoreCLRPath);
+            g_szCoreCLRPath = (char*) malloc(cbszCoreCLRPath);
 
             if (g_szCoreCLRPath == nullptr)
             {
-                ERROR("LOADGetPalLibrary: InternalMalloc failed!");
+                ERROR("LOADGetPalLibrary: malloc failed!");
                 goto exit;
             }
 

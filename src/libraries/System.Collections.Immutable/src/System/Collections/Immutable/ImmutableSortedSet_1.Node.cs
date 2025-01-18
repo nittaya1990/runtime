@@ -13,7 +13,7 @@ namespace System.Collections.Immutable
         /// A node in the AVL tree storing this set.
         /// </summary>
         [DebuggerDisplay("{_key}")]
-        internal sealed class Node : IBinaryTree<T>, IEnumerable<T>
+        internal sealed class Node : IEnumerable<T>
         {
             /// <summary>
             /// The default empty node.
@@ -120,41 +120,9 @@ namespace System.Collections.Immutable
             }
 
             /// <summary>
-            /// Gets the left branch of this node.
-            /// </summary>
-            IBinaryTree? IBinaryTree.Left
-            {
-                get { return _left; }
-            }
-
-            /// <summary>
             /// Gets the right branch of this node.
             /// </summary>
             public Node? Right
-            {
-                get { return _right; }
-            }
-
-            /// <summary>
-            /// Gets the right branch of this node.
-            /// </summary>
-            IBinaryTree? IBinaryTree.Right
-            {
-                get { return _right; }
-            }
-
-            /// <summary>
-            /// Gets the left branch of this node.
-            /// </summary>
-            IBinaryTree<T>? IBinaryTree<T>.Left
-            {
-                get { return _left; }
-            }
-
-            /// <summary>
-            /// Gets the right branch of this node.
-            /// </summary>
-            IBinaryTree<T>? IBinaryTree<T>.Right
             {
                 get { return _right; }
             }
@@ -340,7 +308,7 @@ namespace System.Collections.Immutable
                 Requires.NotNull(array, nameof(array));
                 Requires.Range(arrayIndex >= 0, nameof(arrayIndex));
                 Requires.Range(array.Length >= arrayIndex + this.Count, nameof(arrayIndex));
-                foreach (var item in this)
+                foreach (T item in this)
                 {
                     array[arrayIndex++] = item;
                 }
@@ -355,7 +323,7 @@ namespace System.Collections.Immutable
                 Requires.Range(arrayIndex >= 0, nameof(arrayIndex));
                 Requires.Range(array.Length >= arrayIndex + this.Count, nameof(arrayIndex));
 
-                foreach (var item in this)
+                foreach (T item in this)
                 {
                     array.SetValue(item, arrayIndex++);
                 }
@@ -383,7 +351,7 @@ namespace System.Collections.Immutable
                     int compareResult = comparer.Compare(key, _key);
                     if (compareResult > 0)
                     {
-                        var newRight = _right!.Add(key, comparer, out mutated);
+                        ImmutableSortedSet<T>.Node newRight = _right!.Add(key, comparer, out mutated);
                         if (mutated)
                         {
                             result = this.Mutate(right: newRight);
@@ -391,7 +359,7 @@ namespace System.Collections.Immutable
                     }
                     else if (compareResult < 0)
                     {
-                        var newLeft = _left!.Add(key, comparer, out mutated);
+                        ImmutableSortedSet<T>.Node newLeft = _left!.Add(key, comparer, out mutated);
                         if (mutated)
                         {
                             result = this.Mutate(left: newLeft);
@@ -452,19 +420,19 @@ namespace System.Collections.Immutable
                         {
                             // We have two children. Remove the next-highest node and replace
                             // this node with it.
-                            var successor = _right;
+                            ImmutableSortedSet<T>.Node successor = _right;
                             while (!successor._left!.IsEmpty)
                             {
                                 successor = successor._left;
                             }
 
-                            var newRight = _right.Remove(successor._key, comparer, out _);
+                            ImmutableSortedSet<T>.Node newRight = _right.Remove(successor._key, comparer, out _);
                             result = successor.Mutate(left: _left, right: newRight);
                         }
                     }
                     else if (compare < 0)
                     {
-                        var newLeft = _left.Remove(key, comparer, out mutated);
+                        ImmutableSortedSet<T>.Node newLeft = _left.Remove(key, comparer, out mutated);
                         if (mutated)
                         {
                             result = this.Mutate(left: newLeft);
@@ -472,7 +440,7 @@ namespace System.Collections.Immutable
                     }
                     else
                     {
-                        var newRight = _right.Remove(key, comparer, out mutated);
+                        ImmutableSortedSet<T>.Node newRight = _right.Remove(key, comparer, out mutated);
                         if (mutated)
                         {
                             result = this.Mutate(right: newRight);
@@ -620,7 +588,7 @@ namespace System.Collections.Immutable
                     return tree;
                 }
 
-                var right = tree._right;
+                ImmutableSortedSet<T>.Node right = tree._right;
                 return right.Mutate(left: tree.Mutate(right: right._left!));
             }
 
@@ -639,7 +607,7 @@ namespace System.Collections.Immutable
                     return tree;
                 }
 
-                var left = tree._left;
+                ImmutableSortedSet<T>.Node left = tree._left;
                 return left.Mutate(right: tree.Mutate(left: left._right!));
             }
 
@@ -750,7 +718,7 @@ namespace System.Collections.Immutable
             /// <param name="start">The starting index within <paramref name="items"/> that should be captured by the node tree.</param>
             /// <param name="length">The number of elements from <paramref name="items"/> that should be captured by the node tree.</param>
             /// <returns>The root of the created node tree.</returns>
-            internal static Node NodeTreeFromList(IOrderedCollection<T> items, int start, int length)
+            internal static Node NodeTreeFromList(IReadOnlyList<T> items, int start, int length)
             {
                 Requires.NotNull(items, nameof(items));
                 Debug.Assert(start >= 0);

@@ -66,7 +66,7 @@ namespace System
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsInInclusiveRange(uint value, uint min, uint max)
+        public static bool IsInInclusiveRange(uint value, uint min, uint max)
             => (value - min) <= (max - min);
 
         //
@@ -180,11 +180,11 @@ namespace System
                         }
 
                         int bytesWritten = rune.EncodeToUtf8(maxUtf8EncodedSpan);
-                        Span<byte> encodedBytes = maxUtf8EncodedSpan.Slice(0, bytesWritten);
+                        ReadOnlySpan<byte> encodedBytes = maxUtf8EncodedSpan.Slice(0, bytesWritten);
 
                         foreach (byte b in encodedBytes)
                         {
-                            UriHelper.EscapeAsciiChar(b, ref dest);
+                            UriHelper.PercentEncodeByte(b, ref dest);
                         }
                     }
 

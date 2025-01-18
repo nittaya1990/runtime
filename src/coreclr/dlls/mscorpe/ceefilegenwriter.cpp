@@ -13,9 +13,8 @@
 
 #include "corerror.h"
 #include <posterror.h>
-#include <shlwapi.h>
 
-// The following block contains a template for the default entry point stubs of a COM+
+// The following block contains a template for the default entry point stubs of a CLR
 // IL only program.  One can emit these stubs (with some fix-ups) and make
 // the code supplied the entry point value for the image.  The fix-ups will
 // in turn cause mscoree.dll to be loaded and the correct entry point to be
@@ -118,62 +117,6 @@ const BYTE DllMainAMD64Template[] =
 #define DllMainAMD64TemplateSize		sizeof(DllMainAMD64Template)
 #define CorDllMainAMD64IATOffset		2
 
-//*****************************************************************************
-// This stub is designed for an ia64 Windows application.  It will call the
-// _CorExeMain function in mscoree.dll.  This entry point will in turn load
-// and run the IL program.
-//
-//    jump _CorExeMain();
-//
-// The code jumps to the imported function _CorExeMain using the iat.
-// We set the value of gp to point at the iat table entry for _CorExeMain
-//*****************************************************************************
-
-const BYTE ExeMainIA64Template[] =
-{
-    // ld8    r9  = [gp]    ;;
-    // ld8    r10 = [r9],8
-    // nop.i                ;;
-    // ld8    gp  = [r9]
-    // mov    b6  = r10
-    // br.cond.sptk.few  b6
-    //
-    0x0B, 0x48, 0x00, 0x02, 0x18, 0x10, 0xA0, 0x40,
-    0x24, 0x30, 0x28, 0x00, 0x00, 0x00, 0x04, 0x00,
-    0x10, 0x08, 0x00, 0x12, 0x18, 0x10, 0x60, 0x50,
-    0x04, 0x80, 0x03, 0x00, 0x60, 0x00, 0x80, 0x00
-};
-
-#define ExeMainIA64TemplateSize		sizeof(ExeMainIA64Template)
-
-//*****************************************************************************
-// This stub is designed for an ia64 Windows application.  It will call the
-// _CorDllMain function in mscoree.dll with with the base entry point for
-// the loaded DLL.  This entry point will in turn load and run the IL program.
-//
-//    jump _CorDllMain
-//
-// The code jumps to the imported function _CorExeMain using the iat.
-// We set the value of gp to point at the iat table entry for _CorExeMain
-//*****************************************************************************
-
-const BYTE DllMainIA64Template[] =
-{
-    // ld8    r9  = [gp]    ;;
-    // ld8    r10 = [r9],8
-    // nop.i                ;;
-    // ld8    gp  = [r9]
-    // mov    b6  = r10
-    // br.cond.sptk.few  b6
-    //
-    0x0B, 0x48, 0x00, 0x02, 0x18, 0x10, 0xA0, 0x40,
-    0x24, 0x30, 0x28, 0x00, 0x00, 0x00, 0x04, 0x00,
-    0x10, 0x08, 0x00, 0x12, 0x18, 0x10, 0x60, 0x50,
-    0x04, 0x80, 0x03, 0x00, 0x60, 0x00, 0x80, 0x00
-};
-
-#define DllMainIA64TemplateSize		sizeof(DllMainIA64Template)
-
 // Get the Symbol entry given the head and a 0-based index
 inline IMAGE_SYMBOL* GetSymbolEntry(IMAGE_SYMBOL* pHead, SIZE_T idx)
 {
@@ -181,24 +124,11 @@ inline IMAGE_SYMBOL* GetSymbolEntry(IMAGE_SYMBOL* pHead, SIZE_T idx)
 }
 
 //*****************************************************************************
-// To get a new instance, call CreateNewInstance() or CreateNewInstanceEx() instead of new
+// To get a new instance, call CreateNewInstance() instead of new
 //*****************************************************************************
 
-HRESULT CeeFileGenWriter::CreateNewInstance(CCeeGen *pCeeFileGenFrom,
-                                            CeeFileGenWriter* & pGenWriter,
+HRESULT CeeFileGenWriter::CreateNewInstance(CeeFileGenWriter* & pGenWriter,
                                             DWORD createFlags)
-{
-    return CreateNewInstanceEx(pCeeFileGenFrom, pGenWriter, createFlags);
-}
-
-//
-// Seed file is used as the base file. The new file data will be "appended" to the seed file
-//
-
-HRESULT CeeFileGenWriter::CreateNewInstanceEx(CCeeGen *pCeeFileGenFrom,
-                                              CeeFileGenWriter* & pGenWriter,
-                                              DWORD createFlags,
-                                              LPCWSTR seedFileName)
 {
     HRESULT hr = S_OK;
     ULONG preallocatedOffset = 0;
@@ -214,10 +144,7 @@ HRESULT CeeFileGenWriter::CreateNewInstanceEx(CCeeGen *pCeeFileGenFrom,
     if (pPEWriter == NULL)
         IfFailGo(E_OUTOFMEMORY);
 
-    //workaround
-    //What's really the correct thing to be doing here?
-    //HRESULT hr = pPEWriter->Init(pCeeFileGenFrom ? pCeeFileGenFrom->getPESectionMan() : NULL);
-    hr = pPEWriter->Init(NULL, createFlags, seedFileName);
+    hr = pPEWriter->Init(NULL, createFlags);
     IfFailGo(hr);
 
     //Create the general PEWriter.
@@ -225,16 +152,13 @@ HRESULT CeeFileGenWriter::CreateNewInstanceEx(CCeeGen *pCeeFileGenFrom,
     hr = pPrivateGenWriter->Init(); // base class member to finish init
     IfFailGo(hr);
 
-    if (!seedFileName) // Use base file's preferred base (if present)
+    if (pPEWriter->isPE32())
     {
-        if (pPEWriter->isPE32())
-        {
-            pPrivateGenWriter->setImageBase((DWORD) CEE_IMAGE_BASE_32);   // use same default as linker
-        }
-        else
-        {
-            pPrivateGenWriter->setImageBase64((ULONGLONG) CEE_IMAGE_BASE_64); // use same default as linker
-        }
+        pPrivateGenWriter->setImageBase((DWORD) CEE_IMAGE_BASE_32);   // use same default as linker
+    }
+    else
+    {
+        pPrivateGenWriter->setImageBase64((ULONGLONG) CEE_IMAGE_BASE_64); // use same default as linker
     }
 
     pPrivateGenWriter->setSubsystem(IMAGE_SUBSYSTEM_WINDOWS_CUI, CEE_IMAGE_SUBSYSTEM_MAJOR_VERSION, CEE_IMAGE_SUBSYSTEM_MINOR_VERSION);
@@ -247,11 +171,6 @@ HRESULT CeeFileGenWriter::CreateNewInstanceEx(CCeeGen *pCeeFileGenFrom,
 
     hr = pPrivateGenWriter->allocateCorHeader();   // get COR header near front
     IfFailGo(hr);
-
-    //If we were passed a CCeeGen at the beginning, copy it's data now.
-    if (pCeeFileGenFrom) {
-        pCeeFileGenFrom->cloneInstance((CCeeGen*)pPrivateGenWriter);
-    }
 
     hr = pPrivateGenWriter->getSectionCreate(".text0", sdExecute, &corHeaderSection);
     IfFailGo(hr);
@@ -281,13 +200,13 @@ CeeFileGenWriter::CeeFileGenWriter() // ctor is protected
     m_dllCount = 0;
 
     m_dwManifestSize = 0;
-    m_dwManifestRVA = NULL;
+    m_dwManifestRVA = 0;
 
     m_dwStrongNameSize = 0;
-    m_dwStrongNameRVA = NULL;
+    m_dwStrongNameRVA = 0;
 
     m_dwVTableSize = 0;
-    m_dwVTableRVA = NULL;
+    m_dwVTableRVA = 0;
 
     m_iDataDlls = NULL;
 
@@ -491,7 +410,7 @@ HRESULT CeeFileGenWriter::setOutputFileName(_In_ LPWSTR fileName)
 {
     if (m_outputFileName)
         delete[] m_outputFileName;
-    size_t len = wcslen(fileName) + 1;
+    size_t len = u16_strlen(fileName) + 1;
     m_outputFileName = (LPWSTR)new (nothrow) WCHAR[len];
     TESTANDRETURN(m_outputFileName!=NULL, E_OUTOFMEMORY);
     wcscpy_s(m_outputFileName, len, fileName);
@@ -502,7 +421,7 @@ HRESULT CeeFileGenWriter::setResourceFileName(_In_ LPWSTR fileName)
 {
     if (m_resourceFileName)
         delete[] m_resourceFileName;
-    size_t len = wcslen(fileName) + 1;
+    size_t len = u16_strlen(fileName) + 1;
     m_resourceFileName = (LPWSTR)new (nothrow) WCHAR[len];
     TESTANDRETURN(m_resourceFileName!=NULL, E_OUTOFMEMORY);
     wcscpy_s(m_resourceFileName, len, fileName);
@@ -563,6 +482,11 @@ HRESULT CeeFileGenWriter::getFileTimeStamp(DWORD *pTimeStamp)
     return getPEWriter().getFileTimeStamp(pTimeStamp);
 } // HRESULT CeeFileGenWriter::getFileTimeStamp()
 
+void CeeFileGenWriter::setFileHeaderTimeStamp(DWORD timeStamp)
+{
+    return getPEWriter().setFileHeaderTimeStamp(timeStamp);
+} // void CeeFileGenWriter::setFileHeaderTimeStamp()
+
 HRESULT CeeFileGenWriter::setAddrReloc(UCHAR *instrAddr, DWORD value)
 {
     *(DWORD *)instrAddr = VAL32(value);
@@ -571,11 +495,7 @@ HRESULT CeeFileGenWriter::setAddrReloc(UCHAR *instrAddr, DWORD value)
 
 HRESULT CeeFileGenWriter::addAddrReloc(CeeSection &thisSection, UCHAR *instrAddr, DWORD offset, CeeSection *targetSection)
 {
-    if (!targetSection) {
-        thisSection.addBaseReloc(offset, srRelocHighLow);
-    } else {
-        thisSection.addSectReloc(offset, *targetSection, srRelocHighLow);
-    }
+    thisSection.addSectReloc(offset, *targetSection, srRelocHighLow);
     return S_OK;
 } // HRESULT CeeFileGenWriter::addAddrReloc()
 
@@ -591,7 +511,7 @@ HRESULT CeeFileGenWriter::addAddrReloc(CeeSection &thisSection, UCHAR *instrAddr
 //      // import lookup table: a set of entries for the methods of each DLL,
 //      // terminating each set with NULL
 //      IMAGE_THUNK_DATA32/64 ilt[];
-//      // hint/name table: an set of entries for each method of each DLL wiht
+//      // hint/name table: an set of entries for each method of each DLL with
 //      // no terminating entry
 //      struct {
 //          WORD Hint;
@@ -861,55 +781,6 @@ HRESULT CeeFileGenWriter::emitExeMain()
             addAddrReloc(getTextSection(), exeMainBuf, entryPointOffset+CorExeMainAMD64IATOffset, m_iDataSectionIAT);
         }
     }
-    else if (getPEWriter().isIA64())
-    {
-        // Must have a PE+ PE64 file
-        //_ASSERTE(!getPEWriter().isPE32());
-
-        // Put the entry point code into the PE+ file
-        curOffset = getTextSection().dataLen();
-        align = 16;       // instructions on ia64 must be 16-byte aligned
-
-        // The entry point address be aligned
-        diff = ((curOffset + align -1) & ~(align-1)) - curOffset;
-        if (diff)
-        {
-            char* pDiff = getTextSection().getBlock(diff);
-            if(NULL==pDiff) return E_OUTOFMEMORY;
-            memset(pDiff,0,diff);
-        }
-
-        unsigned entryPointOffset = getTextSection().dataLen();
-
-        if (m_dllSwitch)
-        {
-            UCHAR *dllMainBuf = (UCHAR*)getTextSection().getBlock(sizeof(DllMainIA64Template));
-            if (dllMainBuf==NULL) return E_OUTOFMEMORY;
-            memcpy(dllMainBuf, DllMainIA64Template, sizeof(DllMainIA64Template));
-        }
-        else
-        {
-            UCHAR *exeMainBuf = (UCHAR*)getTextSection().getBlock(sizeof(ExeMainIA64Template));
-            if (exeMainBuf==NULL) return E_OUTOFMEMORY;
-            memcpy(exeMainBuf, ExeMainIA64Template, sizeof(ExeMainIA64Template));
-        }
-
-        // Put the entry point function pointer into the PE file
-        unsigned entryPlabelOffset = getTextSection().dataLen();
-        getPEWriter().setEntryPointTextOffset(entryPlabelOffset);
-
-        UCHAR * entryPtr = (UCHAR*)getTextSection().getBlock(sizeof(ULONGLONG));
-        UCHAR * gpPtr    = (UCHAR*)getTextSection().getBlock(sizeof(ULONGLONG));
-
-        memset(entryPtr,0,sizeof(ULONGLONG));
-        memset(gpPtr,0,sizeof(ULONGLONG));
-
-        setAddrReloc(entryPtr, entryPointOffset);
-        addAddrReloc(getTextSection(), entryPtr, entryPlabelOffset, &getTextSection());
-
-        setAddrReloc(gpPtr, m_iDataDlls[0].m_iatOffset + m_iDataOffsetIAT);
-        addAddrReloc(getTextSection(), gpPtr, entryPlabelOffset+8, m_iDataSectionIAT);
-    }
     else
     {
         _ASSERTE(!"Unknown target machine");
@@ -977,7 +848,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
         pParam->hFile = WszCreateFile(pParam->szResFileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (pParam->hFile == INVALID_HANDLE_VALUE)
         {
-            //dbprintf("Resource file %S not found\n", szResFileName);
             pParam->hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
             goto lDone;
         }
@@ -1002,11 +872,10 @@ HRESULT CeeFileGenWriter::emitResourceSection()
             cbFileSize = static_cast<SIZE_T>(dwFileSize);
         }
 
-        pParam->hMap = WszCreateFileMapping(pParam->hFile, 0, PAGE_READONLY, 0, 0, NULL);
+        pParam->hMap = CreateFileMapping(pParam->hFile, 0, PAGE_READONLY, 0, 0, NULL);
 
         if (pParam->hMap == NULL)
         {
-            //dbprintf("Invalid .res file: %S\n", szResFileName);
             pParam->hr = HRESULT_FROM_GetLastError();
             goto lDone;
         }
@@ -1016,7 +885,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
         // test failure conditions
         if (pbStartOfMappedMem == NULL)
         {
-            //dbprintf("Invalid .res file: %S:Can't get header\n", szResFileName);
             pParam->hr = HRESULT_FROM_GetLastError();
             goto lDone;
         }
@@ -1032,7 +900,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
 
         if (VAL16(pParam->hMod->SizeOfOptionalHeader) != 0)
         {
-            //dbprintf("Invalid .res file: %S:Illegal optional header\n", szResFileName);
             pParam->hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND); // GetLastError() = 0 since API worked.
             goto lDone;
         }
@@ -1075,7 +942,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
         // If we don't have both resources, fail.
         if (!rsrc[0] || !rsrc[1])
         {
-            //dbprintf("Invalid .res file: %S: Missing sections .rsrc$01 or .rsrc$02\n", szResFileName);
             pParam->hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
             goto lDone;
         }
@@ -1190,7 +1056,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
                 (VAL16(pSymbolEntry->Type) != IMAGE_SYM_TYPE_NULL) ||
                 (VAL16(pSymbolEntry->SectionNumber) != 3)) // 3rd section is .rsrc$02
             {
-                //dbprintf("Invalid .res file: %S:Illegal symbol entry\n", szResFileName);
                 pParam->hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
                 goto lDone;
             }
@@ -1198,7 +1063,6 @@ HRESULT CeeFileGenWriter::emitResourceSection()
             // Ensure that RVA is valid address (inside rsrc[1])
             if (VAL32(pSymbolEntry->Value) >= VAL32(rsrc[1]->SizeOfRawData))
             {
-                //dbprintf("Invalid .res file: %S:Illegal rva into .rsrc$02\n", szResFileName);
                 pParam->hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
                 goto lDone;
             }
@@ -1219,7 +1083,6 @@ lDone: ;
     }
     PAL_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
-        //dbprintf("Exception occured manipulating .res file %S\n", szResFileName);
         param.hr = HRESULT_FROM_WIN32(ERROR_RESOURCE_DATA_NOT_FOUND);
     }
     PAL_ENDTRY

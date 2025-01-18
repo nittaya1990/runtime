@@ -5,6 +5,8 @@ using Microsoft.DotNet.Cli.Build;
 using Microsoft.DotNet.Cli.Build.Framework;
 using Xunit;
 
+using static Microsoft.DotNet.CoreSetup.Test.Constants;
+
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 {
     /// <summary>
@@ -122,11 +124,12 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData(Constants.RollForwardSetting.LatestPatch, false)]
         public void NeverRollBackOnPreRelease_PreReleaseOnly(string rollForward, bool? applyPatches)
         {
+            string requestedVersion = "5.1.2-preview.3";
             RunTest(
-                "5.1.2-preview.3",
+                requestedVersion,
                 rollForward,
                 applyPatches)
-                .ShouldFailToFindCompatibleFrameworkVersion();
+                .ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion);
         }
 
         // Verifies that rollForward settings won't roll back (on patch).
@@ -139,11 +142,12 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData(Constants.RollForwardSetting.LatestPatch, false)]
         public void NeverRollBackOnPatch_PreReleaseOnly(string rollForward, bool? applyPatches)
         {
+            string requestedVersion = "5.1.3-preview.1";
             RunTest(
-                "5.1.3-preview.1",
+                requestedVersion,
                 rollForward,
                 applyPatches)
-                .ShouldFailToFindCompatibleFrameworkVersion();
+                .ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion);
         }
 
         // Verifies that rollForward settings won't roll back (on minor).
@@ -157,11 +161,12 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData(Constants.RollForwardSetting.LatestMinor, false)]
         public void NeverRollBackOnMinor_PreReleaseOnly(string rollForward, bool? applyPatches)
         {
+            string requestedVersion = "5.3.0-preview.1";
             RunTest(
-                "5.3.0-preview.1",
+                requestedVersion,
                 rollForward,
                 applyPatches)
-                .ShouldFailToFindCompatibleFrameworkVersion();
+                .ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion);
         }
 
         // Verifies that rollForward settings won't roll back (on major).
@@ -175,11 +180,12 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData(Constants.RollForwardSetting.LatestMinor, false)]
         public void NeverRollBackOnMajor_PreReleaseOnly(string rollForward, bool? applyPatches)
         {
+            string requestedVersion = "7.1.0-preview.1";
             RunTest(
-                "7.1.0-preview.1",
+                requestedVersion,
                 rollForward,
                 applyPatches)
-                .ShouldFailToFindCompatibleFrameworkVersion();
+                .ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion);
         }
 
         // Verifies that rollForward settings behave as expected starting with framework reference

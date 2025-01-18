@@ -9,6 +9,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+using static System.IO.Compression.ZipArchiveEntryConstants;
+
 namespace System.IO.Compression
 {
     // The disposable fields that this class owns get disposed when the ZipArchive it belongs to gets disposed
@@ -16,11 +18,12 @@ namespace System.IO.Compression
     {
         private ZipArchive _archive;
         private readonly bool _originallyInArchive;
-        private readonly int _diskNumberStart;
+        private readonly uint _diskNumberStart;
         private readonly ZipVersionMadeByPlatform _versionMadeByPlatform;
         private ZipVersionNeededValues _versionMadeBySpecification;
         internal ZipVersionNeededValues _versionToExtract;
         private BitFlagValues _generalPurposeBitFlag;
+        private readonly bool _isEncrypted;
         private CompressionMethodValues _storedCompressionMethod;
         private DateTimeOffset _lastModified;
         private long _compressedSize;
@@ -41,7 +44,7 @@ namespace System.IO.Compression
         private List<ZipGenericExtraField>? _cdUnknownExtraFields;
         private List<ZipGenericExtraField>? _lhUnknownExtraFields;
         private byte[] _fileComment;
-        private readonly CompressionLevel? _compressionLevel;
+        private readonly CompressionLevel _compressionLevel;
 
         // Initializes a ZipArchiveEntry instance for an existing archive entry.
         internal ZipArchiveEntry(ZipArchive archive, ZipCentralDirectoryFileHeader cd)
@@ -55,6 +58,7 @@ namespace System.IO.Compression
             _versionMadeBySpecification = (ZipVersionNeededValues)cd.VersionMadeBySpecification;
             _versionToExtract = (ZipVersionNeededValues)cd.VersionNeededToExtract;
             _generalPurposeBitFlag = (BitFlagValues)cd.GeneralPurposeBitFlag;
+            _isEncrypted = (_generalPurposeBitFlag & BitFlagValues.IsEncrypted) != 0;
             CompressionMethod = (CompressionMethodValues)cd.CompressionMethod;
             _lastModified = new DateTimeOffset(ZipHelper.DosTimeToDateTime(cd.LastModified));
             _compressedSize = cd.CompressedSize;
@@ -73,7 +77,7 @@ namespace System.IO.Compression
             _outstandingWriteStream = null;
 
             _storedEntryNameBytes = cd.Filename;
-            _storedEntryName = (_archive.EntryNameAndCommentEncoding ?? Encoding.UTF8).GetString(_storedEntryNameBytes);
+            _storedEntryName = DecodeEntryString(_storedEntryNameBytes);
             DetectEntryNameVersion();
 
             _lhUnknownExtraFields = null;
@@ -82,7 +86,7 @@ namespace System.IO.Compression
 
             _fileComment = cd.FileComment;
 
-            _compressionLevel = null;
+            _compressionLevel = MapCompressionLevel(_generalPurposeBitFlag, CompressionMethod);
         }
 
         // Initializes a ZipArchiveEntry instance for a new archive entry with a specified compression level.
@@ -94,6 +98,7 @@ namespace System.IO.Compression
             {
                 CompressionMethod = CompressionMethodValues.Stored;
             }
+            _generalPurposeBitFlag = MapDeflateCompressionOption(_generalPurposeBitFlag, _compressionLevel, CompressionMethod);
         }
 
         // Initializes a ZipArchiveEntry instance for a new archive entry.
@@ -107,13 +112,17 @@ namespace System.IO.Compression
             _versionMadeByPlatform = CurrentZipPlatform;
             _versionMadeBySpecification = ZipVersionNeededValues.Default;
             _versionToExtract = ZipVersionNeededValues.Default; // this must happen before following two assignment
-            _generalPurposeBitFlag = 0;
+            _compressionLevel = CompressionLevel.Optimal;
             CompressionMethod = CompressionMethodValues.Deflate;
+            _generalPurposeBitFlag = MapDeflateCompressionOption(0, _compressionLevel, CompressionMethod);
             _lastModified = DateTimeOffset.Now;
 
             _compressedSize = 0; // we don't know these yet
             _uncompressedSize = 0;
-            _externalFileAttr = 0;
+            _externalFileAttr = entryName.EndsWith(Path.DirectorySeparatorChar) || entryName.EndsWith(Path.AltDirectorySeparatorChar)
+                                        ? DefaultDirectoryExternalAttributes
+                                        : DefaultFileExternalAttributes;
+
             _offsetOfLocalHeader = 0;
             _storedOffsetOfCompressedData = null;
             _crc32 = 0;
@@ -130,8 +139,6 @@ namespace System.IO.Compression
             _lhUnknownExtraFields = null;
 
             _fileComment = Array.Empty<byte>();
-
-            _compressionLevel = null;
 
             if (_storedEntryNameBytes.Length > ushort.MaxValue)
                 throw new ArgumentException(SR.EntryNamesTooLong);
@@ -150,6 +157,11 @@ namespace System.IO.Compression
 
         [CLSCompliant(false)]
         public uint Crc32 => _crc32;
+
+        /// <summary>
+        /// Gets a value that indicates whether the entry is encrypted.
+        /// </summary>
+        public bool IsEncrypted => _isEncrypted;
 
         /// <summary>
         /// The compressed size of the entry. If the archive that the entry belongs to is in Create mode, attempts to get this property will always throw an exception. If the archive that the entry belongs to is in update mode, this property will only be valid if the entry has not been opened.
@@ -188,7 +200,7 @@ namespace System.IO.Compression
         [AllowNull]
         public string Comment
         {
-            get => (_archive.EntryNameAndCommentEncoding ?? Encoding.UTF8).GetString(_fileComment);
+            get => DecodeEntryString(_fileComment);
             set
             {
                 _fileComment = ZipHelper.GetEncodedTruncatedBytesFromString(value, _archive.EntryNameAndCommentEncoding, ushort.MaxValue, out bool isUTF8);
@@ -340,6 +352,18 @@ namespace System.IO.Compression
             return FullName;
         }
 
+        private string DecodeEntryString(byte[] entryStringBytes)
+        {
+            Debug.Assert(entryStringBytes != null);
+
+            Encoding readEntryStringEncoding =
+                (_generalPurposeBitFlag & BitFlagValues.UnicodeFileNameAndComment) == BitFlagValues.UnicodeFileNameAndComment
+                ? Encoding.UTF8
+                : _archive?.EntryNameAndCommentEncoding ?? Encoding.UTF8;
+
+            return readEntryStringEncoding.GetString(entryStringBytes);
+        }
+
         // Only allow opening ZipArchives with large ZipArchiveEntries in update mode when running in a 64-bit process.
         // This is for compatibility with old behavior that threw an exception for all process bitnesses, because this
         // will not work in a 32-bit process.
@@ -457,7 +481,7 @@ namespace System.IO.Compression
 
             bool zip64Needed = false;
 
-            if (SizesTooLarge()
+            if (AreSizesTooLarge
 #if DEBUG_FORCE_ZIP64
                 || _archive._forceZip64
 #endif
@@ -478,7 +502,7 @@ namespace System.IO.Compression
             }
 
 
-            if (_offsetOfLocalHeader > uint.MaxValue
+            if (IsOffsetTooLarge
 #if DEBUG_FORCE_ZIP64
                 || _archive._forceZip64
 #endif
@@ -620,7 +644,7 @@ namespace System.IO.Compression
                 case CompressionMethodValues.Deflate:
                 case CompressionMethodValues.Deflate64:
                 default:
-                    compressorStream = new DeflateStream(backingStream, _compressionLevel ?? CompressionLevel.Optimal, leaveBackingStreamOpen);
+                    compressorStream = new DeflateStream(backingStream, _compressionLevel, leaveBackingStreamOpen);
                     break;
 
             }
@@ -675,12 +699,12 @@ namespace System.IO.Compression
             return GetDataDecompressor(compressedStream);
         }
 
-        private Stream OpenInWriteMode()
+        private WrappedStream OpenInWriteMode()
         {
             if (_everOpenedForWrite)
                 throw new IOException(SR.CreateModeWriteOnceAndOneEntryAtATime);
 
-            // we assume that if another entry grabbed the archive stream, that it set this entry's _everOpenedForWrite property to true by calling WriteLocalFileHeaderIfNeeed
+            // we assume that if another entry grabbed the archive stream, that it set this entry's _everOpenedForWrite property to true by calling WriteLocalFileHeaderAndDataIfNeeded
             _archive.DebugAssertIsStillArchiveStreamOwner(this);
 
             _everOpenedForWrite = true;
@@ -696,7 +720,7 @@ namespace System.IO.Compression
             return new WrappedStream(baseStream: _outstandingWriteStream, closeBaseStream: true);
         }
 
-        private Stream OpenInUpdateMode()
+        private WrappedStream OpenInUpdateMode()
         {
             if (_currentlyOpenForWrite)
                 throw new IOException(SR.UpdateModeOneStream);
@@ -785,7 +809,51 @@ namespace System.IO.Compression
             return true;
         }
 
-        private bool SizesTooLarge() => _compressedSize > uint.MaxValue || _uncompressedSize > uint.MaxValue;
+        private bool AreSizesTooLarge => _compressedSize > uint.MaxValue || _uncompressedSize > uint.MaxValue;
+
+        private static CompressionLevel MapCompressionLevel(BitFlagValues generalPurposeBitFlag, CompressionMethodValues compressionMethod)
+        {
+            // Information about the Deflate compression option is stored in bits 1 and 2 of the general purpose bit flags.
+            // If the compression method is not Deflate, the Deflate compression option is invalid - default to NoCompression.
+            if (compressionMethod == CompressionMethodValues.Deflate || compressionMethod == CompressionMethodValues.Deflate64)
+            {
+                return ((int)generalPurposeBitFlag & 0x6) switch
+                {
+                    0 => CompressionLevel.Optimal,
+                    2 => CompressionLevel.SmallestSize,
+                    4 => CompressionLevel.Fastest,
+                    6 => CompressionLevel.Fastest,
+                    _ => CompressionLevel.Optimal
+                };
+            }
+            else
+            {
+                return CompressionLevel.NoCompression;
+            }
+        }
+
+        private static BitFlagValues MapDeflateCompressionOption(BitFlagValues generalPurposeBitFlag, CompressionLevel compressionLevel, CompressionMethodValues compressionMethod)
+        {
+            ushort deflateCompressionOptions = (ushort)(
+                // The Deflate compression level is only valid if the compression method is actually Deflate (or Deflate64). If it's not, the
+                // value of the two bits is undefined and they should be zeroed out.
+                compressionMethod == CompressionMethodValues.Deflate || compressionMethod == CompressionMethodValues.Deflate64
+                    ? compressionLevel switch
+                    {
+                        CompressionLevel.Optimal => 0,
+                        CompressionLevel.SmallestSize => 2,
+                        CompressionLevel.Fastest => 6,
+                        CompressionLevel.NoCompression => 6,
+                        _ => 0
+                    }
+                    : 0);
+
+            return (BitFlagValues)(((int)generalPurposeBitFlag & ~0x6) | deflateCompressionOptions);
+        }
+
+        private bool IsOffsetTooLarge => _offsetOfLocalHeader > uint.MaxValue;
+
+        private bool ShouldUseZIP64 => AreSizesTooLarge || IsOffsetTooLarge;
 
         // return value is true if we allocated an extra field for 64 bit headers, un/compressed size
         private bool WriteLocalFileHeader(bool isEmptyFile)
@@ -801,6 +869,9 @@ namespace System.IO.Compression
             bool zip64Used = false;
             uint compressedSizeTruncated, uncompressedSizeTruncated;
 
+            // save offset
+            _offsetOfLocalHeader = writer.BaseStream.Position;
+
             // if we already know that we have an empty file don't worry about anything, just do a straight shot of the header
             if (isEmptyFile)
             {
@@ -815,7 +886,7 @@ namespace System.IO.Compression
             {
                 // if we have a non-seekable stream, don't worry about sizes at all, and just set the right bit
                 // if we are using the data descriptor, then sizes and crc should be set to 0 in the header
-                if (_archive.Mode == ZipArchiveMode.Create && _archive.ArchiveStream.CanSeek == false && !isEmptyFile)
+                if (_archive.Mode == ZipArchiveMode.Create && _archive.ArchiveStream.CanSeek == false)
                 {
                     _generalPurposeBitFlag |= BitFlagValues.DataDescriptor;
                     zip64Used = false;
@@ -828,7 +899,7 @@ namespace System.IO.Compression
                 {
                     // We are in seekable mode so we will not need to write a data descriptor
                     _generalPurposeBitFlag &= ~BitFlagValues.DataDescriptor;
-                    if (SizesTooLarge()
+                    if (ShouldUseZIP64
 #if DEBUG_FORCE_ZIP64
                         || (_archive._forceZip64 && _archive.Mode == ZipArchiveMode.Update)
 #endif
@@ -852,9 +923,6 @@ namespace System.IO.Compression
                     }
                 }
             }
-
-            // save offset
-            _offsetOfLocalHeader = writer.BaseStream.Position;
 
             // calculate extra field. if zip64 stuff + original extraField aren't going to fit, dump the original extraField, because this is more important
             int bigExtraFieldLength = (zip64Used ? zip64ExtraField.TotalSize : 0)
@@ -952,7 +1020,7 @@ namespace System.IO.Compression
             long finalPosition = _archive.ArchiveStream.Position;
             BinaryWriter writer = new BinaryWriter(_archive.ArchiveStream);
 
-            bool zip64Needed = SizesTooLarge()
+            bool zip64Needed = ShouldUseZIP64
 #if DEBUG_FORCE_ZIP64
                 || _archive._forceZip64
 #endif
@@ -999,7 +1067,7 @@ namespace System.IO.Compression
             // try to read it, even if the 32-bit size values aren't masked. thus, we should always put the
             // correct size information in there. note that order of uncomp/comp is switched, and these are
             // 64-bit values
-            // also, note that in order for this to be correct, we have to insure that the zip64 extra field
+            // also, note that in order for this to be correct, we have to ensure that the zip64 extra field
             // is always the first extra field that is written
             if (zip64HeaderUsed)
             {
@@ -1036,7 +1104,7 @@ namespace System.IO.Compression
 
             writer.Write(ZipLocalFileHeader.DataDescriptorSignature);
             writer.Write(_crc32);
-            if (SizesTooLarge())
+            if (AreSizesTooLarge)
             {
                 writer.Write(_compressedSize);
                 writer.Write(_uncompressedSize);
@@ -1050,8 +1118,7 @@ namespace System.IO.Compression
 
         private void UnloadStreams()
         {
-            if (_storedUncompressedData != null)
-                _storedUncompressedData.Dispose();
+            _storedUncompressedData?.Dispose();
             _compressedBytes = null;
             _outstandingWriteStream = null;
         }
@@ -1059,10 +1126,7 @@ namespace System.IO.Compression
         private void CloseStreams()
         {
             // if the user left the stream open, close the underlying stream for them
-            if (_outstandingWriteStream != null)
-            {
-                _outstandingWriteStream.Dispose();
-            }
+            _outstandingWriteStream?.Dispose();
         }
 
         private void VersionToExtractAtLeast(ZipVersionNeededValues value)
@@ -1089,14 +1153,10 @@ namespace System.IO.Compression
         /// </summary>
         private static string GetFileName_Windows(string path)
         {
-            int length = path.Length;
-            for (int i = length; --i >= 0;)
-            {
-                char ch = path[i];
-                if (ch == '\\' || ch == '/' || ch == ':')
-                    return path.Substring(i + 1);
-            }
-            return path;
+            int i = path.AsSpan().LastIndexOfAny('\\', '/', ':');
+            return i >= 0 ?
+                path.Substring(i + 1) :
+                path;
         }
 
         /// <summary>
@@ -1104,11 +1164,10 @@ namespace System.IO.Compression
         /// </summary>
         private static string GetFileName_Unix(string path)
         {
-            int length = path.Length;
-            for (int i = length; --i >= 0;)
-                if (path[i] == '/')
-                    return path.Substring(i + 1);
-            return path;
+            int i = path.LastIndexOf('/');
+            return i >= 0 ?
+                path.Substring(i + 1) :
+                path;
         }
 
         private sealed class DirectToArchiveWriterStream : Stream
@@ -1229,7 +1288,7 @@ namespace System.IO.Compression
             }
 
             public override void WriteByte(byte value) =>
-                Write(MemoryMarshal.CreateReadOnlySpan(ref value, 1));
+                Write(new ReadOnlySpan<byte>(in value));
 
             public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             {
@@ -1306,8 +1365,20 @@ namespace System.IO.Compression
         }
 
         [Flags]
-        internal enum BitFlagValues : ushort { DataDescriptor = 0x8, UnicodeFileNameAndComment = 0x800 }
+        internal enum BitFlagValues : ushort
+        {
+            IsEncrypted = 0x1,
+            DataDescriptor = 0x8,
+            UnicodeFileNameAndComment = 0x800
+        }
 
-        internal enum CompressionMethodValues : ushort { Stored = 0x0, Deflate = 0x8, Deflate64 = 0x9, BZip2 = 0xC, LZMA = 0xE }
+        internal enum CompressionMethodValues : ushort
+        {
+            Stored = 0x0,
+            Deflate = 0x8,
+            Deflate64 = 0x9,
+            BZip2 = 0xC,
+            LZMA = 0xE
+        }
     }
 }

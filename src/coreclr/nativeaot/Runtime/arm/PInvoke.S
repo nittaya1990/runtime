@@ -20,8 +20,10 @@
 NESTED_ENTRY RhpPInvoke, _TEXT, NoHandler
         str     lr, [r0, #OFFSETOF__PInvokeTransitionFrame__m_RIP]
         str     r11, [r0, #OFFSETOF__PInvokeTransitionFrame__m_FramePointer]
-        str     sp, [r0, #OFFSETOF__PInvokeTransitionFrame__m_PreservedRegs]
-        mov     r3, #PTFF_SAVE_SP
+        // We need to save R9 which could be frame pointer if the caller method uses stackalloc (REG_SAVED_LOCALLOC_SP)
+        str     r9, [r0, #OFFSETOF__PInvokeTransitionFrame__m_PreservedRegs]
+        str     sp, [r0, #OFFSETOF__PInvokeTransitionFrame__m_PreservedRegs + 4]
+        mov     r3, #(PTFF_SAVE_R9 + PTFF_SAVE_SP)
         str     r3, [r0, #OFFSETOF__PInvokeTransitionFrame__m_Flags]
 
         PROLOG_PUSH "{r5,lr}"
@@ -33,15 +35,8 @@ NESTED_ENTRY RhpPInvoke, _TEXT, NoHandler
         str     r0, [r5, #OFFSETOF__PInvokeTransitionFrame__m_pThread]
         str     r5, [r0, #OFFSETOF__Thread__m_pTransitionFrame]
 
-        ldr     r3, =C_FUNC(RhpTrapThreads)
-        ldr     r3, [r3]
-        cbnz    r3, LOCAL_LABEL(InvokeRareTrapThread)  // TrapThreadsFlags_None = 0
-
         EPILOG_POP "{r5,pc}"
 
-LOCAL_LABEL(InvokeRareTrapThread):
-        EPILOG_POP "{r5,lr}"
-        b       C_FUNC(RhpWaitForSuspend2)
 NESTED_END RhpPInvoke, _TEXT
 
 
@@ -56,8 +51,7 @@ LEAF_ENTRY RhpPInvokeReturn, _TEXT
         mov     r2, #0
         str     r2, [r3, #OFFSETOF__Thread__m_pTransitionFrame]
 
-        ldr     r3, =C_FUNC(RhpTrapThreads)
-        ldr     r3, [r3]
+        PREPARE_EXTERNAL_VAR_INDIRECT RhpTrapThreads, r3
         cbnz    r3, LOCAL_LABEL(ReturnRareTrapThread)  // TrapThreadsFlags_None = 0
 
         bx      lr

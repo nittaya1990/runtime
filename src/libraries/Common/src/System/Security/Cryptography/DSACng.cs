@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Internal.Cryptography;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Internal.Cryptography;
 
 namespace System.Security.Cryptography
 {
-    public sealed partial class DSACng : DSA
+    public sealed partial class DSACng : DSA, IRuntimeAlgorithm
     {
         /// <summary>
         ///     Create a DSACng algorithm with a random 2048 bit key pair.
@@ -44,16 +44,6 @@ namespace System.Security.Cryptography
 
         public override string SignatureAlgorithm => "DSA";
         public override string? KeyExchangeAlgorithm => null;
-
-        // Need to override since base methods throw a "override me" exception: makes SignData/VerifyData function.
-        protected override byte[] HashData(byte[] data, int offset, int count, HashAlgorithmName hashAlgorithm) =>
-            HashOneShotHelpers.HashData(hashAlgorithm, new ReadOnlySpan<byte>(data, offset, count));
-
-        protected override byte[] HashData(Stream data, HashAlgorithmName hashAlgorithm) =>
-            HashOneShotHelpers.HashData(hashAlgorithm, data);
-
-        protected override bool TryHashData(ReadOnlySpan<byte> source, Span<byte> destination, HashAlgorithmName hashAlgorithm, out int bytesWritten) =>
-            HashOneShotHelpers.TryHashData(hashAlgorithm, source, destination, out bytesWritten);
 
         private void ForceSetKeySize(int newKeySize)
         {

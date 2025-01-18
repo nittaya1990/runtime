@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Internal.Text;
 using Internal.TypeSystem;
 using System.Diagnostics;
 using System.Globalization;
@@ -57,6 +56,16 @@ namespace ILCompiler
         public sealed override string MethodGenericDictionary(MethodDesc method)
         {
             return GenericDictionaryNamePrefix + NameMangler.GetMangledMethodName(method);
+        }
+
+        public sealed override string ExternMethod(string unmangledName, MethodDesc method)
+        {
+            return unmangledName;
+        }
+
+        public sealed override string ExternVariable(string unmangledName)
+        {
+            return unmangledName;
         }
     }
 }

@@ -3,6 +3,9 @@
 //
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.DataTypes.@int;
 
 public struct VT
 {
@@ -42,7 +45,9 @@ public class intMDArrTest
 
 
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
 
         bool pass = true;

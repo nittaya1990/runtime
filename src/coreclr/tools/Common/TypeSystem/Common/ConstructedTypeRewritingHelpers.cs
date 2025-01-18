@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace Internal.TypeSystem
@@ -79,7 +78,6 @@ namespace Internal.TypeSystem
             if (type.HasInstantiation)
             {
                 TypeDesc[] newInstantiation = null;
-                Debug.Assert(type is InstantiatedType);
                 int instantiationIndex = 0;
                 for (; instantiationIndex < type.Instantiation.Length; instantiationIndex++)
                 {

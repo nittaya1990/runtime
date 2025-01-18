@@ -160,9 +160,9 @@ public:
     {
         // If it doesn't contain pointers, there isn't a GCDesc
         PTR_MethodTable mt(pMT);
-
-        _ASSERTE(mt->ContainsPointers());
-
+#ifndef SOS_INCLUDE
+        _ASSERTE(mt->ContainsGCPointers());
+#endif
         return PTR_CGCDesc(mt);
     }
 
@@ -195,7 +195,7 @@ public:
     {
         size_t NumOfPointers = 0;
 
-        if (pMT->ContainsPointers())
+        if (pMT->ContainsGCPointers())
         {
             CGCDesc* map = GetCGCDescFromMT(pMT);
             CGCDescSeries* cur = map->GetHighestSeries();
@@ -216,14 +216,14 @@ public:
                 /* Handle the repeating case - array of valuetypes */
                 for (ptrdiff_t __i = 0; __i > cnt; __i--)
                 {
-                    NumOfPointers += cur->val_serie[__i].nptrs;
+                    NumOfPointers += (cur->val_serie + __i)->nptrs;
                 }
 
                 NumOfPointers *= NumComponents;
             }
         }
 
-#ifndef FEATURE_REDHAWK
+#ifndef FEATURE_NATIVEAOT
         if (pMT->Collectible())
         {
             NumOfPointers += 1;

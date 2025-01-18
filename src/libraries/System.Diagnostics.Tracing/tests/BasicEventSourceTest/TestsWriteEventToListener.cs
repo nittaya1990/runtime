@@ -3,15 +3,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using Xunit;
-using System.Threading;
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
 using System.Diagnostics.Tracing;
-#endif
+using System.Threading;
 using SdtEventSources;
+using Xunit;
 
 namespace BasicEventSourceTests
 {
@@ -19,7 +14,6 @@ namespace BasicEventSourceTests
     {
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/21569", TargetFrameworkMonikers.NetFramework)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public unsafe void Test_WriteEvent_ArgsBasicTypes()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -214,7 +208,6 @@ namespace BasicEventSourceTests
 
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/21569", TargetFrameworkMonikers.NetFramework)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_WriteEvent_ArgsCornerCases()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -248,7 +241,6 @@ namespace BasicEventSourceTests
         static partial void Test_WriteEvent_ArgsCornerCases_TestEtw(EventSourceTest log);
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_WriteEvent_InvalidCalls()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -271,7 +263,6 @@ namespace BasicEventSourceTests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_WriteEvent_ToChannel_Coverage()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -286,7 +277,6 @@ namespace BasicEventSourceTests
 
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/21569", TargetFrameworkMonikers.NetFramework)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_WriteEvent_ZeroKwds()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -323,7 +313,6 @@ namespace BasicEventSourceTests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_EventSourceCreatedEvents_BeforeListener()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -387,7 +376,6 @@ namespace BasicEventSourceTests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_EventSourceCreatedEvents_AfterListener()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -452,7 +440,6 @@ namespace BasicEventSourceTests
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_EventListenerThrows_ExceptionIsNotRethrownToCaller(bool setThrowOnEventWriteErrorsFlag)
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");

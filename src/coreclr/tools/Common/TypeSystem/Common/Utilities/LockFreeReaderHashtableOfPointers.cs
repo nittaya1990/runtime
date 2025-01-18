@@ -9,12 +9,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Debug = System.Diagnostics.Debug;
 
+#nullable disable
+
 namespace Internal.TypeSystem
 {
     /// <summary>
     /// A hash table which is lock free for readers and up to 1 writer at a time.
     /// It must be possible to compute the key's hashcode from a value.
-    /// All values must convertable to/from an IntPtr.
+    /// All values must convertible to/from an IntPtr.
     /// It must be possible to perform an equality check between a key and a value.
     /// It must be possible to perform an equality check between a value and a value.
     /// A LockFreeReaderKeyValueComparer must be provided to perform these operations.
@@ -211,9 +213,9 @@ namespace Internal.TypeSystem
         /// <param name="hashtable"></param>
         /// <param name="tableIndex"></param>
         /// <returns>The value that replaced the sentinel, or null</returns>
-        IntPtr WaitForSentinelInHashtableToDisappear(IntPtr[] hashtable, int tableIndex)
+        private static IntPtr WaitForSentinelInHashtableToDisappear(IntPtr[] hashtable, int tableIndex)
         {
-            var sw = new SpinWait();
+            var sw = default(SpinWait);
             while (true)
             {
                 IntPtr value = Volatile.Read(ref hashtable[tableIndex]);
@@ -353,7 +355,7 @@ namespace Internal.TypeSystem
             return result;
         }
 
-        IntPtr VolatileReadNonSentinelFromHashtable(IntPtr[] hashTable, int tableIndex)
+        private static IntPtr VolatileReadNonSentinelFromHashtable(IntPtr[] hashTable, int tableIndex)
         {
             IntPtr examineEntry = Volatile.Read(ref hashTable[tableIndex]);
 
@@ -364,7 +366,7 @@ namespace Internal.TypeSystem
         }
 
         /// <summary>
-        /// Attemps to add a value to the hashtable, or find a value which is already present in the hashtable.
+        /// Attempts to add a value to the hashtable, or find a value which is already present in the hashtable.
         /// In some cases, this will fail due to contention with other additions and must be retried.
         /// Note that the key is not specified as it is implicit in the value. This function is thread-safe,
         /// but must only take locks around internal operations and GetValueHashCode.
@@ -458,7 +460,7 @@ namespace Internal.TypeSystem
         /// Attampts to write the Sentinel into the table. May fail if another value has been added.
         /// </summary>
         /// <returns>True if the value was successfully written</returns>
-        private bool TryWriteSentinelToLocation(IntPtr[] hashTableLocal, int tableIndex)
+        private static bool TryWriteSentinelToLocation(IntPtr[] hashTableLocal, int tableIndex)
         {
             // Add to hash, use a CompareExchange to ensure that
             // the sentinel is are fully communicated to all threads
@@ -473,7 +475,7 @@ namespace Internal.TypeSystem
         /// <summary>
         /// Writes the value into the table. Must only be used to overwrite a sentinel.
         /// </summary>
-        private void WriteValueToLocation(IntPtr value, IntPtr[] hashTableLocal, int tableIndex)
+        private static void WriteValueToLocation(IntPtr value, IntPtr[] hashTableLocal, int tableIndex)
         {
             // Add to hash, use a volatile write to ensure that
             // the contents of the value are fully published to all
@@ -484,7 +486,7 @@ namespace Internal.TypeSystem
         /// <summary>
         /// Abandons the sentinel. Must only be used to overwrite a sentinel.
         /// </summary>
-        private void WriteAbortNullToLocation(IntPtr[] hashTableLocal, int tableIndex)
+        private static void WriteAbortNullToLocation(IntPtr[] hashTableLocal, int tableIndex)
         {
             // Abandon sentinel, use a volatile write to ensure that
             // the contents of the value are fully published to all
@@ -535,7 +537,7 @@ namespace Internal.TypeSystem
         public TValue GetValueIfExists(TValue value)
         {
             if (value == null)
-                throw new ArgumentNullException();
+                throw new ArgumentNullException(nameof(value));
 
             IntPtr[] hashTableLocal = GetCurrentHashtable();
             Debug.Assert(hashTableLocal.Length > 0);
@@ -576,7 +578,7 @@ namespace Internal.TypeSystem
         /// </summary>
         public struct Enumerator : IEnumerator<TValue>
         {
-            LockFreeReaderHashtableOfPointers<TKey, TValue> _hashtable;
+            private LockFreeReaderHashtableOfPointers<TKey, TValue> _hashtable;
             private IntPtr[] _hashtableContentsToEnumerate;
             private int _index;
             private TValue _current;
@@ -690,7 +692,7 @@ namespace Internal.TypeSystem
         protected abstract IntPtr ConvertValueToIntPtr(TValue value);
 
         /// <summary>
-        /// Convert an IntPtr into a value for comparisions, or for returning.
+        /// Convert an IntPtr into a value for comparisons, or for returning.
         /// </summary>
         protected abstract TValue ConvertIntPtrToValue(IntPtr pointer);
     }

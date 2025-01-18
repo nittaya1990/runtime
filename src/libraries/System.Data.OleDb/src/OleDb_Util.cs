@@ -43,7 +43,7 @@ namespace System.Data.OleDb
                     break;
 
                 case DBStatus.E_CANTCREATE:
-                    Debug.Assert(false, "CommandParameterStatus: unexpected E_CANTCREATE");
+                    Debug.Fail("CommandParameterStatus: unexpected E_CANTCREATE");
                     goto default;
 
                 case DBStatus.E_UNAVAILABLE:
@@ -52,19 +52,19 @@ namespace System.Data.OleDb
                     break;
 
                 case DBStatus.E_PERMISSIONDENIED:
-                    Debug.Assert(false, "CommandParameterStatus: unexpected E_PERMISSIONDENIED");
+                    Debug.Fail("CommandParameterStatus: unexpected E_PERMISSIONDENIED");
                     goto default;
 
                 case DBStatus.E_INTEGRITYVIOLATION:
-                    Debug.Assert(false, "CommandParameterStatus: unexpected E_INTEGRITYVIOLATION");
+                    Debug.Fail("CommandParameterStatus: unexpected E_INTEGRITYVIOLATION");
                     goto default;
 
                 case DBStatus.E_SCHEMAVIOLATION:
-                    Debug.Assert(false, "CommandParameterStatus: unexpected E_SCHEMAVIOLATION");
+                    Debug.Fail("CommandParameterStatus: unexpected E_SCHEMAVIOLATION");
                     goto default;
 
                 case DBStatus.E_BADSTATUS:
-                    Debug.Assert(false, "CommandParameterStatus: unexpected E_BADSTATUS");
+                    Debug.Fail("CommandParameterStatus: unexpected E_BADSTATUS");
                     goto default;
 
                 case DBStatus.S_DEFAULT:
@@ -358,7 +358,7 @@ namespace System.Data.OleDb
             return ADP.InvalidOperation(SR.Format(SR.OleDb_IDBInfoNotSupported));
         }
 
-        // explictly used error codes
+        // explicitly used error codes
         internal const int ADODB_AlreadyClosedError = unchecked((int)0x800A0E78);
         internal const int ADODB_NextResultError = unchecked((int)0x800A0CB3);
 
@@ -553,9 +553,9 @@ namespace System.Data.OleDb
         internal const uint DB_ALL_EXCEPT_LIKE = 3;
         internal const uint DB_SEARCHABLE = 4;
 
-        internal static readonly IntPtr DB_INVALID_HACCESSOR = ADP.PtrZero;
-        internal static readonly IntPtr DB_NULL_HCHAPTER = ADP.PtrZero;
-        internal static readonly IntPtr DB_NULL_HROW = ADP.PtrZero;
+        internal static readonly IntPtr DB_INVALID_HACCESSOR = IntPtr.Zero;
+        internal static readonly IntPtr DB_NULL_HCHAPTER = IntPtr.Zero;
+        internal static readonly IntPtr DB_NULL_HROW = IntPtr.Zero;
 
         internal static readonly bool IsRunningOnX86 = RuntimeInformation.ProcessArchitecture == Architecture.X86;
 
@@ -569,7 +569,7 @@ namespace System.Data.OleDb
         internal static readonly int SizeOf_tagDBPROPINFO = IsRunningOnX86 ? Marshal.SizeOf(typeof(tagDBPROPINFO_x86)) : Marshal.SizeOf(typeof(tagDBPROPINFO));
         internal static readonly int SizeOf_tagDBPROPIDSET = Marshal.SizeOf(typeof(tagDBPROPIDSET));
         internal static readonly int SizeOf_Guid = Marshal.SizeOf(typeof(Guid));
-        internal static readonly int SizeOf_Variant = 8 + (2 * ADP.PtrSize); // 16 on 32bit, 24 on 64bit
+        internal static readonly int SizeOf_Variant = 8 + (2 * IntPtr.Size); // 16 on 32bit, 24 on 64bit
 
         internal static readonly int OffsetOf_tagDBPROP_Status = IsRunningOnX86 ? Marshal.OffsetOf(typeof(tagDBPROP_x86), "dwStatus").ToInt32() : Marshal.OffsetOf(typeof(tagDBPROP), "dwStatus").ToInt32();
         internal static readonly int OffsetOf_tagDBPROP_Value = IsRunningOnX86 ? Marshal.OffsetOf(typeof(tagDBPROP_x86), "vValue").ToInt32() : Marshal.OffsetOf(typeof(tagDBPROP), "vValue").ToInt32();
@@ -580,24 +580,24 @@ namespace System.Data.OleDb
         internal static readonly int OffsetOf_tagDBBINDING_obValue = Marshal.OffsetOf(typeof(tagDBBINDING), "obValue").ToInt32();
         internal static readonly int OffsetOf_tagDBBINDING_wType = Marshal.OffsetOf(typeof(tagDBBINDING), "wType").ToInt32();
 
-        internal static Guid IID_NULL = Guid.Empty;
-        internal static Guid IID_IUnknown = new Guid(0x00000000, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
-        internal static Guid IID_IDBInitialize = new Guid(0x0C733A8B, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_IDBCreateSession = new Guid(0x0C733A5D, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_IDBCreateCommand = new Guid(0x0C733A1D, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_ICommandText = new Guid(0x0C733A27, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_IMultipleResults = new Guid(0x0C733A90, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_IRow = new Guid(0x0C733AB4, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_IRowset = new Guid(0x0C733A7C, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
-        internal static Guid IID_ISQLErrorInfo = new Guid(0x0C733A74, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_NULL = Guid.Empty;
+        internal static readonly Guid IID_IUnknown = new Guid(0x00000000, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
+        internal static readonly Guid IID_IDBInitialize = new Guid(0x0C733A8B, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_IDBCreateSession = new Guid(0x0C733A5D, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_IDBCreateCommand = new Guid(0x0C733A1D, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_ICommandText = new Guid(0x0C733A27, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_IMultipleResults = new Guid(0x0C733A90, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_IRow = new Guid(0x0C733AB4, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_IRowset = new Guid(0x0C733A7C, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid IID_ISQLErrorInfo = new Guid(0x0C733A74, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
 
-        internal static Guid CLSID_DataLinks = new Guid(0x2206CDB2, 0x19C1, 0x11D1, 0x89, 0xE0, 0x00, 0xC0, 0x4F, 0xD7, 0xA8, 0x29);
+        internal static readonly Guid CLSID_DataLinks = new Guid(0x2206CDB2, 0x19C1, 0x11D1, 0x89, 0xE0, 0x00, 0xC0, 0x4F, 0xD7, 0xA8, 0x29);
 
-        internal static Guid DBGUID_DEFAULT = new Guid(0xc8b521fb, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
-        internal static Guid DBGUID_ROWSET = new Guid(0xc8b522f6, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
-        internal static Guid DBGUID_ROW = new Guid(0xc8b522f7, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
+        internal static readonly Guid DBGUID_DEFAULT = new Guid(0xc8b521fb, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
+        internal static readonly Guid DBGUID_ROWSET = new Guid(0xc8b522f6, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
+        internal static readonly Guid DBGUID_ROW = new Guid(0xc8b522f7, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
 
-        internal static Guid DBGUID_ROWDEFAULTSTREAM = new Guid(0x0C733AB7, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
+        internal static readonly Guid DBGUID_ROWDEFAULTSTREAM = new Guid(0x0C733AB7, 0x2A1C, 0x11CE, 0xAD, 0xE5, 0x00, 0xAA, 0x00, 0x44, 0x77, 0x3D);
 
         internal static readonly Guid CLSID_MSDASQL = new Guid(0xc8b522cb, 0x5cf3, 0x11ce, 0xad, 0xe5, 0x00, 0xaa, 0x00, 0x44, 0x77, 0x3d);
 
@@ -691,14 +691,13 @@ namespace System.Data.OleDb
         // Debug error string writeline
         internal static string ELookup(OleDbHResult hr)
         {
-            StringBuilder builder = new StringBuilder();
-            builder.Append(hr.ToString());
-            if ((0 < builder.Length) && char.IsDigit(builder[0]))
+            string result = hr.ToString();
+            if (char.IsDigit(result[0]))
             {
-                builder.Length = 0;
+                result = "";
             }
-            builder.Append($"(0x{(int)hr:X8})");
-            return builder.ToString();
+
+            return $"{result}(0x{(int)hr:X8})";
         }
 
 #if DEBUG

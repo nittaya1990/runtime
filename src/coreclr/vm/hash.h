@@ -46,6 +46,8 @@ typedef ULONG_PTR UPTR;
 class Bucket;
 class HashMap;
 
+const unsigned int SLOTS_PER_BUCKET = 4;
+
 //-------------------------------------------------------
 //  class Bucket
 //  used by hash table implementation
@@ -54,8 +56,8 @@ typedef DPTR(class Bucket) PTR_Bucket;
 class Bucket
 {
 public:
-    UPTR m_rgKeys[4];
-    UPTR m_rgValues[4];
+    UPTR m_rgKeys[SLOTS_PER_BUCKET];
+    UPTR m_rgValues[SLOTS_PER_BUCKET];
 
 #define VALUE_MASK (sizeof(LPVOID) == 4 ? 0x7FFFFFFF : I64(0x7FFFFFFFFFFFFFFF))
 
@@ -214,7 +216,7 @@ public:
 //   the hash function is re-applied.
 //
 //   Inserts choose an empty slot in the current bucket for new entries, if the current bucket
-//   is full, then the seed is refined and a new bucket is choosen, if an empty slot is not found
+//   is full, then the seed is refined and a new bucket is chosen, if an empty slot is not found
 //   after 8 retries, the hash table is expanded, this causes the current array of buckets to
 //   be put in a free list and a new array of buckets is allocated and all non-deleted entries
 //   from the old hash table are rehashed to the new array
@@ -337,7 +339,7 @@ private:
     static void            Leave(HashMap *);        // check valid to leave
 
     typedef Holder<HashMap *, HashMap::Enter, HashMap::Leave> SyncAccessHolder;
-    BOOL            m_fInSyncCode; // test for non-synchronus access
+    BOOL            m_fInSyncCode; // test for non-synchronous access
 #else // !_DEBUG
     // in non DEBUG mode use a no-op helper
     typedef NoOpBaseHolder<HashMap *> SyncAccessHolder;
@@ -365,7 +367,7 @@ private:
     SIZE_T          m_cbPrevSlotsInUse;
     SIZE_T          m_cbInserts;
     SIZE_T          m_cbDeletes;
-    // mode of operation, synchronus or single user
+    // mode of operation, synchronous or single user
     bool            m_fAsyncMode;
 
 #ifdef _DEBUG
@@ -532,6 +534,14 @@ public:
 
         return m_cbInserts-m_cbDeletes;
     }
+
+    friend struct ::cdac_data<HashMap>;
+};
+
+template<>
+struct cdac_data<HashMap>
+{
+    static constexpr size_t Buckets = offsetof(HashMap, m_rgBuckets);
 };
 
 //---------------------------------------------------------------------------------------

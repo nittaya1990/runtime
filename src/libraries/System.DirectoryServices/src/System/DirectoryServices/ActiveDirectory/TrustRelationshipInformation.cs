@@ -38,14 +38,14 @@ namespace System.DirectoryServices.ActiveDirectory
             // source
             this.source = source;
             // target
-            this.target = (obj.DnsDomainName == null ? obj.NetbiosDomainName : obj.DnsDomainName);
+            this.target = obj.DnsDomainName ?? obj.NetbiosDomainName;
             // direction
-            if ((obj.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0 &&
-                (obj.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
+            if ((obj.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0 &&
+                (obj.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
                 direction = TrustDirection.Bidirectional;
-            else if ((obj.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0)
+            else if ((obj.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0)
                 direction = TrustDirection.Outbound;
-            else if ((obj.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
+            else if ((obj.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
                 direction = TrustDirection.Inbound;
             // type
             this.type = obj.TrustType;

@@ -71,16 +71,12 @@ class AwareLock;
 class Thread;
 class AppDomain;
 
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
 class EnCSyncBlockInfo;
 typedef DPTR(EnCSyncBlockInfo) PTR_EnCSyncBlockInfo;
-
-#endif // EnC_SUPPORTED
-
-#include "eventstore.hpp"
+#endif // FEATURE_METADATA_UPDATER
 
 #include "eventstore.hpp"
-
 #include "synch.h"
 
 // At a negative offset from each Object is an ObjHeader.  The 'size' of the
@@ -102,15 +98,15 @@ typedef DPTR(EnCSyncBlockInfo) PTR_EnCSyncBlockInfo;
 
 #define BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX    0x08000000
 
-// if BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX is clear, the rest of the header dword is layed out as follows:
-// - lower ten bits (bits 0 thru 9) is thread id used for the thin locks
+// if BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX is clear, the rest of the header dword is laid out as follows:
+// - lower sixteen bits (bits 0 thru 15) is thread id used for the thin locks
 //   value is zero if no thread is holding the lock
-// - following six bits (bits 10 thru 15) is recursion level used for the thin locks
+// - following six bits (bits 16 thru 21) is recursion level used for the thin locks
 //   value is zero if lock is not taken or only taken once by the same thread
-#define SBLK_MASK_LOCK_THREADID             0x000003FF   // special value of 0 + 1023 thread ids
-#define SBLK_MASK_LOCK_RECLEVEL             0x0000FC00   // 64 recursion levels
-#define SBLK_LOCK_RECLEVEL_INC              0x00000400   // each level is this much higher than the previous one
-#define SBLK_RECLEVEL_SHIFT                 10           // shift right this much to get recursion level
+#define SBLK_MASK_LOCK_THREADID             0x0000FFFF   // special value of 0 + 65535 thread ids
+#define SBLK_MASK_LOCK_RECLEVEL             0x003F0000   // 64 recursion levels
+#define SBLK_LOCK_RECLEVEL_INC              0x00010000   // each level is this much higher than the previous one
+#define SBLK_RECLEVEL_SHIFT                 16           // shift right this much to get recursion level
 
 // add more bits here... (adjusting the following mask to make room)
 
@@ -382,13 +378,21 @@ private:
         LockState CompareExchange(LockState toState, LockState fromState)
         {
             LIMITED_METHOD_CONTRACT;
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+            return (UINT32)FastInterlockedCompareExchange((LONG *)&m_state, (LONG)toState, (LONG)fromState);
+#else
             return (UINT32)InterlockedCompareExchange((LONG *)&m_state, (LONG)toState, (LONG)fromState);
+#endif
         }
 
         LockState CompareExchangeAcquire(LockState toState, LockState fromState)
         {
             LIMITED_METHOD_CONTRACT;
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+            return (UINT32)FastInterlockedCompareExchangeAcquire((LONG *)&m_state, (LONG)toState, (LONG)fromState);
+#else
             return (UINT32)InterlockedCompareExchangeAcquire((LONG *)&m_state, (LONG)toState, (LONG)fromState);
+#endif
         }
 
     public:
@@ -432,6 +436,8 @@ private:
 
     ULONG           m_Recursion;
     PTR_Thread      m_HoldingThread;
+    DWORD           m_HoldingThreadId;
+    SIZE_T          m_HoldingOSThreadId;
 
     LONG            m_TransientPrecious;
 
@@ -443,6 +449,7 @@ private:
     CLREvent        m_SemEvent;
 
     DWORD m_waiterStarvationStartTimeMs;
+    int m_emittedLockCreatedEvent;
 
     static const DWORD WaiterStarvationDurationMsBeforeStoppingPreemptingWaiters = 100;
 
@@ -450,12 +457,15 @@ private:
     AwareLock(DWORD indx)
         : m_Recursion(0),
 #ifndef DACCESS_COMPILE
-// PreFAST has trouble with intializing a NULL PTR_Thread.
+// PreFAST has trouble with initializing a NULL PTR_Thread.
           m_HoldingThread(NULL),
 #endif // DACCESS_COMPILE
+          m_HoldingThreadId(0),
+          m_HoldingOSThreadId(0),
           m_TransientPrecious(0),
           m_dwSyncIndex(indx),
-          m_waiterStarvationStartTimeMs(0)
+          m_waiterStarvationStartTimeMs(0),
+          m_emittedLockCreatedEvent(0)
     {
         LIMITED_METHOD_CONTRACT;
     }
@@ -515,19 +525,27 @@ public:
         return m_HoldingThread;
     }
 
+    DWORD GetHoldingThreadId() const
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_HoldingThreadId;
+    }
+
 private:
     void ResetWaiterStarvationStartTime();
     void RecordWaiterStarvationStartTime();
     bool ShouldStopPreemptingWaiters() const;
 
 private: // friend access is required for this unsafe function
-    void InitializeToLockedWithNoWaiters(ULONG recursionLevel, PTR_Thread holdingThread)
+    void InitializeToLockedWithNoWaiters(ULONG recursionLevel, PTR_Thread holdingThread, DWORD holdingThreadId, SIZE_T holdingOSThreadId)
     {
         WRAPPER_NO_CONTRACT;
 
         m_lockState.InitializeToLockedWithNoWaiters();
         m_Recursion = recursionLevel;
         m_HoldingThread = holdingThread;
+        m_HoldingThreadId = holdingThreadId;
+        m_HoldingOSThreadId = holdingOSThreadId;
     }
 
 public:
@@ -554,7 +572,7 @@ public:
     {
         WRAPPER_NO_CONTRACT;
 
-        // CLREvent::SetMonitorEvent works even if the event has not been intialized yet
+        // CLREvent::SetMonitorEvent works even if the event has not been initialized yet
         m_SemEvent.SetMonitorEvent();
 
         m_lockState.InterlockedTrySetShouldNotPreemptWaitersIfNecessary(this);
@@ -567,7 +585,7 @@ public:
     void    IncrementTransientPrecious()
     {
         LIMITED_METHOD_CONTRACT;
-        FastInterlockIncrement(&m_TransientPrecious);
+        InterlockedIncrement(&m_TransientPrecious);
         _ASSERTE(m_TransientPrecious > 0);
     }
 
@@ -575,7 +593,7 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         _ASSERTE(m_TransientPrecious > 0);
-        FastInterlockDecrement(&m_TransientPrecious);
+        InterlockedDecrement(&m_TransientPrecious);
     }
 
     DWORD GetSyncBlockIndex();
@@ -592,6 +610,12 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return m_HoldingThread;
+    }
+
+    static int GetOffsetOfHoldingOSThreadId()
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (int)offsetof(AwareLock, m_HoldingOSThreadId);
     }
 };
 
@@ -618,9 +642,25 @@ public:
 #endif // !TARGET_UNIX
 
     InteropSyncBlockInfo()
+        : m_pUMEntryThunk{}
+#ifdef FEATURE_COMINTEROP
+        , m_pCCW{}
+#ifdef FEATURE_COMINTEROP_UNMANAGED_ACTIVATION
+        , m_pCCF{}
+#endif // FEATURE_COMINTEROP_UNMANAGED_ACTIVATION
+        , m_pRCW{}
+#endif // FEATURE_COMINTEROP
+#ifdef FEATURE_COMWRAPPERS
+        , m_externalComObjectContext{}
+        , m_managedObjectComWrapperLock{}
+        , m_managedObjectComWrapperMap{}
+#endif // FEATURE_COMWRAPPERS
+#ifdef FEATURE_OBJCMARSHAL
+        , m_taggedMemory{}
+        , m_taggedAlloc{}
+#endif // FEATURE_OBJCMARSHAL
     {
         LIMITED_METHOD_CONTRACT;
-        ZeroMemory(this, sizeof(InteropSyncBlockInfo));
 
 #if defined(FEATURE_COMWRAPPERS)
         // The GC thread does enumerate these objects so add CRST_UNSAFE_COOPGC.
@@ -738,7 +778,7 @@ public:
     bool SetUMEntryThunk(void* pUMEntryThunk)
     {
         WRAPPER_NO_CONTRACT;
-        return (FastInterlockCompareExchangePointer(&m_pUMEntryThunk,
+        return (InterlockedCompareExchangeT(&m_pUMEntryThunk,
                                                     pUMEntryThunk,
                                                     NULL) == NULL);
     }
@@ -801,7 +841,7 @@ public:
         if (m_managedObjectComWrapperMap == NULL)
         {
             NewHolder<ManagedObjectComWrapperByIdMap> map = new ManagedObjectComWrapperByIdMap();
-            if (FastInterlockCompareExchangePointer((ManagedObjectComWrapperByIdMap**)&m_managedObjectComWrapperMap, (ManagedObjectComWrapperByIdMap *)map, NULL) == NULL)
+            if (InterlockedCompareExchangeT(&m_managedObjectComWrapperMap, (ManagedObjectComWrapperByIdMap *)map, NULL) == NULL)
             {
                 map.SuppressRelease();
             }
@@ -880,7 +920,7 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
 
-        return (FastInterlockCompareExchangePointer(
+        return (InterlockedCompareExchangeT(
                         &m_externalComObjectContext,
                         eoc,
                         curr) == curr);
@@ -892,7 +932,7 @@ private:
     void* m_externalComObjectContext;
 
     CrstExplicitInit m_managedObjectComWrapperLock;
-    NewHolder<ManagedObjectComWrapperByIdMap> m_managedObjectComWrapperMap;
+    ManagedObjectComWrapperByIdMap* m_managedObjectComWrapperMap;
 #endif // FEATURE_COMWRAPPERS
 
 #ifdef FEATURE_OBJCMARSHAL
@@ -932,8 +972,23 @@ private:
     // Two pointers worth of bytes of the requirement for
     // the current consuming implementation so that is what
     // is being allocated.
+    // If the size of this array is changed, the NativeAOT version
+    // should be updated as well.
+    // See the TAGGED_MEMORY_SIZE_IN_POINTERS constant in
+    // ObjectiveCMarshal.NativeAot.cs
     BYTE m_taggedAlloc[2 * sizeof(void*)];
 #endif // FEATURE_OBJCMARSHAL
+
+    friend struct ::cdac_data<InteropSyncBlockInfo>;
+};
+
+template<>
+struct cdac_data<InteropSyncBlockInfo>
+{
+#ifdef FEATURE_COMINTEROP
+    static constexpr size_t CCW = offsetof(InteropSyncBlockInfo, m_pCCW);
+    static constexpr size_t RCW = offsetof(InteropSyncBlockInfo, m_pRCW);
+#endif // FEATURE_COMINTEROP
 };
 
 typedef DPTR(InteropSyncBlockInfo) PTR_InteropSyncBlockInfo;
@@ -961,10 +1016,10 @@ class SyncBlock
     PTR_InteropSyncBlockInfo    m_pInteropInfo;
 
   protected:
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     // And if the object has new fields added via EnC, this is a list of them
     PTR_EnCSyncBlockInfo m_pEnCInfo;
-#endif // EnC_SUPPORTED
+#endif // FEATURE_METADATA_UPDATER
 
     // We thread two different lists through this link.  When the SyncBlock is
     // active, we create a list of waiting threads here.  When the SyncBlock is
@@ -975,7 +1030,7 @@ class SyncBlock
     // space for the minimum, which is the pointer within an SLink.
     SLink       m_Link;
 
-    // This is the hash code for the object. It can either have been transfered
+    // This is the hash code for the object. It can either have been transferred
     // from the header dword, in which case it will be limited to 26 bits, or
     // have been generated right into this member variable here, when it will
     // be a full 32 bits.
@@ -996,9 +1051,9 @@ class SyncBlock
   public:
     SyncBlock(DWORD indx)
         : m_Monitor(indx)
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
         , m_pEnCInfo(PTR_NULL)
-#endif // EnC_SUPPORTED
+#endif // FEATURE_METADATA_UPDATER
         , m_dwHashCode(0)
         , m_BSTRTrailByte(0)
     {
@@ -1096,7 +1151,7 @@ class SyncBlock
     // True if the InteropInfo block was successfully set with the passed in value.
     bool SetInteropInfo(InteropSyncBlockInfo* pInteropInfo);
 
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     // Get information about fields added to this object by the Debugger's Edit and Continue support
     PTR_EnCSyncBlockInfo GetEnCInfo()
     {
@@ -1106,7 +1161,7 @@ class SyncBlock
 
     // Store information about fields added to this object by the Debugger's Edit and Continue support
     void SetEnCInfo(EnCSyncBlockInfo *pEnCInfo);
-#endif // EnC_SUPPORTED
+#endif // FEATURE_METADATA_UPDATER
 
     DWORD GetHashCode()
     {
@@ -1117,7 +1172,7 @@ class SyncBlock
     DWORD SetHashCode(DWORD hashCode)
     {
         WRAPPER_NO_CONTRACT;
-        DWORD result = FastInterlockCompareExchange((LONG*)&m_dwHashCode, hashCode, 0);
+        DWORD result = InterlockedCompareExchange((LONG*)&m_dwHashCode, hashCode, 0);
         if (result == 0)
         {
             // the sync block now holds a hash code, which we can't afford to lose.
@@ -1224,10 +1279,10 @@ class SyncBlock
     // This should ONLY be called when initializing a SyncBlock (i.e. ONLY from
     // ObjHeader::GetSyncBlock()), otherwise we'll have a race condition.
     // </NOTE>
-    void InitState(ULONG recursionLevel, PTR_Thread holdingThread)
+    void InitState(ULONG recursionLevel, PTR_Thread holdingThread, DWORD holdingThreadId, SIZE_T holdingOSThreadId)
     {
         WRAPPER_NO_CONTRACT;
-        m_Monitor.InitializeToLockedWithNoWaiters(recursionLevel, holdingThread);
+        m_Monitor.InitializeToLockedWithNoWaiters(recursionLevel, holdingThread, holdingThreadId, holdingOSThreadId);
     }
 
 #if defined(ENABLE_CONTRACTS_IMPL)
@@ -1239,6 +1294,14 @@ class SyncBlock
         return m_Monitor.GetPtrForLockContract();
     }
 #endif // defined(ENABLE_CONTRACTS_IMPL)
+
+    friend struct ::cdac_data<SyncBlock>;
+};
+
+template<>
+struct cdac_data<SyncBlock>
+{
+    static constexpr size_t InteropInfo = offsetof(SyncBlock, m_pInteropInfo);
 };
 
 class SyncTableEntry
@@ -1280,15 +1343,15 @@ class SyncBlockCache
   private:
     PTR_SLink   m_pCleanupBlockList;    // list of sync blocks that need cleanup
     SLink*      m_FreeBlockList;        // list of free sync blocks
-    Crst        m_CacheLock;            // cache lock
+    CrstStatic  m_CacheLock;            // cache lock
     DWORD       m_FreeCount;            // count of active sync blocks
     DWORD       m_ActiveCount;          // number active
     SyncBlockArray *m_SyncBlocks;       // Array of new SyncBlocks.
     DWORD       m_FreeSyncBlock;        // Next Free Syncblock in the array
 
         // The next variables deal with SyncTableEntries.  Instead of having the object-header
-        // point directly at SyncBlocks, the object points a a syncTableEntry, which points at
-        // the syncBlock.  This is done because in a common case (need a hash code for an object)
+        // point directly at SyncBlocks, the object points at a syncTableEntry, which in turn points
+        // at the syncBlock.  This is done because in a common case (need a hash code for an object)
         // you just need a syncTableEntry.
 
     DWORD       m_FreeSyncTableIndex;   // We allocate a large array of SyncTableEntry structures.
@@ -1316,19 +1379,9 @@ class SyncBlockCache
     SPTR_DECL(SyncBlockCache, s_pSyncBlockCache);
     static SyncBlockCache*& GetSyncBlockCache();
 
-    void *operator new(size_t size, void *pInPlace)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return pInPlace;
-    }
-
-    void operator delete(void *p)
-    {
-        LIMITED_METHOD_CONTRACT;
-    }
-
-    SyncBlockCache();
-    ~SyncBlockCache();
+    // Note: No constructors/destructors - global instance
+    void Init();
+    void Destroy();
 
     static void Attach();
     static void Detach();
@@ -1473,7 +1526,7 @@ class ObjHeader
             // note that indx could be carrying the BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX bit that we need to preserve
             newValue = (indx |
                 (oldValue & ~(BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX | BIT_SBLK_IS_HASHCODE | MASK_SYNCBLOCKINDEX)));
-            if (FastInterlockCompareExchange((LONG*)&m_SyncBlockValue,
+            if (InterlockedCompareExchange((LONG*)&m_SyncBlockValue,
                                              newValue,
                                              oldValue)
                 == oldValue)
@@ -1489,7 +1542,7 @@ class ObjHeader
         LIMITED_METHOD_CONTRACT;
 
         _ASSERTE(m_SyncBlockValue & BIT_SBLK_SPIN_LOCK);
-        FastInterlockAnd(&m_SyncBlockValue, ~(BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX | BIT_SBLK_IS_HASHCODE | MASK_SYNCBLOCKINDEX));
+        InterlockedAnd((LONG*)&m_SyncBlockValue, ~(BIT_SBLK_IS_HASH_OR_SYNCBLKINDEX | BIT_SBLK_IS_HASHCODE | MASK_SYNCBLOCKINDEX));
     }
 
     // Used only GC
@@ -1509,14 +1562,14 @@ class ObjHeader
         LIMITED_METHOD_CONTRACT;
 
         _ASSERTE((bit & MASK_SYNCBLOCKINDEX) == 0);
-        FastInterlockOr(&m_SyncBlockValue, bit);
+        InterlockedOr((LONG*)&m_SyncBlockValue, bit);
     }
     void ClrBit(DWORD bit)
     {
         LIMITED_METHOD_CONTRACT;
 
         _ASSERTE((bit & MASK_SYNCBLOCKINDEX) == 0);
-        FastInterlockAnd(&m_SyncBlockValue, ~bit);
+        InterlockedAnd((LONG*)&m_SyncBlockValue, ~bit);
     }
     //GC accesses this bit when all threads are stopped.
     void SetGCBit()
@@ -1554,7 +1607,7 @@ class ObjHeader
         LIMITED_METHOD_CONTRACT;
 
         _ASSERTE((oldBits & BIT_SBLK_SPIN_LOCK) == 0);
-        DWORD result = FastInterlockCompareExchange((LONG*)&m_SyncBlockValue, newBits, oldBits);
+        DWORD result = InterlockedCompareExchange((LONG*)&m_SyncBlockValue, newBits, oldBits);
         return result;
     }
 
@@ -1629,8 +1682,15 @@ class ObjHeader
     void ReleaseSpinLock();
 
     BOOL Validate (BOOL bVerifySyncBlkIndex = TRUE);
+
+    friend struct ::cdac_data<ObjHeader>;
 };
 
+template<>
+struct cdac_data<ObjHeader>
+{
+    static constexpr size_t SyncBlockValue = offsetof(ObjHeader, m_SyncBlockValue);
+};
 
 typedef DPTR(class ObjHeader) PTR_ObjHeader;
 

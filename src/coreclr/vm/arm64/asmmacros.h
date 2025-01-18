@@ -1,12 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-;; ==++==
-;;
-
-;;
-;; ==--==
-
 ;-----------------------------------------------------------------------------
 ; Macro used to assign an alternate name to a symbol containing characters normally disallowed in a symbol
 ; name (e.g. C++ decorated names).
@@ -147,6 +141,9 @@ $__EndLabelName
 
     LEAF_END $FuncName
 
+    ; make sure this symbol gets its own address
+    nop
+
     MEND
 ;-----------------------------------------------------------------------------
 ; Macro use for enabling C++ to know where to patch code at runtime.
@@ -155,6 +152,24 @@ $__EndLabelName
 $FuncName
     EXPORT $FuncName
 
+    MEND
+
+;-----------------------------------------------------------------------------
+; Macro used to check (in debug builds only) whether the stack is 16-bytes aligned (a requirement before calling
+; out into C++/OS code). Invoke this directly after your prolog (if the stack frame size is fixed) or directly
+; before a call (if you have a frame pointer and a dynamic stack). A breakpoint will be invoked if the stack
+; is misaligned.
+;
+    MACRO
+        CHECK_STACK_ALIGNMENT
+
+#ifdef _DEBUG
+        add     x9, sp, xzr
+        tst     x9, #15
+        beq     %F0
+        EMIT_BREAKPOINT
+0
+#endif
     MEND
 
 ;-----------------------------------------------------------------------------
@@ -298,18 +313,17 @@ $__RedirectionStubEndFuncName
 
         MEND
 
-;-----------------------------------------------------------------------------
-; Macro to get a pointer to the Thread* object for the currently executing thread
-;
+;; -----------------------------------------------------------------------------
+;;
+;; Macro to get a pointer to a threadlocal symbol for the currently executing thread
+;;
+
 __tls_array     equ 0x58    ;; offsetof(TEB, ThreadLocalStoragePointer)
 
-    EXTERN _tls_index
-
-    GBLS __SECTIONREL_gCurrentThreadInfo
-__SECTIONREL_gCurrentThreadInfo SETS "SECTIONREL_gCurrentThreadInfo"
-
     MACRO
-        INLINE_GETTHREAD $destReg, $trashReg
+        INLINE_GET_TLS_VAR $destReg, $trashReg, $variable
+
+        EXTERN _tls_index
 
         ;; The following macro variables are just some assembler magic to get the name of the 32-bit version
         ;; of $trashReg. It does it by string manipulation. Replaces something like x3 with w3.
@@ -317,33 +331,27 @@ __SECTIONREL_gCurrentThreadInfo SETS "SECTIONREL_gCurrentThreadInfo"
 TrashRegister32Bit SETS "$trashReg"
 TrashRegister32Bit SETS "w":CC:("$TrashRegister32Bit":RIGHT:((:LEN:TrashRegister32Bit) - 1))
 
-        ldr         $trashReg, =_tls_index
-        ldr         $TrashRegister32Bit, [$trashReg]
+        adrp        $destReg, _tls_index
+        ldr         $TrashRegister32Bit, [$destReg, _tls_index]
         ldr         $destReg, [xpr, #__tls_array]
-        ldr         $destReg, [$destReg, $trashReg lsl #3]
-        ldr         $trashReg, =$__SECTIONREL_gCurrentThreadInfo
-        ldr         $trashReg, [$trashReg]
-        ldr         $destReg, [$destReg, $trashReg]        ; return gCurrentThreadInfo.m_pThread
+        ldr         $destReg, [$destReg, $TrashRegister32Bit uxtw #3]
+        add         $destReg, $destReg, #0, lsl #0xC
+        RELOC       0xA, $variable                          ;; IMAGE_REL_ARM64_SECREL_HIGH12A
+        add         $destReg, $destReg, #0, lsl #0
+        RELOC       0x9, $variable                          ;; IMAGE_REL_ARM64_SECREL_LOW12A
     MEND
 
-;-----------------------------------------------------------------------------
-; INLINE_GETTHREAD_CONSTANT_POOL macro has to be used after the last function in the .asm file that used
-; INLINE_GETTHREAD. Optionally, it can be also used after any function that used INLINE_GETTHREAD
-; to improve density, or to reduce distance betweeen the constant pool and its use.
-;
+;; -----------------------------------------------------------------------------
+;;
+;; Macro to get a pointer to the Thread* object for the currently executing thread
+;;
     SETALIAS gCurrentThreadInfo, ?gCurrentThreadInfo@@3UThreadLocalInfo@@A
 
     MACRO
-        INLINE_GETTHREAD_CONSTANT_POOL
+        INLINE_GETTHREAD $destReg, $trashReg
 
         EXTERN $gCurrentThreadInfo
 
-    ;; Section relocs are 32 bits. Using an extra DCD initialized to zero for 8-byte alignment.
-$__SECTIONREL_gCurrentThreadInfo
-        DCD $gCurrentThreadInfo
-        RELOC 8, $gCurrentThreadInfo    ;; SECREL
-        DCD 0
-
-__SECTIONREL_gCurrentThreadInfo SETS "$__SECTIONREL_gCurrentThreadInfo":CC:"_"
-
+        INLINE_GET_TLS_VAR $destReg, $trashReg, $gCurrentThreadInfo
+        ldr $destReg, [$destReg]                            ;; return gCurrentThreadInfo.m_pThread
     MEND

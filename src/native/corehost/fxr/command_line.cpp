@@ -4,6 +4,7 @@
 #include "command_line.h"
 #include <error_codes.h>
 #include "framework_info.h"
+#include "install_info.h"
 #include <pal.h>
 #include "sdk_info.h"
 #include <trace.h>
@@ -134,7 +135,7 @@ namespace
             for (const auto& opt : known_opts)
             {
                 const host_option &arg = get_host_option(opt);
-                trace::error(_X("  %s %-*s  %s"), arg.option, 36 - pal::strlen(arg.option), arg.argument, arg.description);
+                trace::error(_X("  %s %-*s  %s"), arg.option, 36 - (int)pal::strlen(arg.option), arg.argument, arg.description);
             }
             return StatusCode::InvalidArgFailure;
         }
@@ -144,7 +145,7 @@ namespace
         if (mode == host_mode_t::apphost)
         {
             app_candidate = host_info.app_path;
-            doesAppExist = bundle::info_t::is_single_file_bundle() || pal::realpath(&app_candidate);
+            doesAppExist = bundle::info_t::is_single_file_bundle() || pal::fullpath(&app_candidate);
         }
         else
         {
@@ -157,7 +158,7 @@ namespace
 
             app_candidate = argv[*new_argoff];
 
-            bool is_app_managed = ends_with(app_candidate, _X(".dll"), false) || ends_with(app_candidate, _X(".exe"), false);
+            bool is_app_managed = utils::ends_with(app_candidate, _X(".dll"), false) || utils::ends_with(app_candidate, _X(".exe"), false);
             if (!is_app_managed)
             {
                 trace::verbose(_X("Application '%s' is not a managed executable."), app_candidate.c_str());
@@ -168,7 +169,7 @@ namespace
                 }
             }
 
-            doesAppExist = pal::realpath(&app_candidate);
+            doesAppExist = pal::fullpath(&app_candidate);
             if (!doesAppExist)
             {
                 trace::verbose(_X("Application '%s' does not exist."), app_candidate.c_str());
@@ -279,32 +280,59 @@ int command_line::parse_args_for_sdk_command(
     return parse_args(host_info, 1, argc, argv, false, host_mode_t::muxer, new_argoff, app_candidate, opts);
 }
 
-void command_line::print_muxer_info(const pal::string_t &dotnet_root)
+void command_line::print_muxer_info(const pal::string_t &dotnet_root, const pal::string_t &global_json_path, bool skip_sdk_info_output)
 {
-    trace::println();
-    trace::println(_X("Host (useful for support):"));
-    trace::println(_X("  Version: %s"), _STRINGIFY(HOST_FXR_PKG_VER));
-
     pal::string_t commit = _STRINGIFY(REPO_COMMIT_HASH);
-    trace::println(_X("  Commit:  %s"), commit.substr(0, 10).c_str());
+    trace::println(_X("\n")
+        _X("Host:\n")
+        _X("  Version:      ") _STRINGIFY(HOST_VERSION) _X("\n")
+        _X("  Architecture: ") _STRINGIFY(CURRENT_ARCH_NAME) _X("\n")
+        _X("  Commit:       %s"),
+        commit.substr(0, 10).c_str());
 
-    trace::println();
-    trace::println(_X(".NET SDKs installed:"));
+    if (!skip_sdk_info_output)
+        trace::println(_X("  RID:          %s"), get_runtime_id().c_str());
+
+    trace::println(_X("\n")
+        _X(".NET SDKs installed:"));
     if (!sdk_info::print_all_sdks(dotnet_root, _X("  ")))
     {
         trace::println(_X("  No SDKs were found."));
     }
 
-    trace::println();
-    trace::println(_X(".NET runtimes installed:"));
+    trace::println(_X("\n")
+        _X(".NET runtimes installed:"));
     if (!framework_info::print_all_frameworks(dotnet_root, _X("  ")))
     {
         trace::println(_X("  No runtimes were found."));
     }
 
-    trace::println();
-    trace::println(_X("To install additional .NET runtimes or SDKs:"));
-    trace::println(_X("  %s"), DOTNET_CORE_DOWNLOAD_URL);
+    trace::println(_X("\n")
+        _X("Other architectures found:"));
+    if (!install_info::print_other_architectures(_X("  ")))
+    {
+        trace::println(_X("  None"));
+    }
+
+    trace::println(_X("\n")
+        _X("Environment variables:"));
+    if (!install_info::print_environment(_X("  ")))
+    {
+        trace::println(_X("  Not set"));
+    }
+
+    trace::println(_X("\n")
+        _X("global.json file:\n")
+        _X("  %s"),
+        global_json_path.empty() ? _X("Not found") : global_json_path.c_str());
+
+    trace::println(_X("\n")
+        _X("Learn more:\n")
+        _X("  ") DOTNET_INFO_URL);
+
+    trace::println(_X("\n")
+        _X("Download .NET:\n")
+        _X("  ") DOTNET_CORE_DOWNLOAD_URL);
 }
 
 void command_line::print_muxer_usage(bool is_sdk_present)
@@ -325,7 +353,7 @@ void command_line::print_muxer_usage(bool is_sdk_present)
     for (const auto& opt : known_opts)
     {
         const host_option &arg = get_host_option(opt);
-        trace::println(_X("  %s %-*s  %s"), arg.option, 29 - pal::strlen(arg.option), arg.argument, arg.description);
+        trace::println(_X("  %s %-*s  %s"), arg.option, 29 - (int)pal::strlen(arg.option), arg.argument, arg.description);
     }
     trace::println(_X("  --list-runtimes                 Display the installed runtimes"));
     trace::println(_X("  --list-sdks                     Display the installed SDKs"));

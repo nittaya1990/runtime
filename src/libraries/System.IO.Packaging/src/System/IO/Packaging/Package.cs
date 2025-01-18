@@ -2,12 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Security;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Security;
 
 namespace System.IO.Packaging
 {
@@ -69,9 +69,7 @@ namespace System.IO.Packaging
             {
                 ThrowIfObjectDisposed();
 
-                if (_packageProperties == null)
-                    _packageProperties = new PartBasedPackageProperties(this);
-                return _packageProperties;
+                return _packageProperties ??= new PartBasedPackageProperties(this);
             }
         }
 
@@ -316,12 +314,12 @@ namespace System.IO.Packaging
 
             PackUriHelper.ValidatedPartUri validatedPartUri = (PackUriHelper.ValidatedPartUri)PackUriHelper.ValidatePartUri(partUri);
 
-            if (_partList.ContainsKey(validatedPartUri))
+            if (_partList.TryGetValue(validatedPartUri, out PackagePart? value))
             {
                 //This will get the actual casing of the part that
                 //is stored in the partList which is equivalent to the
                 //partUri provided by the user
-                validatedPartUri = (PackUriHelper.ValidatedPartUri)_partList[validatedPartUri].Uri;
+                validatedPartUri = (PackUriHelper.ValidatedPartUri)value.Uri;
                 _partList[validatedPartUri].IsDeleted = true;
                 _partList[validatedPartUri].Close();
 
@@ -382,6 +380,8 @@ namespace System.IO.Packaging
         /// <returns></returns>
         /// <exception cref="ObjectDisposedException">If this Package object has been disposed</exception>
         /// <exception cref="IOException">If the package is writeonly, no information can be retrieved from it</exception>
+        /// <exception cref="FileFormatException">The package has a bad format.</exception>
+        /// <exception cref="InvalidOperationException">The part name prefix exists.</exception>
         public PackagePartCollection GetParts()
         {
             ThrowIfObjectDisposed();
@@ -403,32 +403,63 @@ namespace System.IO.Packaging
 
                 PackUriHelper.ValidatedPartUri partUri;
 
+                var uriComparer = Comparer<PackUriHelper.ValidatedPartUri>.Default;
+
+                //Sorting the parts array which takes O(n log n) time.
+                Array.Sort(parts, Comparer<PackagePart>.Create((partA, partB) => uriComparer.Compare((PackUriHelper.ValidatedPartUri)partA.Uri, (PackUriHelper.ValidatedPartUri)partB.Uri)));
+
                 //We need this dictionary to detect any collisions that might be present in the
                 //list of parts that was given to us from the underlying physical layer, as more than one
                 //partnames can be mapped to the same normalized part.
                 //Note: We cannot use the _partList member variable, as that gets updated incrementally and so its
                 //not possible to find the collisions using that list.
                 //PackUriHelper.ValidatedPartUri implements the IComparable interface.
-                Dictionary<PackUriHelper.ValidatedPartUri, PackagePart> seenPartUris = new Dictionary<PackUriHelper.ValidatedPartUri, PackagePart>(parts.Length);
+                Dictionary<string, KeyValuePair<PackUriHelper.ValidatedPartUri, PackagePart>> partDictionary = new(parts.Length);
+                List<string> partIndex = new(parts.Length);
 
                 for (int i = 0; i < parts.Length; i++)
                 {
                     partUri = (PackUriHelper.ValidatedPartUri)parts[i].Uri;
 
-                    if (seenPartUris.ContainsKey(partUri))
+                    string normalizedPartName = partUri.NormalizedPartUriString;
+
+                    if (partDictionary.ContainsKey(normalizedPartName))
+                    {
                         throw new FileFormatException(SR.BadPackageFormat);
+                    }
                     else
                     {
-                        // Add the part to the list of URIs that we have already seen
-                        seenPartUris.Add(partUri, parts[i]);
+                        //since we will arrive to this line of code after the parts are already sorted
+                        string? precedingPartName = null;
 
-                        if (!_partList.ContainsKey(partUri))
+                        if (partIndex.Count > 0)
                         {
-                            // Add the part to the _partList if there is no prefix collision
-                            AddIfNoPrefixCollisionDetected(partUri, parts[i]);
+                            precedingPartName = (partIndex[partIndex.Count - 1]);
                         }
+
+                        // Add the part to the dictionary
+                        partDictionary.Add(normalizedPartName, new KeyValuePair<PackUriHelper.ValidatedPartUri, PackagePart>(partUri, parts[i]));
+
+                        if (precedingPartName != null
+                            && normalizedPartName.StartsWith(precedingPartName, StringComparison.Ordinal)
+                            && normalizedPartName.Length > precedingPartName.Length
+                            && normalizedPartName[precedingPartName.Length] == PackUriHelper.ForwardSlashChar)
+                        {
+                            //Removing the invalid entry from the _partList.
+                            partDictionary.Remove(normalizedPartName);
+
+                            throw new InvalidOperationException(SR.PartNamePrefixExists);
+                        }
+
+                        //adding entry to partIndex to keep track of last element being added.
+                        //since parts are already sorted, last element in partIndex list will point to preceeding element to the current.
+                        partIndex.Add(partUri.NormalizedPartUriString);
                     }
                 }
+
+                //copying parts from partdictionary to partlist
+                CopyPartDictionaryToPartList(partDictionary, partIndex);
+
                 _partCollection = new PackagePartCollection(_partList);
             }
             return _partCollection;
@@ -455,8 +486,7 @@ namespace System.IO.Packaging
                     // close core properties
                     // This method will write out the core properties to the stream
                     // These will get flushed to the disk as a part of the DoFlush operation
-                    if (_packageProperties != null)
-                        _packageProperties.Close();
+                    _packageProperties?.Close();
 
                     // flush relationships
                     FlushRelationships();
@@ -509,8 +539,7 @@ namespace System.IO.Packaging
             // Write core properties.
             // This call will write out the xml for the core properties to the stream
             // These properties will get flushed to disk as a part of the DoFlush operation
-            if (_packageProperties != null)
-                _packageProperties.Flush();
+            _packageProperties?.Flush();
 
             // Write package relationships XML to the relationship part stream.
             // These will get flushed to disk as a part of the DoFlush operation
@@ -739,10 +768,7 @@ namespace System.IO.Packaging
         {
             if (!_disposed && disposing)
             {
-                if (_partList != null)
-                {
-                    _partList.Clear();
-                }
+                _partList?.Clear();
 
                 if (_packageProperties != null)
                 {
@@ -823,11 +849,16 @@ namespace System.IO.Packaging
         /// <exception cref="ArgumentOutOfRangeException">If FileAccess enumeration [packageAccess] does not have one of the valid values</exception>
         /// <exception cref="ArgumentOutOfRangeException">If FileMode enumeration [packageMode] does not have one of the valid values</exception>
         public static Package Open(
-            string path!!,
+            string path,
             FileMode packageMode,
             FileAccess packageAccess,
             FileShare packageShare)
         {
+            if (path is null)
+            {
+                throw new ArgumentNullException(nameof(path));
+            }
+
             ThrowIfFileModeInvalid(packageMode);
             ThrowIfFileAccessInvalid(packageAccess);
 
@@ -885,8 +916,13 @@ namespace System.IO.Packaging
         /// <exception cref="ArgumentOutOfRangeException">If FileAccess enumeration [packageAccess] does not have one of the valid values</exception>
         /// <exception cref="IOException">If package to be created should have readwrite/read access and underlying stream is write only</exception>
         /// <exception cref="IOException">If package to be created should have readwrite/write access and underlying stream is read only</exception>
-        public static Package Open(Stream stream!!, FileMode packageMode, FileAccess packageAccess)
+        public static Package Open(Stream stream, FileMode packageMode, FileAccess packageAccess)
         {
+            if (stream is null)
+            {
+                throw new ArgumentNullException(nameof(stream));
+            }
+
             Package? package = null;
             try
             {
@@ -983,7 +1019,7 @@ namespace System.IO.Packaging
         //Throw if the object is in a disposed state
         private void ThrowIfObjectDisposed()
         {
-            if (_disposed == true)
+            if (_disposed)
                 throw new ObjectDisposedException(null, SR.ObjectDisposed);
         }
 
@@ -991,17 +1027,13 @@ namespace System.IO.Packaging
         private void EnsureRelationships()
         {
             // once per package
-            if (_relationships == null)
-            {
-                _relationships = new InternalRelationshipCollection(this);
-            }
+            _relationships ??= new InternalRelationshipCollection(this);
         }
 
         //Delete All Package-level Relationships
         private void ClearRelationships()
         {
-            if (_relationships != null)
-                _relationships.Clear();
+            _relationships?.Clear();
         }
 
         //Flush the relationships at package level
@@ -1115,9 +1147,9 @@ namespace System.IO.Packaging
 
             PackUriHelper.ValidatedPartUri validatePartUri = PackUriHelper.ValidatePartUri(partUri);
 
-            if (_partList.ContainsKey(validatePartUri))
+            if (_partList.TryGetValue(validatePartUri, out PackagePart? value))
             {
-                return _partList[validatePartUri];
+                return value;
             }
             else
             {
@@ -1172,6 +1204,23 @@ namespace System.IO.Packaging
             //Internally null is used to indicate that no filter string was specified and
             //and all the relationships should be returned.
             return new PackageRelationshipCollection(_relationships, filterString);
+        }
+
+        private void CopyPartDictionaryToPartList(Dictionary<string, KeyValuePair<PackUriHelper.ValidatedPartUri, PackagePart>> partDictionary, List<string> partIndex)
+        {
+            //Clearing _partList before copying in new data. Reassigning the variable, assuming the previous object to be garbage collected.
+            //ideally addition to sortedlist takes O(n) but since we have sorted data and also we defined the size, it will take O(log n) per addition
+            //total time complexity for this function will be O(n log n)
+            _partList = new SortedList<PackUriHelper.ValidatedPartUri, PackagePart>(partDictionary.Count);
+
+            //Since partIndex is created from a sorted parts array we are sure that partIndex
+            //will have items in same order
+            foreach (var id in partIndex)
+            {
+                //retrieving object from partDictionary hashtable
+                var keyValue = partDictionary[id];
+                _partList.Add(keyValue.Key, keyValue.Value);
+            }
         }
 
         #endregion Private Methods

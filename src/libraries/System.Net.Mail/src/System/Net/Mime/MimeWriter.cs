@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Specialized;
 using System.IO;
 using System.Text;
-using System.Collections.Specialized;
 
 namespace System.Net.Mime
 {
@@ -14,19 +14,21 @@ namespace System.Net.Mime
     /// </summary>
     internal sealed class MimeWriter : BaseWriter
     {
-        private static readonly byte[] s_DASHDASH = new byte[] { (byte)'-', (byte)'-' };
-
         private readonly byte[] _boundaryBytes;
         private bool _writeBoundary = true;
 
-        internal MimeWriter(Stream stream, string boundary!!)
+        internal MimeWriter(Stream stream, string boundary)
             : base(stream, false) // Unnecessary, the underlying MailWriter stream already encodes dots
         {
+            ArgumentNullException.ThrowIfNull(boundary);
+
             _boundaryBytes = Encoding.ASCII.GetBytes(boundary);
         }
 
-        internal override void WriteHeaders(NameValueCollection headers!!, bool allowUnicode)
+        internal override void WriteHeaders(NameValueCollection headers, bool allowUnicode)
         {
+            ArgumentNullException.ThrowIfNull(headers);
+
             foreach (string key in headers)
                 WriteHeader(key, headers[key]!, allowUnicode);
         }
@@ -60,11 +62,9 @@ namespace System.Net.Mime
 
         private void Close(MultiAsyncResult? multiResult)
         {
-            _bufferBuilder.Append(s_crlf);
-            _bufferBuilder.Append(s_DASHDASH);
+            _bufferBuilder.Append("\r\n--"u8);
             _bufferBuilder.Append(_boundaryBytes);
-            _bufferBuilder.Append(s_DASHDASH);
-            _bufferBuilder.Append(s_crlf);
+            _bufferBuilder.Append("--\r\n"u8);
             Flush(multiResult);
         }
 
@@ -95,10 +95,9 @@ namespace System.Net.Mime
         {
             if (_writeBoundary)
             {
-                _bufferBuilder.Append(s_crlf);
-                _bufferBuilder.Append(s_DASHDASH);
+                _bufferBuilder.Append("\r\n--"u8);
                 _bufferBuilder.Append(_boundaryBytes);
-                _bufferBuilder.Append(s_crlf);
+                _bufferBuilder.Append("\r\n"u8);
                 _writeBoundary = false;
             }
         }

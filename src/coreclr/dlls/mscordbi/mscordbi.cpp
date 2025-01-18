@@ -3,12 +3,18 @@
 //*****************************************************************************
 // MSCorDBI.cpp
 //
-// COM+ Debugging Services -- Debugger Interface DLL
+// CLR Debugging Services -- Debugger Interface DLL
 //
 // Dll* routines for entry points, and support for COM framework.
 //
 //*****************************************************************************
 #include "stdafx.h"
+
+#if defined(HOST_ARM64) && defined(TARGET_UNIX)
+// Flag to check if atomics feature is available on
+// the machine
+bool g_arm64_atomics_present = false;
+#endif
 
 extern BOOL WINAPI DbgDllMain(HINSTANCE hInstance, DWORD dwReason,
                                          LPVOID lpReserved);

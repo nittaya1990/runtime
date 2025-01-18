@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
@@ -25,7 +25,7 @@ namespace TestLibrary
         static OutOfProcessTest()
         {
             reportBase = Directory.GetCurrentDirectory();
-            testBinaryBase = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+            testBinaryBase = AppContext.BaseDirectory;
             helixUploadRoot = Environment.GetEnvironmentVariable("HELIX_WORKITEM_UPLOAD_ROOT");
             if (!String.IsNullOrEmpty(helixUploadRoot))
             {
@@ -42,10 +42,17 @@ namespace TestLibrary
             }
         }
 
-        public static void RunOutOfProcessTest(string basePath, string assemblyPath)
+        public static bool OutOfProcessTestsSupported =>
+            !OperatingSystem.IsIOS()
+            && !OperatingSystem.IsTvOS()
+            && !OperatingSystem.IsAndroid()
+            && !OperatingSystem.IsBrowser()
+            && !OperatingSystem.IsWasi();
+
+        public static void RunOutOfProcessTest(string assemblyPath, string testPathPrefix)
         {
             int ret = -100;
-            string baseDir = Path.GetDirectoryName(basePath);
+            string baseDir = AppContext.BaseDirectory;
             string outputDir = System.IO.Path.GetFullPath(Path.Combine(reportBase, Path.GetDirectoryName(assemblyPath)));
             string outputFile = Path.Combine(outputDir, "output.txt");
             string errorFile = Path.Combine(outputDir, "error.txt");
@@ -56,13 +63,25 @@ namespace TestLibrary
             {
                 CoreclrTestWrapperLib wrapper = new CoreclrTestWrapperLib();
 
+                string testScriptPath = assemblyPath;
+                if (testPathPrefix != null)
+                    testScriptPath = Path.Combine(testPathPrefix, testScriptPath);
+
                 if (OperatingSystem.IsWindows())
                 {
-                    testExecutable = Path.Combine(baseDir, Path.ChangeExtension(assemblyPath, ".cmd"));
+                    testExecutable = Path.Combine(baseDir, Path.ChangeExtension(testScriptPath, ".cmd"));
                 }
                 else
                 {
-                    testExecutable = Path.Combine(baseDir, Path.ChangeExtension(assemblyPath.Replace("\\", "/"), ".sh"));
+                    testExecutable = Path.Combine(baseDir, Path.ChangeExtension(testScriptPath.Replace("\\", "/"), ".sh"));
+                }
+
+                if (!File.Exists(testExecutable))
+                {
+                    Console.WriteLine($"Test executable '{testExecutable}' not found, skipping.");
+
+                    // Skip platform-specific test when running on the excluded platform
+                    return;
                 }
 
                 System.IO.Directory.CreateDirectory(outputDir);
@@ -76,7 +95,7 @@ namespace TestLibrary
 
             if (infraEx != null)
             {
-                Assert.True(false, "Test Infrastructure Failure: " + infraEx.ToString());
+                Assert.Fail("Test Infrastructure Failure: " + infraEx.ToString());
             }
             else
             {

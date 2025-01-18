@@ -16,7 +16,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #define _UTILS_H_
 
 #include "safemath.h"
-#include "clr_std/type_traits"
+#include <type_traits>
 #include "iallocator.h"
 #include "hostallocator.h"
 #include "cycletimer.h"
@@ -25,11 +25,34 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // Needed for unreached()
 #include "error.h"
 
-#ifdef TARGET_64BIT
-#define BitScanForwardPtr BitScanForward64
-#else
-#define BitScanForwardPtr BitScanForward
-#endif
+#if defined(_MSC_VER)
+
+// Define wrappers over the non-underscore versions of the BitScan* APIs. The PAL defines these already.
+// We've #undef'ed the definitions in winnt.h for these names to avoid confusion.
+
+inline BOOLEAN BitScanForward(DWORD* Index, DWORD Mask)
+{
+    return ::_BitScanForward(Index, Mask);
+}
+
+inline BOOLEAN BitScanReverse(DWORD* Index, DWORD Mask)
+{
+    return ::_BitScanReverse(Index, Mask);
+}
+
+#if defined(HOST_64BIT)
+inline BOOLEAN BitScanForward64(DWORD* Index, DWORD64 Mask)
+{
+    return ::_BitScanForward64(Index, Mask);
+}
+
+inline BOOLEAN BitScanReverse64(DWORD* Index, DWORD64 Mask)
+{
+    return ::_BitScanReverse64(Index, Mask);
+}
+#endif // defined(HOST_64BIT)
+
+#endif // _MSC_VER
 
 template <typename T, int size>
 inline constexpr unsigned ArrLen(T (&)[size])
@@ -44,6 +67,18 @@ inline bool isPow2(T i)
     return (i > 0 && ((i - 1) & i) == 0);
 }
 
+template <typename T>
+constexpr bool AreContiguous(T val1, T val2)
+{
+    return (val1 + 1) == val2;
+}
+
+template <typename T, typename... Ts>
+constexpr bool AreContiguous(T val1, T val2, Ts... rest)
+{
+    return ((val1 + 1) == val2) && AreContiguous(val2, rest...);
+}
+
 // Adapter for iterators to a type that is compatible with C++11
 // range-based for loops.
 template <typename TIterator>
@@ -53,7 +88,9 @@ class IteratorPair
     TIterator m_end;
 
 public:
-    IteratorPair(TIterator begin, TIterator end) : m_begin(begin), m_end(end)
+    IteratorPair(TIterator begin, TIterator end)
+        : m_begin(begin)
+        , m_end(end)
     {
     }
 
@@ -81,7 +118,8 @@ struct ConstLog2
 {
     enum
     {
-        value = ConstLog2<val / 2, acc + 1>::value
+        value = ConstLog2 < val / 2,
+        acc + 1 > ::value
     };
 };
 
@@ -125,7 +163,7 @@ int signum(T val)
     }
 }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
 // ConfigMethodRange describes a set of methods, specified via their
 // hash codes. This can be used for binary search and/or specifying an
@@ -160,7 +198,7 @@ public:
     bool Contains(unsigned hash);
 
     // Ensure the range string has been parsed.
-    void EnsureInit(const WCHAR* rangeStr, unsigned capacity = DEFAULT_CAPACITY)
+    void EnsureInit(const char* rangeStr, unsigned capacity = DEFAULT_CAPACITY)
     {
         // Make sure that the memory was zero initialized
         assert(m_inited == 0 || m_inited == 1);
@@ -197,7 +235,7 @@ private:
         unsigned m_high;
     };
 
-    void InitRanges(const WCHAR* rangeStr, unsigned capacity);
+    void InitRanges(const char* rangeStr, unsigned capacity);
 
     unsigned m_entries;   // number of entries in the range array
     unsigned m_lastRange; // count of low-high pairs
@@ -206,7 +244,79 @@ private:
     Range*   m_ranges;    // ranges of functions to include
 };
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+// ConfigInArray is an integer-valued array
+//
+class ConfigIntArray
+{
+public:
+    ConfigIntArray()
+        : m_values(nullptr)
+        , m_length(0)
+    {
+    }
+
+    // Ensure the string has been parsed.
+    void EnsureInit(const char* str)
+    {
+        if (m_values == nullptr)
+        {
+            Init(str);
+        }
+    }
+
+    void Dump();
+    int* GetData() const
+    {
+        return m_values;
+    }
+    unsigned GetLength() const
+    {
+        return m_length;
+    }
+
+private:
+    void     Init(const char* str);
+    int*     m_values;
+    unsigned m_length;
+};
+
+// ConfigDoubleArray is an double-valued array
+//
+class ConfigDoubleArray
+{
+public:
+    ConfigDoubleArray()
+        : m_values(nullptr)
+        , m_length(0)
+    {
+    }
+
+    // Ensure the string has been parsed.
+    void EnsureInit(const char* str)
+    {
+        if (m_values == nullptr)
+        {
+            Init(str);
+        }
+    }
+
+    void    Dump();
+    double* GetData() const
+    {
+        return m_values;
+    }
+    unsigned GetLength() const
+    {
+        return m_length;
+    }
+
+private:
+    void     Init(const char* str);
+    double*  m_values;
+    unsigned m_length;
+};
+
+#endif // defined(DEBUG)
 
 class Compiler;
 
@@ -229,8 +339,17 @@ public:
     // bitVectInit() - Initializes a bit vector of a given size
     static FixedBitVect* bitVectInit(UINT size, Compiler* comp);
 
+    // bitVectGetSize() - Get number of bits in the bit set
+    UINT bitVectGetSize()
+    {
+        return bitVectSize;
+    }
+
     // bitVectSet() - Sets the given bit
     void bitVectSet(UINT bitNum);
+
+    // bitVectClear() - Clears the given bit
+    void bitVectClear(UINT bitNum);
 
     // bitVectTest() - Tests the given bit
     bool bitVectTest(UINT bitNum);
@@ -277,7 +396,7 @@ int SimpleSprintf_s(_In_reads_(cbBufSize - (pWriteStart - pBufStart)) char* pWri
                     ...);
 
 #ifdef DEBUG
-void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size);
+void hexDump(FILE* dmpf, BYTE* addr, size_t size);
 #endif // DEBUG
 
 /******************************************************************************
@@ -292,7 +411,8 @@ template <typename T>
 class ScopedSetVariable
 {
 public:
-    ScopedSetVariable(T* pVariable, T value) : m_pVariable(pVariable)
+    ScopedSetVariable(T* pVariable, T value)
+        : m_pVariable(pVariable)
     {
         m_oldValue   = *m_pVariable;
         *m_pVariable = value;
@@ -330,7 +450,8 @@ class PhasedVar
 public:
     PhasedVar()
 #ifdef DEBUG
-        : m_initialized(false), m_writePhase(true)
+        : m_initialized(false)
+        , m_writePhase(true)
 #endif // DEBUG
     {
     }
@@ -407,6 +528,16 @@ public:
         return *this;
     }
 
+    PhasedVar& operator|=(const T& value)
+    {
+#ifdef DEBUG
+        assert(m_writePhase);
+        m_initialized = true;
+#endif // DEBUG
+        m_value |= value;
+        return *this;
+    }
+
     // Note: if you need more <op>= functions, you can define them here, like operator&=
 
     // Assign a value, but don't assert if we're not in the write phase, and
@@ -459,6 +590,8 @@ private:
     bool m_isAllocator[CORINFO_HELP_COUNT];
     bool m_mutatesHeap[CORINFO_HELP_COUNT];
     bool m_mayRunCctor[CORINFO_HELP_COUNT];
+    bool m_isNoEscape[CORINFO_HELP_COUNT];
+    bool m_isNoGC[CORINFO_HELP_COUNT];
 
     void init();
 
@@ -516,6 +649,20 @@ public:
         assert(helperId < CORINFO_HELP_COUNT);
         return m_mayRunCctor[helperId];
     }
+
+    bool IsNoEscape(CorInfoHelpFunc helperId)
+    {
+        assert(helperId > CORINFO_HELP_UNDEF);
+        assert(helperId < CORINFO_HELP_COUNT);
+        return m_isNoEscape[helperId];
+    }
+
+    bool IsNoGC(CorInfoHelpFunc helperId)
+    {
+        assert(helperId > CORINFO_HELP_UNDEF);
+        assert(helperId < CORINFO_HELP_COUNT);
+        return m_isNoGC[helperId];
+    }
 };
 
 //*****************************************************************************
@@ -543,8 +690,8 @@ class AssemblyNamesList2
     HostAllocator m_alloc;  // HostAllocator to use in this class
 
 public:
-    // Take a Unicode string list of assembly names, parse it, and store it.
-    AssemblyNamesList2(const WCHAR* list, HostAllocator alloc);
+    // Take a UTF8 string list of assembly names, parse it, and store it.
+    AssemblyNamesList2(const char* list, HostAllocator alloc);
 
     ~AssemblyNamesList2();
 
@@ -582,7 +729,9 @@ class MethodSet
         MethodInfo* m_next;
 
         MethodInfo(char* methodName, int methodHash)
-            : m_MethodName(methodName), m_MethodHash(methodHash), m_next(nullptr)
+            : m_MethodName(methodName)
+            , m_MethodHash(methodHash)
+            , m_next(nullptr)
         {
         }
     };
@@ -592,7 +741,7 @@ class MethodSet
 
 public:
     // Take a Unicode string with the filename containing a list of function names, parse it, and store it.
-    MethodSet(const WCHAR* filename, HostAllocator alloc);
+    MethodSet(const char* filename, HostAllocator alloc);
 
     ~MethodSet();
 
@@ -619,8 +768,8 @@ public:
 class CycleCount
 {
 private:
-    double           cps;         // cycles per second
-    unsigned __int64 beginCycles; // cycles at stop watch construction
+    double   cps;         // cycles per second
+    uint64_t beginCycles; // cycles at stop watch construction
 public:
     CycleCount();
 
@@ -633,7 +782,7 @@ public:
 
 private:
     // Return true if successful.
-    bool GetCycles(unsigned __int64* time);
+    bool GetCycles(uint64_t* time);
 };
 
 // Uses win API QueryPerformanceCounter/QueryPerformanceFrequency.
@@ -664,16 +813,20 @@ unsigned CountDigits(double num, unsigned base = 10);
 #endif // DEBUG
 
 /*****************************************************************************
-* Floating point utility class
-*/
+ * Floating point utility class
+ */
 class FloatingPointUtils
 {
 public:
-    static double convertUInt64ToDouble(unsigned __int64 u64);
+    static double convertUInt64ToDouble(uint64_t u64);
 
-    static float convertUInt64ToFloat(unsigned __int64 u64);
+    static float convertUInt64ToFloat(uint64_t u64);
 
-    static unsigned __int64 convertDoubleToUInt64(double d);
+    static uint64_t convertDoubleToUInt64(double d);
+
+    static double convertToDouble(float f);
+
+    static float convertToSingle(double d);
 
     static double round(double x);
 
@@ -691,6 +844,14 @@ public:
 
     static float infinite_float();
 
+    static bool isAllBitsSet(float val);
+
+    static bool isAllBitsSet(double val);
+
+    static bool isFinite(float val);
+
+    static bool isFinite(double val);
+
     static bool isNegative(float val);
 
     static bool isNegative(double val);
@@ -699,13 +860,151 @@ public:
 
     static bool isNaN(double val);
 
+    static bool isNegativeZero(double val);
+
+    static bool isPositiveZero(double val);
+
     static double maximum(double val1, double val2);
+
+    static double maximumMagnitude(double val1, double val2);
+
+    static double maximumMagnitudeNumber(double val1, double val2);
+
+    static double maximumNumber(double val1, double val2);
 
     static float maximum(float val1, float val2);
 
+    static float maximumMagnitude(float val1, float val2);
+
+    static float maximumMagnitudeNumber(float val1, float val2);
+
+    static float maximumNumber(float val1, float val2);
+
     static double minimum(double val1, double val2);
 
+    static double minimumMagnitude(double val1, double val2);
+
+    static double minimumMagnitudeNumber(double val1, double val2);
+
+    static double minimumNumber(double val1, double val2);
+
     static float minimum(float val1, float val2);
+
+    static float minimumMagnitude(float val1, float val2);
+
+    static float minimumMagnitudeNumber(float val1, float val2);
+
+    static float minimumNumber(float val1, float val2);
+
+    static double normalize(double x);
+
+    static int ilogb(double x);
+
+    static int ilogb(float f);
+};
+
+class BitOperations
+{
+public:
+    //------------------------------------------------------------------------
+    // BitOperations::BitScanForward: Search the mask data from least significant bit (LSB) to the most significant bit
+    // (MSB) for a set bit (1)
+    //
+    // Arguments:
+    //    value - the value
+    //
+    // Return Value:
+    //    0 if the mask is zero; nonzero otherwise.
+    //
+    FORCEINLINE static uint32_t BitScanForward(uint32_t value)
+    {
+        assert(value != 0);
+
+#if defined(_MSC_VER)
+        unsigned long result;
+        ::_BitScanForward(&result, value);
+        return static_cast<uint32_t>(result);
+#else
+        int32_t result = __builtin_ctz(value);
+        return static_cast<uint32_t>(result);
+#endif
+    }
+
+    //------------------------------------------------------------------------
+    // BitOperations::BitScanForward: Search the mask data from least significant bit (LSB) to the most significant bit
+    // (MSB) for a set bit (1)
+    //
+    // Arguments:
+    //    value - the value
+    //
+    // Return Value:
+    //    0 if the mask is zero; nonzero otherwise.
+    //
+    FORCEINLINE static uint32_t BitScanForward(uint64_t value)
+    {
+        assert(value != 0);
+
+#if defined(_MSC_VER)
+#if defined(HOST_64BIT)
+        unsigned long result;
+        ::_BitScanForward64(&result, value);
+        return static_cast<uint32_t>(result);
+#else
+        uint32_t lower = static_cast<uint32_t>(value);
+
+        if (lower == 0)
+        {
+            uint32_t upper = static_cast<uint32_t>(value >> 32);
+            return 32 + BitScanForward(upper);
+        }
+
+        return BitScanForward(lower);
+#endif // HOST_64BIT
+#else
+        int32_t result = __builtin_ctzll(value);
+        return static_cast<uint32_t>(result);
+#endif
+    }
+
+    static uint32_t BitScanReverse(uint32_t value);
+
+    static uint32_t BitScanReverse(uint64_t value);
+
+    static uint64_t DoubleToUInt64Bits(double value);
+
+    static uint32_t LeadingZeroCount(uint32_t value);
+
+    static uint32_t LeadingZeroCount(uint64_t value);
+
+    static uint32_t Log2(uint32_t value);
+
+    static uint32_t Log2(uint64_t value);
+
+    static uint32_t PopCount(uint32_t value);
+
+    static uint32_t PopCount(uint64_t value);
+
+    static uint32_t ReverseBits(uint32_t value);
+
+    static uint64_t ReverseBits(uint64_t value);
+
+    static uint32_t RotateLeft(uint32_t value, uint32_t offset);
+
+    static uint64_t RotateLeft(uint64_t value, uint32_t offset);
+
+    static uint32_t RotateRight(uint32_t value, uint32_t offset);
+
+    static uint64_t RotateRight(uint64_t value, uint32_t offset);
+
+    static uint32_t SingleToUInt32Bits(float value);
+
+    static uint32_t TrailingZeroCount(uint32_t value);
+
+    static uint32_t TrailingZeroCount(uint64_t value);
+
+    static float UInt32BitsToSingle(uint32_t value);
+
+    static double UInt64BitsToDouble(uint64_t value);
 };
 
 // The CLR requires that critical section locks be initialized via its ClrCreateCriticalSection API...but
@@ -747,7 +1046,7 @@ private:
     CRITSEC_COOKIE m_pCs;
 
     // No copying or assignment allowed.
-    CritSecObject(const CritSecObject&) = delete;
+    CritSecObject(const CritSecObject&)            = delete;
     CritSecObject& operator=(const CritSecObject&) = delete;
 };
 
@@ -757,7 +1056,8 @@ private:
 class CritSecHolder
 {
 public:
-    CritSecHolder(CritSecObject& critSec) : m_CritSec(critSec)
+    CritSecHolder(CritSecObject& critSec)
+        : m_CritSec(critSec)
     {
         ClrEnterCriticalSection(m_CritSec.Val());
     }
@@ -771,7 +1071,7 @@ private:
     CritSecObject& m_CritSec;
 
     // No copying or assignment allowed.
-    CritSecHolder(const CritSecHolder&) = delete;
+    CritSecHolder(const CritSecHolder&)            = delete;
     CritSecHolder& operator=(const CritSecHolder&) = delete;
 };
 
@@ -787,7 +1087,7 @@ int32_t GetSigned32Magic(int32_t d, int* shift /*out*/);
 #ifdef TARGET_64BIT
 int64_t GetSigned64Magic(int64_t d, int* shift /*out*/);
 #endif
-}
+} // namespace MagicDivide
 
 //
 // Profiling helpers
@@ -799,13 +1099,13 @@ template <typename T>
 bool FitsIn(var_types type, T value)
 {
     static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value ||
+                          std::is_same<T, size_t>::value || std::is_same<T, ssize_t>::value ||
                           std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value));
 
     switch (type)
     {
         case TYP_BYTE:
             return FitsIn<int8_t>(value);
-        case TYP_BOOL:
         case TYP_UBYTE:
             return FitsIn<uint8_t>(value);
         case TYP_SHORT:
@@ -888,6 +1188,11 @@ bool CastFromIntOverflows(int32_t fromValue, var_types toType, bool fromUnsigned
 bool CastFromLongOverflows(int64_t fromValue, var_types toType, bool fromUnsigned);
 bool CastFromFloatOverflows(float fromValue, var_types toType);
 bool CastFromDoubleOverflows(double fromValue, var_types toType);
-}
+} // namespace CheckedOps
+
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x)  STRINGIFY_(x)
+
+FILE* fopen_utf8(const char* path, const char* mode);
 
 #endif // _UTILS_H_

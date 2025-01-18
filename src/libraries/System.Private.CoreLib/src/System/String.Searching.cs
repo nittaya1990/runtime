@@ -13,6 +13,12 @@ namespace System
             if (value == null)
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
 
+            if (RuntimeHelpers.IsKnownConstant(value) && value.Length == 1)
+            {
+                // Call the char overload, e.g. Contains("X") -> Contains('X')
+                return Contains(value[0]);
+            }
+
             return SpanHelpers.IndexOf(
                 ref _firstChar,
                 Length,
@@ -27,17 +33,19 @@ namespace System
 #pragma warning restore CA2249
         }
 
-        public bool Contains(char value) => SpanHelpers.Contains(ref _firstChar, value, Length);
+        public bool Contains(char value)
+            => SpanHelpers.ContainsValueType(ref Unsafe.As<char, short>(ref _firstChar), (short)value, Length);
 
         public bool Contains(char value, StringComparison comparisonType)
         {
+#pragma warning disable CA2249 // Consider using 'string.Contains' instead of 'string.IndexOf'... this is the implementation of Contains!
             return IndexOf(value, comparisonType) != -1;
+#pragma warning restore CA2249
         }
 
         // Returns the index of the first occurrence of a specified character in the current instance.
         // The search starts at startIndex and runs thorough the next count characters.
-        //
-        public int IndexOf(char value) => SpanHelpers.IndexOf(ref _firstChar, value, Length);
+        public int IndexOf(char value) => SpanHelpers.IndexOfChar(ref _firstChar, value, Length);
 
         public int IndexOf(char value, int startIndex)
         {
@@ -46,32 +54,40 @@ namespace System
 
         public int IndexOf(char value, StringComparison comparisonType)
         {
-            switch (comparisonType)
+            return comparisonType switch
             {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.Ordinal:
-                    return IndexOf(value);
-
-                case StringComparison.OrdinalIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, CompareOptions.OrdinalIgnoreCase);
-
-                default:
-                    throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal => IndexOf(value),
+                StringComparison.OrdinalIgnoreCase => IndexOfCharOrdinalIgnoreCase(value),
+                _ => throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType)),
+            };
         }
 
-        public unsafe int IndexOf(char value, int startIndex, int count)
+        private int IndexOfCharOrdinalIgnoreCase(char value)
+        {
+            if (!char.IsAscii(value))
+            {
+                return Ordinal.IndexOfOrdinalIgnoreCase(this, new ReadOnlySpan<char>(in value));
+            }
+
+            if (char.IsAsciiLetter(value))
+            {
+                char valueLc = (char)(value | 0x20);
+                char valueUc = (char)(value & ~0x20);
+                return PackedSpanHelpers.PackedIndexOfIsSupported
+                    ? PackedSpanHelpers.IndexOfAnyIgnoreCase(ref _firstChar, valueLc, Length)
+                    : SpanHelpers.IndexOfAnyChar(ref _firstChar, valueLc, valueUc, Length);
+            }
+
+            return SpanHelpers.IndexOfChar(ref _firstChar, value, Length);
+        }
+
+        public int IndexOf(char value, int startIndex, int count)
         {
             if ((uint)startIndex > (uint)Length)
             {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_Index);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if ((uint)count > (uint)(Length - startIndex))
@@ -79,7 +95,7 @@ namespace System
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_Count);
             }
 
-            int result = SpanHelpers.IndexOf(ref Unsafe.Add(ref _firstChar, startIndex), value, count);
+            int result = SpanHelpers.IndexOfChar(ref Unsafe.Add(ref _firstChar, startIndex), value, count);
 
             return result < 0 ? result : result + startIndex;
         }
@@ -111,7 +127,7 @@ namespace System
 
             if ((uint)startIndex > (uint)Length)
             {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_Index);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if ((uint)count > (uint)(Length - startIndex))
@@ -237,41 +253,28 @@ namespace System
         public int IndexOf(string value, int startIndex, int count, StringComparison comparisonType)
         {
             // Parameter checking will be done by CompareInfo.IndexOf.
-
-            switch (comparisonType)
+            return comparisonType switch
             {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.Ordinal:
-                case StringComparison.OrdinalIgnoreCase:
-                    return Ordinal.IndexOf(this, value, startIndex, count, comparisonType == StringComparison.OrdinalIgnoreCase);
-
-                default:
-                    throw (value is null)
-                        ? new ArgumentNullException(nameof(value))
-                        : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal or StringComparison.OrdinalIgnoreCase => Ordinal.IndexOf(this, value, startIndex, count, comparisonType == StringComparison.OrdinalIgnoreCase),
+                _ => throw (value is null ? new ArgumentNullException(nameof(value)) : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType))),
+            };
         }
 
         // Returns the index of the last occurrence of a specified character in the current instance.
         // The search starts at startIndex and runs backwards to startIndex - count + 1.
         // The character at position startIndex is included in the search.  startIndex is the larger
         // index within the string.
-        //
-        public int LastIndexOf(char value) => SpanHelpers.LastIndexOf(ref _firstChar, value, Length);
+        public int LastIndexOf(char value)
+            => SpanHelpers.LastIndexOfValueType(ref Unsafe.As<char, short>(ref _firstChar), (short)value, Length);
 
         public int LastIndexOf(char value, int startIndex)
         {
             return LastIndexOf(value, startIndex, startIndex + 1);
         }
 
-        public unsafe int LastIndexOf(char value, int startIndex, int count)
+        public int LastIndexOf(char value, int startIndex, int count)
         {
             if (Length == 0)
             {
@@ -280,7 +283,7 @@ namespace System
 
             if ((uint)startIndex >= (uint)Length)
             {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_Index);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLess);
             }
 
             if ((uint)count > (uint)startIndex + 1)
@@ -289,7 +292,7 @@ namespace System
             }
 
             int startSearchAt = startIndex + 1 - count;
-            int result = SpanHelpers.LastIndexOf(ref Unsafe.Add(ref _firstChar, startSearchAt), value, count);
+            int result = SpanHelpers.LastIndexOfValueType(ref Unsafe.As<char, short>(ref Unsafe.Add(ref _firstChar, startSearchAt)), (short)value, count);
 
             return result < 0 ? result : result + startSearchAt;
         }
@@ -314,7 +317,7 @@ namespace System
             return LastIndexOfAny(anyOf, startIndex, startIndex + 1);
         }
 
-        public unsafe int LastIndexOfAny(char[] anyOf, int startIndex, int count)
+        public int LastIndexOfAny(char[] anyOf, int startIndex, int count)
         {
             if (anyOf is null)
             {
@@ -328,7 +331,7 @@ namespace System
 
             if ((uint)startIndex >= (uint)Length)
             {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_Index);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLess);
             }
 
             if ((count < 0) || ((count - 1) > startIndex))
@@ -375,26 +378,13 @@ namespace System
         public int LastIndexOf(string value, int startIndex, int count, StringComparison comparisonType)
         {
             // Parameter checking will be done by CompareInfo.LastIndexOf.
-
-            switch (comparisonType)
+            return comparisonType switch
             {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.Ordinal:
-                case StringComparison.OrdinalIgnoreCase:
-                    return CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCompareOptionsFromOrdinalStringComparison(comparisonType));
-
-                default:
-                    throw (value is null)
-                        ? new ArgumentNullException(nameof(value))
-                        : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal or StringComparison.OrdinalIgnoreCase => CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCompareOptionsFromOrdinalStringComparison(comparisonType)),
+                _ => throw (value is null ? new ArgumentNullException(nameof(value)) : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType))),
+            };
         }
     }
 }

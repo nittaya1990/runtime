@@ -15,9 +15,12 @@
 #include <stdio.h>
 #include <signal.h>
 #include <errno.h>
-#include <sys/ucontext.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+#ifndef __HAIKU__
+#include <sys/ucontext.h>
+#endif
 
 enum
 {
@@ -30,9 +33,8 @@ extern "C" int InitializeDllTest2();
 extern "C" int DllTest1();
 extern "C" int DllTest2();
 
-bool bSignal = false;
-bool bCatch = false;
-bool bHandler = false;
+volatile bool bSignal = false;
+volatile bool bHandler = false;
 
 void sigsegv_handler(int code, siginfo_t *siginfo, void *context)
 {
@@ -60,7 +62,7 @@ void sigsegv_handler(int code, siginfo_t *siginfo, void *context)
     {
         printf("ERROR: sigprocmask failed; error is %d\n", errno);
         _exit(FAIL);
-    } 
+    }
 
     printf("Signal chaining PASSED\n");
     _exit(PASS);

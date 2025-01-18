@@ -59,7 +59,7 @@ public:
         if (locked)
         {
             LogError("Added item that extended the buffer after it was locked by a call to GetBuffer()");
-            __debugbreak();
+            DEBUG_BREAK;
         }
 
         unsigned int   newbuffsize = bufferLength + sizeof(unsigned int) + len;
@@ -86,7 +86,7 @@ public:
         if (locked)
         {
             LogError("Added item that extended the buffer after it was locked by a call to GetBuffer()");
-            __debugbreak();
+            DEBUG_BREAK;
         }
 
         unsigned int   newbuffsize = bufferLength + sizeof(unsigned int) + len;
@@ -265,7 +265,7 @@ public:
 
         // If we have RTTI, we can make this assert report the correct type. No RTTI, though, when
         // built with .NET Core, especially when built against the PAL.
-        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "%s - Ended with unexpected sizes %Ix != %x",
+        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "%s - Ended with unexpected sizes %zx != %x",
                       "Unknown type" /*typeid(_Item).name()*/, ptr - rawData, size);
     }
 
@@ -380,7 +380,7 @@ public:
         if (insert != (unsigned int)first)
         {
             LogDebug("index = %u f %u mid = %u l %u***************************", insert, first, mid, last);
-            __debugbreak();
+            DEBUG_BREAK;
         }
 
         if (numItems > 0)
@@ -549,7 +549,7 @@ public:
             ptr += bufferLength * sizeof(unsigned char);
         }
 
-        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "Ended with unexpected sizes %Ix != %x",
+        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "Ended with unexpected sizes %zx != %x",
                       ptr - rawData, size);
     }
 
@@ -609,7 +609,7 @@ private:
             delete[] tItems;
         }
 
-        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "Ended with unexpected sizes %Ix != %x",
+        AssertCodeMsg((unsigned int)(ptr - rawData) == size, EXCEPTIONCODE_LWM, "Ended with unexpected sizes %zx != %x",
                       ptr - rawData, size);
     }
 
@@ -656,7 +656,7 @@ public:
             ptr += bufferLength * sizeof(unsigned char);
         }
 
-        AssertCodeMsg(ptr == (bytes + size), EXCEPTIONCODE_LWM, "Ended with unexpected sizes %Ix != %x", ptr - bytes,
+        AssertCodeMsg(ptr == (bytes + size), EXCEPTIONCODE_LWM, "Ended with unexpected sizes %zx != %x", ptr - bytes,
                       size);
         return size;
     }

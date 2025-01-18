@@ -2,10 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-internal class test
+namespace Test_i8flat_cs
 {
-    public static int Main()
+public class test
+{
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         Int64 x;
         Int64 y;
@@ -676,69 +681,69 @@ internal class test
         y = 4;
 
         /*
-		x <<= (int)( x + y);
-		if (x != -671088640)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x + y)   failed.\nx: {0}, \texpected: -671088640\n", x);
-			pass = false;
-		}
+        x <<= (int)( x + y);
+        if (x != -671088640)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x + y)   failed.\nx: {0}, \texpected: -671088640\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x - y);
-		if (x != -2621440)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x - y)   failed.\nx: {0}, \texpected: -2621440\n", x);
-			pass = false;
-		}
+        x <<= (int)( x - y);
+        if (x != -2621440)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x - y)   failed.\nx: {0}, \texpected: -2621440\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x * y);
-		if (x != -167772160)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x * y)   failed.\nx: {0}, \texpected: -167772160\n", x);
-			pass = false;
-		}
+        x <<= (int)( x * y);
+        if (x != -167772160)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x * y)   failed.\nx: {0}, \texpected: -167772160\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x / y);
-		if (x != -2147483648)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x / y)   failed.\nx: {0}, \texpected: -2147483648\n", x);
-			pass = false;
-		}
+        x <<= (int)( x / y);
+        if (x != -2147483648)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x / y)   failed.\nx: {0}, \texpected: -2147483648\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x % y);
-		if (x != -2147483648)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x % y)   failed.\nx: {0}, \texpected: -2147483648\n", x);
-			pass = false;
-		}
+        x <<= (int)( x % y);
+        if (x != -2147483648)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x % y)   failed.\nx: {0}, \texpected: -2147483648\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x << (int)y);
-		if (x != -10)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x << (int)y)   failed.\nx: {0}, \texpected: -10\n", x);
-			pass = false;
-		}
-		*/
+        x <<= (int)( x << (int)y);
+        if (x != -10)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x << (int)y)   failed.\nx: {0}, \texpected: -10\n", x);
+            pass = false;
+        }
+        */
 
         x = -10;
         y = 4;
@@ -766,25 +771,25 @@ internal class test
         y = 4;
 
         /*
-		x <<= (int)( x ^ y);
-		if (x != -2621440)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x ^ y)   failed.\nx: {0}, \texpected: -2621440\n", x);
-			pass = false;
-		}
+        x <<= (int)( x ^ y);
+        if (x != -2621440)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x ^ y)   failed.\nx: {0}, \texpected: -2621440\n", x);
+            pass = false;
+        }
 
-		x = -10;
-		y = 4;
+        x = -10;
+        y = 4;
 
-		x <<= (int)( x | y);
-		if (x != -41943040)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x <<= (int)( x | y)   failed.\nx: {0}, \texpected: -41943040\n", x);
-			pass = false;
-		}
-		*/
+        x <<= (int)( x | y);
+        if (x != -41943040)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x <<= (int)( x | y)   failed.\nx: {0}, \texpected: -41943040\n", x);
+            pass = false;
+        }
+        */
 
         x = -10;
         y = 4;
@@ -845,14 +850,14 @@ internal class test
         y = 4;
 
         /*
-		x >>= (int)( x << (int)y);
-		if (x != -10)
-		{
-			Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
-			Console.WriteLine("x >>= (int)( x << (int)y)   failed.\nx: {0}, \texpected: -10\n", x);
-			pass = false;
-		}
-		*/
+        x >>= (int)( x << (int)y);
+        if (x != -10)
+        {
+            Console.WriteLine("\nInitial parameters: x is -10 and y is 4");
+            Console.WriteLine("x >>= (int)( x << (int)y)   failed.\nx: {0}, \texpected: -10\n", x);
+            pass = false;
+        }
+        */
 
         x = -10;
         y = 4;
@@ -1236,4 +1241,5 @@ internal class test
         else
             return 1;
     }
+}
 }

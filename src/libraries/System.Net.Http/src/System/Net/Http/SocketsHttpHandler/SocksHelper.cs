@@ -39,15 +39,15 @@ namespace System.Net.Http
 
                     if (string.Equals(proxyUri.Scheme, "socks5", StringComparison.OrdinalIgnoreCase))
                     {
-                        await EstablishSocks5TunnelAsync(stream, host, port, proxyUri, credentials, async).ConfigureAwait(false);
+                        await EstablishSocks5TunnelAsync(stream, host, port, credentials, async).ConfigureAwait(false);
                     }
                     else if (string.Equals(proxyUri.Scheme, "socks4a", StringComparison.OrdinalIgnoreCase))
                     {
-                        await EstablishSocks4TunnelAsync(stream, isVersion4a: true, host, port, proxyUri, credentials, async, cancellationToken).ConfigureAwait(false);
+                        await EstablishSocks4TunnelAsync(stream, isVersion4a: true, host, port, credentials, async, cancellationToken).ConfigureAwait(false);
                     }
                     else if (string.Equals(proxyUri.Scheme, "socks4", StringComparison.OrdinalIgnoreCase))
                     {
-                        await EstablishSocks4TunnelAsync(stream, isVersion4a: false, host, port, proxyUri, credentials, async, cancellationToken).ConfigureAwait(false);
+                        await EstablishSocks4TunnelAsync(stream, isVersion4a: false, host, port, credentials, async, cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
@@ -62,7 +62,7 @@ namespace System.Net.Http
             }
         }
 
-        private static async ValueTask EstablishSocks5TunnelAsync(Stream stream, string host, int port, Uri proxyUri, NetworkCredential? credentials, bool async)
+        private static async ValueTask EstablishSocks5TunnelAsync(Stream stream, string host, int port, NetworkCredential? credentials, bool async)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
@@ -192,7 +192,7 @@ namespace System.Net.Http
                 VerifyProtocolVersion(ProtocolVersion5, buffer[0]);
                 if (buffer[1] != Socks5_Success)
                 {
-                    throw new SocksException(SR.net_socks_connection_failed);
+                    throw new SocksException(SR.Format(SR.net_socks_connection_failed, buffer[1].ToString("X2")));
                 }
                 int bytesToSkip = buffer[3] switch
                 {
@@ -210,7 +210,7 @@ namespace System.Net.Http
             }
         }
 
-        private static async ValueTask EstablishSocks4TunnelAsync(Stream stream, bool isVersion4a, string host, int port, Uri proxyUri, NetworkCredential? credentials, bool async, CancellationToken cancellationToken)
+        private static async ValueTask EstablishSocks4TunnelAsync(Stream stream, bool isVersion4a, string host, int port, NetworkCredential? credentials, bool async, CancellationToken cancellationToken)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
@@ -307,7 +307,7 @@ namespace System.Net.Http
                     case Socks4_AuthFailed:
                         throw new SocksException(SR.net_socks_auth_failed);
                     default:
-                        throw new SocksException(SR.net_socks_connection_failed);
+                        throw new SocksException(SR.Format(SR.net_socks_connection_failed, buffer[1].ToString("X2")));
                 }
                 // response address not used
             }
@@ -353,18 +353,13 @@ namespace System.Net.Http
 
         private static async ValueTask ReadToFillAsync(Stream stream, Memory<byte> buffer, bool async)
         {
-            while (buffer.Length != 0)
+            int bytesRead = async
+                ? await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false).ConfigureAwait(false)
+                : stream.ReadAtLeast(buffer.Span, buffer.Length, throwOnEndOfStream: false);
+
+            if (bytesRead < buffer.Length)
             {
-                int bytesRead = async
-                    ? await stream.ReadAsync(buffer).ConfigureAwait(false)
-                    : stream.Read(buffer.Span);
-
-                if (bytesRead == 0)
-                {
-                    throw new IOException(SR.net_http_invalid_response_premature_eof);
-                }
-
-                buffer = buffer[bytesRead..];
+                throw new IOException(SR.net_http_invalid_response_premature_eof);
             }
         }
     }

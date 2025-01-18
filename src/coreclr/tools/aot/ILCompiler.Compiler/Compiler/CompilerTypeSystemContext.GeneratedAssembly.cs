@@ -3,17 +3,17 @@
 
 using System;
 using System.Collections.Generic;
+using System.Reflection.Metadata;
 
 using Internal.TypeSystem;
 
 using TypeHashingAlgorithms = Internal.NativeFormat.TypeHashingAlgorithms;
 using Interlocked = System.Threading.Interlocked;
-using AssemblyName = System.Reflection.AssemblyName;
 using Debug = System.Diagnostics.Debug;
 
 namespace ILCompiler
 {
-    partial class CompilerTypeSystemContext
+    public partial class CompilerTypeSystemContext
     {
         private ModuleDesc _generatedAssembly;
 
@@ -30,7 +30,7 @@ namespace ILCompiler
             }
         }
 
-        private class CompilerGeneratedAssembly : ModuleDesc, IAssemblyDesc
+        private sealed class CompilerGeneratedAssembly : ModuleDesc, IAssemblyDesc
         {
             private MetadataType _globalModuleType;
 
@@ -52,9 +52,9 @@ namespace ILCompiler
                 return _globalModuleType;
             }
 
-            public AssemblyName GetName()
+            public AssemblyNameInfo GetName()
             {
-                return new AssemblyName("System.Private.CompilerGenerated");
+                return new AssemblyNameInfo("System.Private.CompilerGenerated");
             }
 
             public override object GetType(string nameSpace, string name, NotFoundBehavior notFoundBehavior)
@@ -211,6 +211,12 @@ namespace ILCompiler
                 {
                     return false;
                 }
+            }
+
+            public override int GetInlineArrayLength()
+            {
+                Debug.Fail("if this can be an inline array, implement GetInlineArrayLength");
+                throw new InvalidOperationException();
             }
 
             public override bool IsBeforeFieldInit

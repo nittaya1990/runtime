@@ -78,7 +78,7 @@ namespace System.Speech.Internal.SrgsParser
             grammar.CodeBehind = source.CodeBehind;
             grammar.Debug = source.Debug;
             grammar.ImportNamespaces = source.ImportNamespaces;
-            grammar.Language = source.Language == null ? "C#" : source.Language;
+            grammar.Language = source.Language ?? "C#";
             grammar.Namespace = source.Namespace;
 
             // if add the content to the generic _scrip
@@ -344,7 +344,7 @@ namespace System.Speech.Internal.SrgsParser
             }
             else
             {
-                System.Diagnostics.Debug.Assert(false, "Unsupported Srgs element");
+                System.Diagnostics.Debug.Fail("Unsupported Srgs element");
                 XmlParser.ThrowSrgsException(SRID.InvalidElement);
             }
 

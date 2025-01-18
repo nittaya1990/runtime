@@ -3,20 +3,19 @@
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
 using System.IO;
 using System.Runtime.Versioning;
 using System.Security.Cryptography.Asn1;
-using Microsoft.Win32.SafeHandles;
 using Internal.Cryptography;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Security.Cryptography
 {
-    public sealed partial class RSAOpenSsl : RSA
+    public sealed partial class RSAOpenSsl : RSA, IRuntimeAlgorithm
     {
-        private const int BitsPerByte = 8;
-
-        private Lazy<SafeEvpPKeyHandle> _key;
+        private Lazy<SafeEvpPKeyHandle>? _key;
 
         [UnsupportedOSPlatform("android")]
         [UnsupportedOSPlatform("browser")]
@@ -80,11 +79,14 @@ namespace System.Security.Cryptography
             }
         }
 
-        public override byte[] Decrypt(byte[] data!!, RSAEncryptionPadding padding!!)
+        public override byte[] Decrypt(byte[] data, RSAEncryptionPadding padding)
         {
+            ArgumentNullException.ThrowIfNull(data);
+            ArgumentNullException.ThrowIfNull(padding);
+
             ValidatePadding(padding);
             SafeEvpPKeyHandle key = GetKey();
-            int rsaSize = Interop.Crypto.EvpPKeySize(key);
+            int rsaSize = Interop.Crypto.GetEvpPKeySizeBytes(key);
             Span<byte> destination = default;
             byte[] buf = CryptoPool.Rent(rsaSize);
 
@@ -105,16 +107,19 @@ namespace System.Security.Cryptography
         public override bool TryDecrypt(
             ReadOnlySpan<byte> data,
             Span<byte> destination,
-            RSAEncryptionPadding padding!!,
+            RSAEncryptionPadding padding,
             out int bytesWritten)
         {
+            ArgumentNullException.ThrowIfNull(padding);
+
             ValidatePadding(padding);
             SafeEvpPKeyHandle key = GetKey();
-            int keySizeBytes = Interop.Crypto.EvpPKeySize(key);
 
-            // OpenSSL requires that the decryption buffer be at least as large as EVP_PKEY_size.
+            // OpenSSL requires that the decryption buffer be at least as large as key size in bytes.
             // So if the destination is too small, use a temporary buffer so we can match
-            // Windows behavior of succeeding so long as the buffer can hold the final output.
+            // Windows behavior of succeeding as long as the buffer can hold the final output.
+            int keySizeBytes = Interop.Crypto.GetEvpPKeySizeBytes(key);
+
             if (destination.Length < keySizeBytes)
             {
                 // RSA up through 4096 bits use a stackalloc
@@ -168,7 +173,7 @@ namespace System.Security.Cryptography
             // Caller should have already checked this.
             Debug.Assert(!key.IsInvalid);
 
-            int rsaSize = Interop.Crypto.EvpPKeySize(key);
+            int rsaSize = Interop.Crypto.GetEvpPKeySizeBytes(key);
 
             if (data.Length != rsaSize)
             {
@@ -177,7 +182,7 @@ namespace System.Security.Cryptography
 
             if (destination.Length < rsaSize)
             {
-                Debug.Fail("Caller is responsible for temporary decryption buffer creation");
+                Debug.Fail($"Caller is responsible for temporary decryption buffer creation destination. destination.Length: {destination.Length}, needed: {rsaSize}");
                 throw new CryptographicException();
             }
 
@@ -197,12 +202,15 @@ namespace System.Security.Cryptography
                 destination);
         }
 
-        public override byte[] Encrypt(byte[] data!!, RSAEncryptionPadding padding!!)
+        public override byte[] Encrypt(byte[] data, RSAEncryptionPadding padding)
         {
+            ArgumentNullException.ThrowIfNull(data);
+            ArgumentNullException.ThrowIfNull(padding);
+
             ValidatePadding(padding);
             SafeEvpPKeyHandle key = GetKey();
 
-            byte[] buf = new byte[Interop.Crypto.EvpPKeySize(key)];
+            byte[] buf = new byte[Interop.Crypto.GetEvpPKeySizeBytes(key)];
 
             bool encrypted = TryEncrypt(
                 key,
@@ -220,10 +228,12 @@ namespace System.Security.Cryptography
             return buf;
         }
 
-        public override bool TryEncrypt(ReadOnlySpan<byte> data, Span<byte> destination, RSAEncryptionPadding padding!!, out int bytesWritten)
+        public override bool TryEncrypt(ReadOnlySpan<byte> data, Span<byte> destination, RSAEncryptionPadding padding, out int bytesWritten)
         {
+            ArgumentNullException.ThrowIfNull(padding);
             ValidatePadding(padding);
-            SafeEvpPKeyHandle? key = GetKey();
+
+            SafeEvpPKeyHandle key = GetKey();
 
             return TryEncrypt(key, data, destination, padding, out bytesWritten);
         }
@@ -235,7 +245,7 @@ namespace System.Security.Cryptography
             RSAEncryptionPadding padding,
             out int bytesWritten)
         {
-            int rsaSize = Interop.Crypto.EvpPKeySize(key);
+            int rsaSize = Interop.Crypto.GetEvpPKeySizeBytes(key);
 
             if (destination.Length < rsaSize)
             {
@@ -626,7 +636,7 @@ namespace System.Security.Cryptography
             if (disposing)
             {
                 FreeKey();
-                _key = null!;
+                _key = null;
             }
 
             base.Dispose(disposing);
@@ -641,16 +651,15 @@ namespace System.Security.Cryptography
             }
         }
 
-        [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_key))]
+        [MemberNotNull(nameof(_key))]
         private void SetKey(SafeEvpPKeyHandle newKey)
         {
-            Debug.Assert(!newKey.IsInvalid);
             FreeKey();
             _key = new Lazy<SafeEvpPKeyHandle>(newKey);
 
             // Use ForceSet instead of the property setter to ensure that LegalKeySizes doesn't interfere
             // with the already loaded key.
-            ForceSetKeySize(BitsPerByte * Interop.Crypto.EvpPKeySize(newKey));
+            ForceSetKeySize(Interop.Crypto.EvpPKeyBits(newKey));
         }
 
         private static void ValidateParameters(ref RSAParameters parameters)
@@ -690,12 +699,10 @@ namespace System.Security.Cryptography
             return true;
         }
 
+        [MemberNotNull(nameof(_key))]
         private void ThrowIfDisposed()
         {
-            if (_key == null)
-            {
-                throw new ObjectDisposedException(nameof(RSAOpenSsl));
-            }
+            ObjectDisposedException.ThrowIf(_key is null, this);
         }
 
         private SafeEvpPKeyHandle GetKey()
@@ -717,34 +724,25 @@ namespace System.Security.Cryptography
             return Interop.Crypto.RsaGenerateKey(KeySize);
         }
 
-        protected override byte[] HashData(byte[] data, int offset, int count, HashAlgorithmName hashAlgorithm) =>
-            HashOneShotHelpers.HashData(hashAlgorithm, new ReadOnlySpan<byte>(data, offset, count));
-
-        protected override byte[] HashData(Stream data, HashAlgorithmName hashAlgorithm) =>
-            HashOneShotHelpers.HashData(hashAlgorithm, data);
-
-        protected override bool TryHashData(ReadOnlySpan<byte> data, Span<byte> destination, HashAlgorithmName hashAlgorithm, out int bytesWritten) =>
-            HashOneShotHelpers.TryHashData(hashAlgorithm, data, destination, out bytesWritten);
-
         public override byte[] SignHash(byte[] hash, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
         {
             ArgumentNullException.ThrowIfNull(hash);
             ArgumentException.ThrowIfNullOrEmpty(hashAlgorithm.Name, nameof(hashAlgorithm));
             ArgumentNullException.ThrowIfNull(padding);
+            ThrowIfDisposed();
 
-            if (!TrySignHash(
-                hash,
-                Span<byte>.Empty,
-                hashAlgorithm, padding,
-                true,
-                out _,
-                out byte[]? signature))
+            SafeEvpPKeyHandle key = GetKey();
+            int bytesRequired = Interop.Crypto.GetEvpPKeySizeBytes(key);
+            byte[] signature = new byte[bytesRequired];
+
+            int written = Interop.Crypto.RsaSignHash(key, padding.Mode, hashAlgorithm, hash, signature);
+
+            if (written != signature.Length)
             {
-                Debug.Fail("TrySignHash should not return false in allocation mode");
+                Debug.Fail($"RsaSignHash behaved unexpectedly: {nameof(written)}=={written}, {nameof(signature.Length)}=={signature.Length}");
                 throw new CryptographicException();
             }
 
-            Debug.Assert(signature != null);
             return signature;
         }
 
@@ -757,64 +755,31 @@ namespace System.Security.Cryptography
         {
             ArgumentException.ThrowIfNullOrEmpty(hashAlgorithm.Name, nameof(hashAlgorithm));
             ArgumentNullException.ThrowIfNull(padding);
+            ThrowIfDisposed();
 
-            bool ret = TrySignHash(
-                hash,
-                destination,
-                hashAlgorithm,
-                padding,
-                false,
-                out bytesWritten,
-                out byte[]? alloced);
-
-            Debug.Assert(alloced == null);
-            return ret;
-        }
-
-        private bool TrySignHash(
-            ReadOnlySpan<byte> hash,
-            Span<byte> destination,
-            HashAlgorithmName hashAlgorithm,
-            RSASignaturePadding padding,
-            bool allocateSignature,
-            out int bytesWritten,
-            out byte[]? signature)
-        {
-            Debug.Assert(!string.IsNullOrEmpty(hashAlgorithm.Name));
-            Debug.Assert(padding != null);
-            ValidatePadding(padding);
-
-            signature = null;
-
-            IntPtr digestAlgorithm = Interop.Crypto.HashAlgorithmToEvp(hashAlgorithm.Name);
             SafeEvpPKeyHandle key = GetKey();
-            int bytesRequired = Interop.Crypto.EvpPKeySize(key);
+            int bytesRequired = Interop.Crypto.GetEvpPKeySizeBytes(key);
 
-            if (allocateSignature)
-            {
-                Debug.Assert(destination.Length == 0);
-                signature = new byte[bytesRequired];
-                destination = signature;
-            }
-            else if (destination.Length < bytesRequired)
+            if (destination.Length < bytesRequired)
             {
                 bytesWritten = 0;
                 return false;
             }
 
-            int written = Interop.Crypto.RsaSignHash(key, padding.Mode, digestAlgorithm, hash, destination);
-            Debug.Assert(written == bytesRequired);
-            bytesWritten = written;
-
+            bytesWritten = Interop.Crypto.RsaSignHash(key, padding.Mode, hashAlgorithm, hash, destination);
+            Debug.Assert(bytesWritten == bytesRequired);
             return true;
         }
 
         public override bool VerifyHash(
-            byte[] hash!!,
-            byte[] signature!!,
+            byte[] hash,
+            byte[] signature,
             HashAlgorithmName hashAlgorithm,
             RSASignaturePadding padding)
         {
+            ArgumentNullException.ThrowIfNull(hash);
+            ArgumentNullException.ThrowIfNull(signature);
+
             return VerifyHash(new ReadOnlySpan<byte>(hash), new ReadOnlySpan<byte>(signature), hashAlgorithm, padding);
         }
 
@@ -822,14 +787,14 @@ namespace System.Security.Cryptography
         {
             ArgumentException.ThrowIfNullOrEmpty(hashAlgorithm.Name, nameof(hashAlgorithm));
             ValidatePadding(padding);
+            ThrowIfDisposed();
 
-            IntPtr digestAlgorithm = Interop.Crypto.HashAlgorithmToEvp(hashAlgorithm.Name);
             SafeEvpPKeyHandle key = GetKey();
 
             return Interop.Crypto.RsaVerifyHash(
                 key,
                 padding.Mode,
-                digestAlgorithm,
+                hashAlgorithm,
                 hash,
                 signature);
         }
@@ -854,8 +819,10 @@ namespace System.Security.Cryptography
             }
         }
 
-        private static void ValidatePadding(RSAEncryptionPadding padding!!)
+        private static void ValidatePadding(RSAEncryptionPadding padding)
         {
+            ArgumentNullException.ThrowIfNull(padding);
+
             // There are currently two defined padding modes:
             // * Oaep has an option (the hash algorithm)
             // * Pkcs1 has no options
@@ -868,10 +835,24 @@ namespace System.Security.Cryptography
             {
                 throw PaddingModeNotSupported();
             }
+
+            // If the hash algorithm is not supported by the platform, such as SHA3, then we don't support it for
+            // RSAOpenSsl, even if OpenSSL itself might support OAEP-SHA3. We use the platform's hashing in some
+            // places for RSA, regardless of what is implementing RSA. If RSAOpenSsl were used on macOS, then
+            // there would be some incongruence between what hashes OpenSSL supports and what macOS support. Signing
+            // for example, always uses the platform's implementation of hashing.
+            if (padding.Mode == RSAEncryptionPaddingMode.Oaep &&
+                padding.OaepHashAlgorithm.Name is string name &&
+                !HashProviderDispenser.HashSupported(name))
+            {
+                throw new PlatformNotSupportedException();
+            }
         }
 
-        private static void ValidatePadding(RSASignaturePadding padding!!)
+        private static void ValidatePadding(RSASignaturePadding padding)
         {
+            ArgumentNullException.ThrowIfNull(padding);
+
             // RSASignaturePadding currently only has the mode property, so
             // there's no need for a runtime check that PKCS#1 doesn't use
             // nonsensical options like with RSAEncryptionPadding.
@@ -895,7 +876,7 @@ namespace System.Security.Cryptography
 
         static partial void ThrowIfNotSupported();
 
-        private static Exception PaddingModeNotSupported() =>
+        private static CryptographicException PaddingModeNotSupported() =>
             new CryptographicException(SR.Cryptography_InvalidPaddingMode);
     }
 }

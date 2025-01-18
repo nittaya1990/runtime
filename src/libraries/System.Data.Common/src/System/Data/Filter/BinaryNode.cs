@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Data.SqlTypes;
 using System.Data.Common;
+using System.Data.SqlTypes;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace System.Data
 {
@@ -83,9 +83,8 @@ namespace System.Data
             if (_op == Operators.Is)
             {
                 // only 'Is Null' or 'Is Not Null' are valid
-                if (_right is UnaryNode)
+                if (_right is UnaryNode un)
                 {
-                    UnaryNode un = (UnaryNode)_right;
                     if (un._op != Operators.Not)
                     {
                         throw ExprException.InvalidIsSyntax();
@@ -133,7 +132,7 @@ namespace System.Data
                 return this;
         }
 
-        internal void SetTypeMismatchError(int op, Type left, Type right)
+        internal static void SetTypeMismatchError(int op, Type left, Type right)
         {
             throw ExprException.TypeMismatchInBinop(op, left, right);
         }
@@ -324,7 +323,7 @@ namespace System.Data
 
                 if (leftIsSqlType || rightIsSqlType)
                 {
-                    resultType = ResultSqlType(leftStorage, rightStorage, (left is ConstNode), (right is ConstNode), op);
+                    resultType = ResultSqlType(leftStorage, rightStorage, op);
                 }
                 else
                 {
@@ -984,7 +983,7 @@ namespace System.Data
                                 break;
                             }
 
-                            if ((bool)vLeft == true)
+                            if ((bool)vLeft)
                             {
                                 value = true;
                                 break;
@@ -1180,7 +1179,7 @@ namespace System.Data
             SqlBinary = -10,
         }
 
-        private DataTypePrecedence GetPrecedence(StorageType storageType)
+        private static DataTypePrecedence GetPrecedence(StorageType storageType)
         {
             switch (storageType)
             {
@@ -1268,19 +1267,19 @@ namespace System.Data
             }
         }
 
-        private bool IsMixed(StorageType left, StorageType right)
+        private static bool IsMixed(StorageType left, StorageType right)
         {
             return ((IsSigned(left) && IsUnsigned(right)) ||
                     (IsUnsigned(left) && IsSigned(right)));
         }
 
-        private bool IsMixedSql(StorageType left, StorageType right)
+        private static bool IsMixedSql(StorageType left, StorageType right)
         {
             return ((IsSignedSql(left) && IsUnsignedSql(right)) ||
                     (IsUnsignedSql(left) && IsSignedSql(right)));
         }
 
-        internal StorageType ResultType(StorageType left, StorageType right, bool lc, bool rc, int op)
+        internal static StorageType ResultType(StorageType left, StorageType right, bool lc, bool rc, int op)
         {
             if ((left == StorageType.Guid) && (right == StorageType.Guid) && Operators.IsRelational(op))
                 return left;
@@ -1370,7 +1369,7 @@ namespace System.Data
             return result;
         }
 
-        internal StorageType ResultSqlType(StorageType left, StorageType right, bool lc, bool rc, int op)
+        internal static StorageType ResultSqlType(StorageType left, StorageType right, int op)
         {
             int leftPrecedence = (int)GetPrecedence(left);
             if (leftPrecedence == (int)DataTypePrecedence.Error)
@@ -1483,7 +1482,7 @@ namespace System.Data
             return result;
         }
 
-        private int SqlResultType(int typeCode)
+        private static int SqlResultType(int typeCode)
         {
             switch (typeCode)
             {

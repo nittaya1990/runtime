@@ -43,14 +43,16 @@ namespace System.Text
 
         public virtual IEnumerable<EncodingInfo> GetEncodings() => Array.Empty<EncodingInfo>();
 
-        internal static void AddProvider(EncodingProvider provider!!)
+        internal static void AddProvider(EncodingProvider provider)
         {
+            ArgumentNullException.ThrowIfNull(provider);
+
             // Few providers are added in a typical app (typically just CodePagesEncodingProvider.Instance), and when they are,
             // they're generally not added concurrently.  So use an optimistic concurrency scheme rather than paying for a lock
             // object allocation on the startup path.
 
             if (s_providers is null &&
-                Interlocked.CompareExchange(ref s_providers, new EncodingProvider[1] { provider }, null) is null)
+                Interlocked.CompareExchange(ref s_providers, [provider], null) is null)
             {
                 return;
             }
@@ -116,10 +118,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(string encodingName)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? enc = provider.GetEncoding(encodingName);
@@ -132,10 +134,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(int codepage, EncoderFallback enc, DecoderFallback dec)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? encoding = provider.GetEncoding(codepage, enc, dec);
@@ -148,10 +150,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(string encodingName, EncoderFallback enc, DecoderFallback dec)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? encoding = provider.GetEncoding(encodingName, enc, dec);

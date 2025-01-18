@@ -48,13 +48,13 @@ public:
     HRESULT Init(
         ProfToEEInterfaceImpl * pProfToEE,
         const CLSID * pClsid,
-        __inout_z LPCWSTR wszClsid,
+        __inout_z LPCSTR szClsid,
         _In_z_ LPCWSTR wszProfileDLL,
         BOOL fLoadedViaAttach,
         DWORD dwConcurrentGCWaitTimeoutInMs);
 
     void SetProfilerInfo(ProfilerInfo *pProfilerInfo);
-    
+
     BOOL IsCallback3Supported();
     BOOL IsCallback4Supported();
     BOOL IsCallback5Supported();
@@ -480,6 +480,8 @@ public:
     {
         return m_pProfToEE;
     }
+
+    HRESULT EnumerateGCHeapObjectsCallback(ObjectCallback callback, void* callbackState);
 private:
 
     //
@@ -611,7 +613,7 @@ private:
 
     HRESULT CreateProfiler(
         const CLSID * pClsid,
-        _In_z_ LPCWSTR wszClsid,
+        _In_z_ LPCSTR szClsid,
         _In_z_ LPCWSTR wszProfileDLL);
 
     HRESULT DetermineAndSetEnterLeaveFunctionHooksForJit();
@@ -657,16 +659,16 @@ private:
         {
             LIMITED_METHOD_CONTRACT;
             FunctionIDAndClientID functionIDAndClientID;
-            functionIDAndClientID.functionID = NULL;
-            functionIDAndClientID.clientID   = NULL;
+            functionIDAndClientID.functionID = 0;
+            functionIDAndClientID.clientID   = 0;
             return functionIDAndClientID;
         }
 
         static bool IsNull(const FunctionIDAndClientID &functionIDAndClientID)
         {
             LIMITED_METHOD_CONTRACT;
-            _ASSERTE((functionIDAndClientID.functionID != NULL) || (functionIDAndClientID.clientID == NULL));
-            return functionIDAndClientID.functionID == NULL;
+            _ASSERTE((functionIDAndClientID.functionID != 0) || (functionIDAndClientID.clientID == 0));
+            return functionIDAndClientID.functionID == 0;
         }
     };
 

@@ -50,92 +50,65 @@ namespace System.Net
             return SafeFreeCredentials.AcquireCredentialsHandle(moduleName, usage, authdata, out outCredential);
         }
 
-        public int AcceptSecurityContext(SafeFreeCredentials? credential, ref SafeDeleteSslContext? context, InputSecurityBuffers inputBuffers, Interop.SspiCli.ContextFlags inFlags, Interop.SspiCli.Endianness endianness, ref SecurityBuffer outputBuffer, ref Interop.SspiCli.ContextFlags outFlags)
+        public int AcceptSecurityContext(SafeFreeCredentials? credential, ref SafeDeleteSslContext? context, ref InputSecurityBuffers inputBuffers, Interop.SspiCli.ContextFlags inFlags, Interop.SspiCli.Endianness endianness, ref ProtocolToken outToken, ref Interop.SspiCli.ContextFlags outFlags)
         {
-            return SafeDeleteContext.AcceptSecurityContext(ref credential, ref context, inFlags, endianness, inputBuffers, ref outputBuffer, ref outFlags);
+            return SafeDeleteContext.AcceptSecurityContext(ref credential, ref context, inFlags, endianness, ref inputBuffers, ref outToken, ref outFlags);
         }
 
-        public int InitializeSecurityContext(ref SafeFreeCredentials? credential, ref SafeDeleteSslContext? context, string? targetName, Interop.SspiCli.ContextFlags inFlags, Interop.SspiCli.Endianness endianness, InputSecurityBuffers inputBuffers, ref SecurityBuffer outputBuffer, ref Interop.SspiCli.ContextFlags outFlags)
+        public int InitializeSecurityContext(ref SafeFreeCredentials? credential, ref SafeDeleteSslContext? context, string? targetName, Interop.SspiCli.ContextFlags inFlags, Interop.SspiCli.Endianness endianness, ref InputSecurityBuffers inputBuffers, ref ProtocolToken outToken, ref Interop.SspiCli.ContextFlags outFlags)
         {
-            return SafeDeleteContext.InitializeSecurityContext(ref credential, ref context, targetName, inFlags, endianness, inputBuffers, ref outputBuffer, ref outFlags);
+            return SafeDeleteContext.InitializeSecurityContext(ref credential, ref context, targetName, inFlags, endianness, ref inputBuffers, ref outToken, ref outFlags);
         }
 
-        public int EncryptMessage(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, uint sequenceNumber)
+        public int EncryptMessage(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, uint qop)
         {
+            bool mustRelease = false;
             try
             {
-                bool ignore = false;
-
-                context.DangerousAddRef(ref ignore);
-                return Interop.SspiCli.EncryptMessage(ref context._handle, 0, ref inputOutput, sequenceNumber);
+                context.DangerousAddRef(ref mustRelease);
+                return Interop.SspiCli.EncryptMessage(ref context._handle, qop, ref inputOutput, 0);
             }
             finally
             {
-                context.DangerousRelease();
+                if (mustRelease)
+                {
+                    context.DangerousRelease();
+                }
             }
         }
 
-        public unsafe int DecryptMessage(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, uint sequenceNumber)
+        public unsafe int DecryptMessage(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, out uint qop)
         {
             int status = (int)Interop.SECURITY_STATUS.InvalidHandle;
-            uint qop = 0;
+            uint qopTemp = 0;
 
+            bool mustRelease = false;
             try
             {
-                bool ignore = false;
-                context.DangerousAddRef(ref ignore);
-                status = Interop.SspiCli.DecryptMessage(ref context._handle, ref inputOutput, sequenceNumber, &qop);
+                context.DangerousAddRef(ref mustRelease);
+                status = Interop.SspiCli.DecryptMessage(ref context._handle, ref inputOutput, 0, &qopTemp);
             }
             finally
             {
-                context.DangerousRelease();
+                if (mustRelease)
+                {
+                    context.DangerousRelease();
+                }
             }
 
-            if (status == 0 && qop == Interop.SspiCli.SECQOP_WRAP_NO_ENCRYPT)
-            {
-                Debug.Fail($"Expected qop = 0, returned value = {qop}");
-                throw new InvalidOperationException(SR.net_auth_message_not_encrypted);
-            }
-
+            qop = qopTemp;
             return status;
-        }
-
-        public int MakeSignature(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, uint sequenceNumber)
-        {
-            try
-            {
-                bool ignore = false;
-
-                context.DangerousAddRef(ref ignore);
-
-                return Interop.SspiCli.EncryptMessage(ref context._handle, Interop.SspiCli.SECQOP_WRAP_NO_ENCRYPT, ref inputOutput, sequenceNumber);
-            }
-            finally
-            {
-                context.DangerousRelease();
-            }
-        }
-
-        public unsafe int VerifySignature(SafeDeleteContext context, ref Interop.SspiCli.SecBufferDesc inputOutput, uint sequenceNumber)
-        {
-            try
-            {
-                bool ignore = false;
-                uint qop = 0;
-
-                context.DangerousAddRef(ref ignore);
-                return Interop.SspiCli.DecryptMessage(ref context._handle, ref inputOutput, sequenceNumber, &qop);
-            }
-            finally
-            {
-                context.DangerousRelease();
-            }
         }
 
         public int QueryContextChannelBinding(SafeDeleteContext context, Interop.SspiCli.ContextAttribute attribute, out SafeFreeContextBufferChannelBinding binding)
         {
             // Querying an auth SSP for a CBT is not supported.
             throw new NotSupportedException();
+        }
+
+        public unsafe int QueryContextAttributes(SafeDeleteContext context, Interop.SspiCli.ContextAttribute attribute, IntPtr* refHandle)
+        {
+            return SafeFreeContextBuffer.QueryContextAttributes(context, attribute, refHandle);
         }
 
         public unsafe int QueryContextAttributes(SafeDeleteContext context, Interop.SspiCli.ContextAttribute attribute, Span<byte> buffer, Type? handleType, out SafeHandle? refHandle)
@@ -146,10 +119,6 @@ namespace System.Net
                 if (handleType == typeof(SafeFreeContextBuffer))
                 {
                     refHandle = SafeFreeContextBuffer.CreateEmptyHandle();
-                }
-                else if (handleType == typeof(SafeFreeCertContext))
-                {
-                    refHandle = new SafeFreeCertContext();
                 }
                 else
                 {
@@ -168,26 +137,29 @@ namespace System.Net
             return GetSecurityContextToken(phContext, out phToken);
         }
 
-        public int CompleteAuthToken(ref SafeDeleteSslContext? refContext, in SecurityBuffer inputBuffer)
+        public int CompleteAuthToken(ref SafeDeleteSslContext? refContext, in InputSecurityBuffer inputBuffer)
         {
             return SafeDeleteContext.CompleteAuthToken(ref refContext, in inputBuffer);
         }
 
         private static int GetSecurityContextToken(SafeDeleteContext phContext, out SecurityContextTokenHandle safeHandle)
         {
+            bool mustRelease = false;
             try
             {
-                bool ignore = false;
-                phContext.DangerousAddRef(ref ignore);
+                phContext.DangerousAddRef(ref mustRelease);
                 return Interop.SspiCli.QuerySecurityContextToken(ref phContext._handle, out safeHandle);
             }
             finally
             {
-                phContext.DangerousRelease();
+                if (mustRelease)
+                {
+                    phContext.DangerousRelease();
+                }
             }
         }
 
-        public int ApplyControlToken(ref SafeDeleteContext? refContext, in SecurityBuffer inputBuffers)
+        public int ApplyControlToken(ref SafeDeleteSslContext? refContext, in SecurityBuffer inputBuffers)
         {
             throw new NotSupportedException();
         }

@@ -16,13 +16,13 @@ namespace System.Linq.Tests
         [Fact]
         public void AsQueryable()
         {
-            Assert.NotNull(((IEnumerable)(new int[] { })).AsQueryable());
+            Assert.NotNull(((IEnumerable)new int[] { }).AsQueryable());
         }
 
         [Fact]
         public void AsQueryableT()
         {
-            Assert.NotNull((new int[] { }).AsQueryable());
+            Assert.NotNull(new int[] { }.AsQueryable());
         }
 
         [Fact]
@@ -96,6 +96,7 @@ namespace System.Linq.Tests
                      nameof(Enumerable.Prepend),
                      nameof(Enumerable.ToHashSet),
                      nameof(Enumerable.TryGetNonEnumeratedCount),
+                     nameof(Enumerable.Reverse),
                      "Fold",
                      "LeftJoin",
                  }

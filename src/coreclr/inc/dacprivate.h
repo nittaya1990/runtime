@@ -230,7 +230,7 @@ struct MSLAYOUT DacpThreadLocalModuleData
 struct MSLAYOUT DacpModuleData
 {
     CLRDATA_ADDRESS Address = 0;
-    CLRDATA_ADDRESS PEAssembly = 0; // A PEAssembly addr
+    CLRDATA_ADDRESS PEAssembly = 0; // Actually the module address in .NET 9+
     CLRDATA_ADDRESS ilBase = 0;
     CLRDATA_ADDRESS metadataStart = 0;
     ULONG64 metadataSize = 0;
@@ -250,8 +250,8 @@ struct MSLAYOUT DacpModuleData
     CLRDATA_ADDRESS FileReferencesMap = 0;
     CLRDATA_ADDRESS ManifestModuleReferencesMap = 0;
 
-    CLRDATA_ADDRESS pLookupTableHeap = 0;
-    CLRDATA_ADDRESS pThunkHeap = 0;
+    CLRDATA_ADDRESS LoaderAllocator = 0;
+    CLRDATA_ADDRESS ThunkHeap = 0;
 
     ULONG64 dwModuleIndex = 0;
 
@@ -274,11 +274,14 @@ struct MSLAYOUT DacpMethodTableData
 {
     BOOL bIsFree = FALSE; // everything else is NULL if this is true.
     CLRDATA_ADDRESS Module = 0;
+    // Note: DacpMethodTableData::Class is really a pointer to the canonical method table
     CLRDATA_ADDRESS Class = 0;
     CLRDATA_ADDRESS ParentMethodTable = 0;
     WORD wNumInterfaces = 0;
     WORD wNumMethods = 0;
+    // Note: Always 0, since .NET 9
     WORD wNumVtableSlots = 0;
+    // Note: Always 0, since .NET 9
     WORD wNumVirtuals = 0;
     DWORD BaseSize = 0;
     DWORD ComponentSize = 0;
@@ -422,11 +425,11 @@ enum DacpAppDomainDataStage {
     STAGE_CLOSED
 };
 
-// Information about a BaseDomain (AppDomain, SharedDomain or SystemDomain).
+// Information about an AppDomain or SystemDomain.
 // For types other than AppDomain, some fields (like dwID, DomainLocalBlock, etc.) will be 0/null.
 struct MSLAYOUT DacpAppDomainData
 {
-    // The pointer to the BaseDomain (not necessarily an AppDomain).
+    // The pointer to the AppDomain or SystemDomain.
     // It's useful to keep this around in the structure
     CLRDATA_ADDRESS AppDomainPtr = 0;
     CLRDATA_ADDRESS AppSecDesc = 0;
@@ -452,7 +455,7 @@ struct MSLAYOUT DacpAssemblyData
     CLRDATA_ADDRESS AssemblyPtr = 0; //useful to have
     CLRDATA_ADDRESS ClassLoader = 0;
     CLRDATA_ADDRESS ParentDomain = 0;
-    CLRDATA_ADDRESS BaseDomainPtr = 0;
+    CLRDATA_ADDRESS DomainPtr = 0;
     CLRDATA_ADDRESS AssemblySecDesc = 0;
     BOOL isDynamic = FALSE;
     UINT ModuleCount = FALSE;
@@ -460,14 +463,14 @@ struct MSLAYOUT DacpAssemblyData
     BOOL isDomainNeutral = FALSE; // Always false, preserved for backward compatibility
     DWORD dwLocationFlags = 0;
 
-    HRESULT Request(ISOSDacInterface *sos, CLRDATA_ADDRESS addr, CLRDATA_ADDRESS baseDomainPtr)
+    HRESULT Request(ISOSDacInterface *sos, CLRDATA_ADDRESS addr, CLRDATA_ADDRESS domainPtr)
     {
-        return sos->GetAssemblyData(baseDomainPtr, addr, this);
+        return sos->GetAssemblyData(domainPtr, addr, this);
     }
 
     HRESULT Request(ISOSDacInterface *sos, CLRDATA_ADDRESS addr)
     {
-        return Request(sos, addr, NULL);
+        return Request(sos, addr, 0);
     }
 };
 
@@ -577,7 +580,7 @@ struct MSLAYOUT DacpMethodDescData
     {
         return sos->GetMethodDescData(
             addr,
-            NULL,   // IP address
+            0,      // IP address
             this,
             0,      // cRejitData
             NULL,   // rejitData[]
@@ -610,6 +613,8 @@ struct MSLAYOUT DacpTieredVersionData
         OptimizationTier_OptimizedTier1,
         OptimizationTier_ReadyToRun,
         OptimizationTier_OptimizedTier1OSR,
+        OptimizationTier_QuickJittedInstrumented,
+        OptimizationTier_OptimizedTier1Instrumented,
     };
 
     CLRDATA_ADDRESS NativeCodeAddr;
@@ -725,7 +730,7 @@ struct MSLAYOUT DacpGenerationAllocData
 
 struct MSLAYOUT DacpGcHeapDetails
 {
-    CLRDATA_ADDRESS heapAddr = 0; // Only filled in in server mode, otherwise NULL
+    CLRDATA_ADDRESS heapAddr = 0; // Only filled in server mode, otherwise NULL
     CLRDATA_ADDRESS alloc_allocated = 0;
 
     CLRDATA_ADDRESS mark_array = 0;
@@ -780,7 +785,7 @@ struct MSLAYOUT DacpHeapSegmentData
     CLRDATA_ADDRESS mem = 0;
     // pass this to request if non-null to get the next segments.
     CLRDATA_ADDRESS next = 0;
-    CLRDATA_ADDRESS gc_heap = 0; // only filled in in server mode, otherwise NULL
+    CLRDATA_ADDRESS gc_heap = 0; // only filled in server mode, otherwise NULL
     // computed field: if this is the ephemeral segment highMark includes the ephemeral generation
     CLRDATA_ADDRESS highAllocMark = 0;
 
@@ -789,13 +794,15 @@ struct MSLAYOUT DacpHeapSegmentData
 
     HRESULT Request(ISOSDacInterface *sos, CLRDATA_ADDRESS addr, const DacpGcHeapDetails& heap)
     {
+        // clear this here to make sure we don't get stale values
+        this->highAllocMark = 0;
+
         HRESULT hr = sos->GetHeapSegmentData(addr, this);
 
-        // if this is the start segment, set highAllocMark too.
-        if (SUCCEEDED(hr))
+        // if this is the start segment, and the Dac hasn't set highAllocMark, set it here.
+        if (SUCCEEDED(hr) && this->highAllocMark == 0)
         {
-            // TODO:  This needs to be put on the Dac side.
-            if (this->segmentAddr == heap.generation_table[0].start_segment)
+            if (this->segmentAddr == heap.ephemeral_heap_segment)
                 highAllocMark = heap.alloc_allocated;
             else
                 highAllocMark = allocated;
@@ -881,7 +888,7 @@ struct MSLAYOUT DacpGCInterestingInfoData
 
 struct MSLAYOUT DacpGcHeapAnalyzeData
 {
-    CLRDATA_ADDRESS heapAddr = 0; // Only filled in in server mode, otherwise NULL
+    CLRDATA_ADDRESS heapAddr = 0; // Only filled in server mode, otherwise NULL
 
     CLRDATA_ADDRESS internal_root_array = 0;
     ULONG64         internal_root_array_index = 0;
@@ -982,7 +989,7 @@ struct MSLAYOUT DacpGetModuleData
     BOOL IsDynamic = FALSE;
     BOOL IsInMemory = FALSE;
     BOOL IsFileLayout = FALSE;
-    CLRDATA_ADDRESS PEAssembly = 0;
+    CLRDATA_ADDRESS PEAssembly = 0; // Actually the module address in .NET 9+
     CLRDATA_ADDRESS LoadedPEAddress = 0;
     ULONG64 LoadedPESize = 0;
     CLRDATA_ADDRESS InMemoryPdbAddress = 0;

@@ -9,9 +9,11 @@ namespace System.Net.NetworkInformation
 {
     internal static class UnixCommandLinePing
     {
-        // Ubuntu has ping under /bin, OSX under /sbin, ArchLinux under /usr/bin.
-        private static readonly string[] s_binFolders = { "/bin/", "/sbin/", "/usr/bin/" };
-        private const string s_ipv4PingFile = "ping";
+        // Ubuntu has ping under /bin, OSX under /sbin, ArchLinux under /usr/bin, Android under /system/bin, NixOS under /run/current-system/sw/bin.
+        private static readonly string[] s_binFolders = { "/bin", "/sbin", "/usr/bin", "/system/bin", "/run/current-system/sw/bin" };
+
+        private const string s_ipv4PingFile = "ping4";
+        private const string s_ipv4v6PingFile = "ping";
         private const string s_ipv6PingFile = "ping6";
 
         private static readonly string? s_discoveredPing4UtilityPath = GetPingUtilityPath(ipv4: true);
@@ -25,10 +27,15 @@ namespace System.Net.NetworkInformation
             string fileName = ipv4 ? s_ipv4PingFile : s_ipv6PingFile;
             foreach (string folder in s_binFolders)
             {
+                string pathv4v6 = Path.Combine(folder, s_ipv4v6PingFile);
                 string path = Path.Combine(folder, fileName);
                 if (File.Exists(path))
                 {
                     return path;
+                }
+                if (File.Exists(pathv4v6))
+                {
+                    return pathv4v6;
                 }
             }
 
@@ -40,10 +47,8 @@ namespace System.Net.NetworkInformation
         {
             if (pingBinary != null)
             {
-                string? linkedName = Interop.Sys.ReadLink(pingBinary);
-
-                // If pingBinary is not link linkedName will be null
-                if (linkedName != null && linkedName.EndsWith("busybox", StringComparison.Ordinal))
+                System.IO.FileSystemInfo? linkInfo = File.ResolveLinkTarget(pingBinary, returnFinalTarget: true);
+                if (linkInfo?.Name.EndsWith("busybox", StringComparison.Ordinal) == true)
                 {
                     return true;
                 }
@@ -52,7 +57,12 @@ namespace System.Net.NetworkInformation
             return false;
         }
 
-        public enum PingFragmentOptions { Default, Do, Dont };
+        public enum PingFragmentOptions
+        {
+            Default,
+            Do,
+            Dont
+        };
 
         /// <summary>
         /// The location of the IPv4 ping utility on the current machine.

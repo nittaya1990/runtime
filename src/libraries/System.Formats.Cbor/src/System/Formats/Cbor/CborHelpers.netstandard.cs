@@ -99,7 +99,7 @@ namespace System.Formats.Cbor
                 // you can add a zero-byte value to the most significant side of the array.
                 // Right in this case as it is Big-endian.
                 var bytesPlusOne = new byte[bigEndianBytes.Length + 1];
-                bigEndianBytes.CopyTo(bytesPlusOne.AsSpan().Slice(1));
+                bigEndianBytes.CopyTo(bytesPlusOne.AsSpan(1));
                 temp = bytesPlusOne;
             }
             else
@@ -182,7 +182,7 @@ namespace System.Formats.Cbor
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe float ReadSingleBigEndian(ReadOnlySpan<byte> source)
+        public static float ReadSingleBigEndian(ReadOnlySpan<byte> source)
         {
             return BitConverter.IsLittleEndian ?
                 Int32BitsToSingle(BinaryPrimitives.ReverseEndianness(MemoryMarshal.Read<int>(source))) :
@@ -190,7 +190,7 @@ namespace System.Formats.Cbor
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe void WriteSingleBigEndian(Span<byte> destination, float value)
+        public static void WriteSingleBigEndian(Span<byte> destination, float value)
         {
             if (BitConverter.IsLittleEndian)
             {
@@ -212,7 +212,7 @@ namespace System.Formats.Cbor
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe void WriteDoubleBigEndian(Span<byte> destination, double value)
+        public static void WriteDoubleBigEndian(Span<byte> destination, double value)
         {
             if (BitConverter.IsLittleEndian)
             {

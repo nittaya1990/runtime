@@ -30,7 +30,7 @@ namespace Internal.IL.Stubs
             _emitter = new ILEmitter();
 
             // This helper field is needed to generate proper GC tracking. There is no direct way
-            // to create interior pointer. 
+            // to create interior pointer.
             _helperFieldToken = _emitter.NewToken(_method.Context.GetWellKnownType(WellKnownType.Object).GetKnownField("m_pEEType"));
         }
 
@@ -81,7 +81,9 @@ namespace Internal.IL.Stubs
 
             int pointerSize = context.Target.PointerSize;
 
-            int argStartOffset = _method.Kind == ArrayMethodKind.AddressWithHiddenArg ? 2 : 1;
+            bool isX86 = context.Target.Architecture == TargetArchitecture.X86;
+            int argStartOffset = !isX86 && _method.Kind == ArrayMethodKind.AddressWithHiddenArg ? 2 : 1;
+            int hiddenArg = !isX86 ? 1 : 1 + _rank;
 
             var rangeExceptionLabel = _emitter.NewCodeLabel();
             ILCodeLabel typeMismatchExceptionLabel = null;
@@ -112,25 +114,23 @@ namespace Internal.IL.Stubs
                     // As per ECMA-335 III.2.3, the prefix suppresses the type check.
                     // if (hiddenArg == IntPtr.Zero)
                     //     goto TypeCheckPassed;
-                    codeStream.EmitLdArg(1);
+                    codeStream.EmitLdArg(hiddenArg);
                     codeStream.Emit(ILOpcode.brfalse, typeCheckPassedLabel);
 
-                    // MethodTable* actualElementType = this.MethodTable.RelatedParameterType; // ArrayElementType
+                    // MethodTable* actualElementType = this.m_pEEType->RelatedParameterType; // ArrayElementType
                     codeStream.EmitLdArg(0);
-                    codeStream.Emit(ILOpcode.call, _emitter.NewToken(objectType.GetKnownMethod("get_MethodTable", null)));
+                    codeStream.Emit(ILOpcode.ldfld, _emitter.NewToken(objectType.GetKnownField("m_pEEType")));
                     codeStream.Emit(ILOpcode.call,
                         _emitter.NewToken(eetypeType.GetKnownMethod("get_RelatedParameterType", null)));
 
                     // MethodTable* expectedElementType = hiddenArg->RelatedParameterType; // ArrayElementType
-                    codeStream.EmitLdArg(1);
+                    codeStream.EmitLdArg(hiddenArg);
                     codeStream.Emit(ILOpcode.call,
                         _emitter.NewToken(eetypeType.GetKnownMethod("get_RelatedParameterType", null)));
 
-                    // if (TypeCast.AreTypesEquivalent(expectedElementType, actualElementType))
+                    // if (expectedElementType != actualElementType)
                     //     ThrowHelpers.ThrowArrayTypeMismatchException();
-                    codeStream.Emit(ILOpcode.call, _emitter.NewToken(
-                        context.SystemModule.GetKnownType("System.Runtime", "TypeCast").GetKnownMethod("AreTypesEquivalent", null)));
-                    codeStream.Emit(ILOpcode.brfalse, typeMismatchExceptionLabel);
+                    codeStream.Emit(ILOpcode.bne_un, typeMismatchExceptionLabel);
 
                     codeStream.EmitLabel(typeCheckPassedLabel);
                 }
@@ -146,7 +146,7 @@ namespace Internal.IL.Stubs
                 TypeDesc eetypeType = context.SystemModule.GetKnownType("Internal.Runtime", "MethodTable");
 
                 codeStream.EmitLdArg(0);
-                codeStream.Emit(ILOpcode.call, _emitter.NewToken(objectType.GetKnownMethod("get_MethodTable", null)));
+                codeStream.Emit(ILOpcode.ldfld, _emitter.NewToken(objectType.GetKnownField("m_pEEType")));
                 codeStream.Emit(ILOpcode.call,
                     _emitter.NewToken(eetypeType.GetKnownMethod("get_IsSzArray", null)));
 

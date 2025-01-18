@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 #pragma warning disable CA1844 // Memory-based Read/WriteAsync
 
@@ -30,7 +30,7 @@ namespace System.Net.WebSockets
         private HttpListenerAsyncEventArgs? _readEventArgs;
         private TaskCompletionSource? _writeTaskCompletionSource;
         private TaskCompletionSource<int>? _readTaskCompletionSource;
-        private int _cleanedUp;
+        private bool _cleanedUp;
 
 #if DEBUG
         private sealed class OutstandingOperations
@@ -141,7 +141,7 @@ namespace System.Net.WebSockets
 
                 if (!_inOpaqueMode)
                 {
-                    bytesRead = await _inputStream.ReadAsync(buffer, offset, count, cancellationToken).SuppressContextFlow<int>();
+                    bytesRead = await _inputStream.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -165,7 +165,7 @@ namespace System.Net.WebSockets
                     }
                     else
                     {
-                        bytesRead = await _readTaskCompletionSource.Task.SuppressContextFlow<int>();
+                        bytesRead = await _readTaskCompletionSource.Task.ConfigureAwait(false);
                     }
                 }
             }
@@ -191,7 +191,7 @@ namespace System.Net.WebSockets
         // true: async completion or error
         private unsafe bool ReadAsyncFast(HttpListenerAsyncEventArgs eventArgs)
         {
-            eventArgs.StartOperationCommon(this, _inputStream.InternalHttpContext.RequestQueueBoundHandle);
+            eventArgs.StartOperationCommon(_inputStream.InternalHttpContext.RequestQueueBoundHandle);
             eventArgs.StartOperationReceive();
 
             bool completedAsynchronouslyOrWithError;
@@ -355,7 +355,7 @@ namespace System.Net.WebSockets
                 _writeEventArgs.BufferList = sendBuffers;
                 if (WriteAsyncFast(_writeEventArgs))
                 {
-                    await _writeTaskCompletionSource.Task.SuppressContextFlow();
+                    await _writeTaskCompletionSource.Task.ConfigureAwait(false);
                 }
             }
             catch (Exception error)
@@ -398,7 +398,7 @@ namespace System.Net.WebSockets
 
                 if (!_inOpaqueMode)
                 {
-                    await _outputStream.WriteAsync(buffer, offset, count, cancellationToken).SuppressContextFlow();
+                    await _outputStream.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -414,7 +414,7 @@ namespace System.Net.WebSockets
                     _writeEventArgs.SetBuffer(buffer, offset, count);
                     if (WriteAsyncFast(_writeEventArgs))
                     {
-                        await _writeTaskCompletionSource.Task.SuppressContextFlow();
+                        await _writeTaskCompletionSource.Task.ConfigureAwait(false);
                     }
                 }
             }
@@ -440,7 +440,7 @@ namespace System.Net.WebSockets
         {
             Interop.HttpApi.HTTP_FLAGS flags = Interop.HttpApi.HTTP_FLAGS.NONE;
 
-            eventArgs.StartOperationCommon(this, _outputStream.InternalHttpContext.RequestQueueBoundHandle);
+            eventArgs.StartOperationCommon(_outputStream.InternalHttpContext.RequestQueueBoundHandle);
             eventArgs.StartOperationSend();
 
             uint statusCode;
@@ -476,7 +476,7 @@ namespace System.Net.WebSockets
                         eventArgs.EntityChunkCount,
                         (Interop.HttpApi.HTTP_DATA_CHUNK*)eventArgs.EntityChunks,
                         &bytesSent,
-                        SafeLocalAllocHandle.Zero,
+                        null,
                         0,
                         eventArgs.NativeOverlapped,
                         null);
@@ -573,7 +573,7 @@ namespace System.Net.WebSockets
                 _writeEventArgs!.SetShouldCloseOutput();
                 if (WriteAsyncFast(_writeEventArgs))
                 {
-                    await _writeTaskCompletionSource.Task.SuppressContextFlow();
+                    await _writeTaskCompletionSource.Task.ConfigureAwait(false);
                 }
             }
             catch (Exception error)
@@ -595,24 +595,14 @@ namespace System.Net.WebSockets
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && Interlocked.Exchange(ref _cleanedUp, 1) == 0)
+            if (disposing && !Interlocked.Exchange(ref _cleanedUp, true))
             {
-                if (_readTaskCompletionSource != null)
-                {
-                    _readTaskCompletionSource.TrySetCanceled();
-                }
+                _readTaskCompletionSource?.TrySetCanceled();
 
                 _writeTaskCompletionSource?.TrySetCanceled();
 
-                if (_readEventArgs != null)
-                {
-                    _readEventArgs.Dispose();
-                }
-
-                if (_writeEventArgs != null)
-                {
-                    _writeEventArgs.Dispose();
-                }
+                _readEventArgs?.Dispose();
+                _writeEventArgs?.Dispose();
 
                 try
                 {
@@ -726,10 +716,14 @@ namespace System.Net.WebSockets
 
         internal sealed class HttpListenerAsyncEventArgs : EventArgs, IDisposable
         {
-            private const int Free = 0;
-            private const int InProgress = 1;
-            private const int Disposed = 2;
-            private int _operating;
+            private OperatingState _operating;
+
+            private enum OperatingState
+            {
+                Free = 0,
+                InProgress = 1,
+                Disposed = 2,
+            }
 
             private bool _disposeCalled;
             private unsafe NativeOverlapped* _ptrNativeOverlapped;
@@ -793,7 +787,7 @@ namespace System.Net.WebSockets
                     Debug.Assert(!_shouldCloseOutput, "'m_ShouldCloseOutput' MUST be 'false' at this point.");
                     Debug.Assert(value == null || _buffer == null,
                         "Either 'm_Buffer' or 'm_BufferList' MUST be NULL.");
-                    Debug.Assert(_operating == Free,
+                    Debug.Assert(_operating == OperatingState.Free,
                         "This property can only be modified if no IO operation is outstanding.");
                     Debug.Assert(value == null || value.Count == 2,
                         "This list can only be 'NULL' or MUST have exactly '2' items.");
@@ -893,7 +887,7 @@ namespace System.Net.WebSockets
                 _disposeCalled = true;
 
                 // Check if this object is in-use for an async socket operation.
-                if (Interlocked.CompareExchange(ref _operating, Disposed, Free) != Free)
+                if (Interlocked.CompareExchange(ref _operating, OperatingState.Disposed, OperatingState.Free) != OperatingState.Free)
                 {
                     // Either already disposed or will be disposed when current operation completes.
                     return;
@@ -937,10 +931,10 @@ namespace System.Net.WebSockets
 
             // Method called to prepare for a native async http.sys call.
             // This method performs the tasks common to all http.sys operations.
-            internal void StartOperationCommon(WebSocketHttpListenerDuplexStream currentStream, ThreadPoolBoundHandle boundHandle)
+            internal void StartOperationCommon(ThreadPoolBoundHandle boundHandle)
             {
                 // Change status to "in-use".
-                if (Interlocked.CompareExchange(ref _operating, InProgress, Free) != Free)
+                if (Interlocked.CompareExchange(ref _operating, OperatingState.InProgress, OperatingState.Free) != OperatingState.Free)
                 {
                     // If it was already "in-use" check if Dispose was called.
                     ObjectDisposedException.ThrowIf(_disposeCalled, this);
@@ -1049,7 +1043,7 @@ namespace System.Net.WebSockets
             {
                 FreeOverlapped(false);
                 // Mark as not in-use
-                Interlocked.Exchange(ref _operating, Free);
+                Interlocked.Exchange(ref _operating, OperatingState.Free);
 
                 // Check for deferred Dispose().
                 // The deferred Dispose is not guaranteed if Dispose is called while an operation is in progress.

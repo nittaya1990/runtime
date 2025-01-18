@@ -24,10 +24,10 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-using System.IO;
-using System.Globalization;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
@@ -64,9 +64,11 @@ namespace System.Reflection
 
         //
         // KEEP IN SYNC WITH _MonoReflectionAssembly in /mono/mono/metadata/object-internals.h
+        // and AssemblyBuilder.cs.
         //
         #region VM dependency
         private IntPtr _mono_assembly;
+        private LoaderAllocator? m_keepalive;
         #endregion
 
         internal IntPtr GetUnderlyingNativeHandle() { return _mono_assembly; }
@@ -89,6 +91,7 @@ namespace System.Reflection
 
         public override bool ReflectionOnly => false;
 
+        [Obsolete("Assembly.CodeBase and Assembly.EscapedCodeBase are only included for .NET Framework compatibility. Use Assembly.Location.", DiagnosticId = "SYSLIB0012", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
         [RequiresAssemblyFiles(ThrowingMessageInRAF)]
         public override string? CodeBase => GetInfo(AssemblyInfoKind.CodeBase);
 
@@ -132,29 +135,6 @@ namespace System.Reflection
 
         // TODO: consider a dedicated icall instead
         public override bool IsCollectible => AssemblyLoadContext.GetLoadContext((Assembly)this)!.IsCollectible;
-
-        internal static AssemblyName? CreateAssemblyName(string assemblyString, out RuntimeAssembly? assemblyFromResolveEvent)
-        {
-            if (assemblyString == null)
-                throw new ArgumentNullException(nameof(assemblyString));
-
-            if ((assemblyString.Length == 0) ||
-                (assemblyString[0] == '\0'))
-                throw new ArgumentException(SR.Format_StringZeroLength);
-
-            assemblyFromResolveEvent = null;
-            try
-            {
-                return new AssemblyName(assemblyString);
-            }
-            catch (Exception)
-            {
-                assemblyFromResolveEvent = (RuntimeAssembly?)AssemblyLoadContext.DoAssemblyResolve(assemblyString);
-                if (assemblyFromResolveEvent == null)
-                    throw new FileLoadException(assemblyString);
-                return null;
-            }
-        }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void GetManifestResourceNames(QCallAssembly assembly_h, ObjectHandleOnStack res);
@@ -265,8 +245,8 @@ namespace System.Reflection
 
         public override Stream? GetManifestResourceStream(Type type, string name)
         {
-            if (type == null && name == null)
-                throw new ArgumentNullException(nameof(type));
+            if (name == null)
+                ArgumentNullException.ThrowIfNull(type);
 
             string? nameSpace = type?.Namespace;
 
@@ -282,7 +262,7 @@ namespace System.Reflection
             return AssemblyName.Create(_mono_assembly, GetInfo(AssemblyInfoKind.CodeBase));
         }
 
-        [RequiresUnreferencedCode("Types might be removed")]
+        [RequiresUnreferencedCode("Types might be removed by trimming. If the type name is a string literal, consider using Type.GetType instead.")]
         public override Type GetType(string name, bool throwOnError, bool ignoreCase)
         {
             ArgumentException.ThrowIfNullOrEmpty(name);
@@ -379,7 +359,7 @@ namespace System.Reflection
                         unsafe
                         {
                             Mono.MonoAssemblyName* nativeName = (Mono.MonoAssemblyName*)nativeNames[i];
-                            Mono.RuntimeMarshal.FreeAssemblyName(ref *nativeName, true);
+                            AssemblyName.FreeAssemblyName(ref *nativeName, true);
                         }
                     }
                 }
@@ -387,7 +367,7 @@ namespace System.Reflection
         }
 
         [RequiresUnreferencedCode("Assembly references might be removed")]
-        public override AssemblyName[] GetReferencedAssemblies() => RuntimeAssembly.GetReferencedAssemblies (this);
+        public override AssemblyName[] GetReferencedAssemblies() => RuntimeAssembly.GetReferencedAssemblies(this);
 
         public override Assembly GetSatelliteAssembly(CultureInfo culture)
         {
@@ -396,8 +376,7 @@ namespace System.Reflection
 
         public override Assembly GetSatelliteAssembly(CultureInfo culture, Version? version)
         {
-            if (culture == null)
-                throw new ArgumentNullException(nameof(culture));
+            ArgumentNullException.ThrowIfNull(culture);
 
             return InternalGetSatelliteAssembly(this, culture, version, true)!;
         }
@@ -429,7 +408,7 @@ namespace System.Reflection
             if (res == assembly)
                 res = null;
             if (res == null && throwOnFileNotFound)
-                throw new FileNotFoundException(string.Format(culture, SR.IO_FileNotFound_FileName, an.Name));
+                throw new FileNotFoundException(SR.Format(culture, SR.IO_FileNotFound_FileName, an.Name));
             return res;
         }
 

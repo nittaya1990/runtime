@@ -232,7 +232,8 @@ inline void TypeHandle::ForEachComponentMethodTable(T &callback) const
     }
 }
 
-FORCEINLINE OBJECTREF TypeHandle::GetManagedClassObjectFast() const
+#ifndef DACCESS_COMPILE
+FORCEINLINE OBJECTREF TypeHandle::GetManagedClassObjectIfExists() const
 {
     CONTRACTL
     {
@@ -251,30 +252,11 @@ FORCEINLINE OBJECTREF TypeHandle::GetManagedClassObjectFast() const
     }
     else
     {
-        switch (AsTypeDesc()->GetInternalCorElementType())
-        {
-        case ELEMENT_TYPE_BYREF:
-        case ELEMENT_TYPE_PTR:
-            o = dac_cast<PTR_ParamTypeDesc>(AsTypeDesc())->GetManagedClassObjectFast();
-            break;
-
-        case ELEMENT_TYPE_VAR:
-        case ELEMENT_TYPE_MVAR:
-            o = dac_cast<PTR_TypeVarTypeDesc>(AsTypeDesc())->GetManagedClassObjectFast();
-            break;
-
-        case ELEMENT_TYPE_FNPTR:
-            // A function pointer is mapped into typeof(IntPtr). It results in a loss of information.
-            o = CoreLibBinder::GetElementType(ELEMENT_TYPE_I)->GetManagedClassObjectIfExists();
-            break;
-
-        default:
-            _ASSERTE(!"Bad Element Type");
-            return NULL;
-        }
+        return AsTypeDesc()->GetManagedClassObjectIfExists();
     }
 
     return o;
 }
+#endif
 
 #endif  // _TYPEHANDLE_INL_

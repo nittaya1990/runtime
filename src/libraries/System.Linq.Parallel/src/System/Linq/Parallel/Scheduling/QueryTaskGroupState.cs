@@ -8,9 +8,9 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
 
 namespace System.Linq.Parallel
 {
@@ -133,9 +133,7 @@ namespace System.Linq.Parallel
                 finally
                 {
                     //_rootTask don't support Dispose on some platforms
-                    IDisposable disposable = _rootTask as IDisposable;
-                    if (disposable != null)
-                        disposable.Dispose();
+                    (_rootTask as IDisposable)?.Dispose();
                 }
 
                 if (_cancellationState.MergedCancellationToken.IsCancellationRequested)

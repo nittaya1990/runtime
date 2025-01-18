@@ -39,16 +39,11 @@
 
 #include "stublink.inl"
 
-extern "C" DWORD STDCALL GetSpecificCpuTypeAsm(void);
-extern "C" uint32_t STDCALL GetSpecificCpuFeaturesAsm(uint32_t *pInfo);
-
 // NOTE on Frame Size C_ASSERT usage in this file
 // if the frame size changes then the stubs have to be revisited for correctness
 // kindly revist the logic and then update the constants so that the C_ASSERT will again fire
 // if someone changes the frame size.  You are expected to keep this hard coded constant
 // up to date so that changes in the frame size trigger errors at compile time if the code is not altered
-
-void generate_noref_copy (unsigned nbytes, StubLinkerCPU* sl);
 
 #ifdef FEATURE_EH_FUNCLETS
 void UpdateRegDisplayFromCalleeSavedRegisters(REGDISPLAY * pRD, CalleeSavedRegisters * regs)
@@ -75,64 +70,6 @@ void ClearRegDisplayArgumentAndScratchRegisters(REGDISPLAY * pRD)
 #undef ARGUMENT_AND_SCRATCH_REGISTER
 }
 #endif // FEATURE_EH_FUNCLETS
-
-#ifndef DACCESS_COMPILE
-
-//---------------------------------------------------------------
-// Returns the type of CPU (the value of x of x86)
-// (Please note, that it returns 6 for P5-II)
-//---------------------------------------------------------------
-void GetSpecificCpuInfo(CORINFO_CPU * cpuInfo)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    static CORINFO_CPU val = { 0, 0, 0 };
-
-    if (val.dwCPUType)
-    {
-        *cpuInfo = val;
-        return;
-    }
-
-    CORINFO_CPU tempVal;
-    tempVal.dwCPUType = GetSpecificCpuTypeAsm();  // written in ASM & doesn't participate in contracts
-    _ASSERTE(tempVal.dwCPUType);
-
-#ifdef _DEBUG
-    /* Set Family+Model+Stepping string (eg., x690 for Banias, or xF30 for P4 Prescott)
-     * instead of Family only
-     */
-
-    const DWORD cpuDefault = 0xFFFFFFFF;
-    static ConfigDWORD cpuFamily;
-    DWORD configCpuFamily = cpuFamily.val(CLRConfig::INTERNAL_CPUFamily);
-    if (configCpuFamily != cpuDefault)
-    {
-        assert((configCpuFamily & 0xFFF) == configCpuFamily);
-        tempVal.dwCPUType = (tempVal.dwCPUType & 0xFFFF0000) | configCpuFamily;
-    }
-#endif
-
-    tempVal.dwFeatures = GetSpecificCpuFeaturesAsm(&tempVal.dwExtendedFeatures);  // written in ASM & doesn't participate in contracts
-
-#ifdef _DEBUG
-    /* Set the 32-bit feature mask
-     */
-
-    const DWORD cpuFeaturesDefault = 0xFFFFFFFF;
-    static ConfigDWORD cpuFeatures;
-    DWORD configCpuFeatures = cpuFeatures.val(CLRConfig::INTERNAL_CPUFeatures);
-    if (configCpuFeatures != cpuFeaturesDefault)
-    {
-        tempVal.dwFeatures = configCpuFeatures;
-    }
-#endif
-
-    val = *cpuInfo = tempVal;
-}
-
-#endif // #ifndef DACCESS_COMPILE
-
 
 #ifndef FEATURE_EH_FUNCLETS
 //---------------------------------------------------------------------------------------
@@ -200,14 +137,13 @@ void EHContext::UpdateFrame(PREGDISPLAY regs)
 }
 #endif // FEATURE_EH_FUNCLETS
 
-void TransitionFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void TransitionFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -231,7 +167,6 @@ void TransitionFrame::UpdateRegDisplayHelper(const PREGDISPLAY pRD, UINT cbStack
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -272,15 +207,14 @@ void TransitionFrame::UpdateRegDisplayHelper(const PREGDISPLAY pRD, UINT cbStack
     RETURN;
 }
 
-void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
-        PRECONDITION(m_MachState.isValid());               // InsureInit has been called
+        PRECONDITION(m_MachState.isValid());               // EnsureInit has been called
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -302,7 +236,7 @@ void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
         // This allocation throws on OOM.
         MachState* pUnwoundState = (MachState*)DacAllocHostOnlyInstance(sizeof(*pUnwoundState), true);
 
-        InsureInit(false, pUnwoundState);
+        EnsureInit(pUnwoundState);
 
         pRD->PCTAddr = dac_cast<TADDR>(pUnwoundState->pRetAddr());
         pRD->pCurrentContext->Eip = pRD->ControlPC = pUnwoundState->GetRetAddr();
@@ -361,7 +295,7 @@ void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
     {
         MachState unwindState;
 
-        InsureInit(false, &unwindState);
+        EnsureInit(&unwindState);
         pRD->PCTAddr = dac_cast<TADDR>(unwindState.pRetAddr());
         pRD->ControlPC = unwindState.GetRetAddr();
         pRD->SP = unwindState._esp;
@@ -383,10 +317,10 @@ void HelperMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
         thisState->_ebp = unwindState._ebp;
         pRD->pEbp = (DWORD *)&thisState->_ebp;
 
-        // InsureInit always sets m_RegArgs to zero
+        // EnsureInit always sets m_RegArgs to zero
         // in the real code.  I'm not sure exactly
         // what should happen in the on-the-fly case,
-        // but go with what would happen from an InsureInit.
+        // but go with what would happen from an EnsureInit.
 
         RETURN;
     }
@@ -437,7 +371,7 @@ EXTERN_C MachState* STDCALL HelperMethodFrameConfirmState(HelperMethodFrame* fra
     BEGIN_DEBUG_ONLY_CODE;
     if (!state->isValid())
     {
-        frame->InsureInit(false, NULL);
+        frame->EnsureInit(NULL);
         _ASSERTE(state->_pEsi != &state->_esi || state->_esi  == (TADDR)esiVal);
         _ASSERTE(state->_pEdi != &state->_edi || state->_edi  == (TADDR)ediVal);
         _ASSERTE(state->_pEbx != &state->_ebx || state->_ebx  == (TADDR)ebxVal);
@@ -452,14 +386,13 @@ EXTERN_C MachState* STDCALL HelperMethodFrameConfirmState(HelperMethodFrame* fra
 }
 #endif
 
-void ExternalMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void ExternalMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -472,14 +405,13 @@ void ExternalMethodFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 }
 
 
-void StubDispatchFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void StubDispatchFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -529,14 +461,13 @@ PCODE StubDispatchFrame::GetReturnAddress()
     return retAddress;
 }
 
-void FaultingExceptionFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void FaultingExceptionFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -546,6 +477,10 @@ void FaultingExceptionFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 #ifdef FEATURE_EH_FUNCLETS
 
     memcpy(pRD->pCurrentContext, &m_ctx, sizeof(CONTEXT));
+
+    // Clear the CONTEXT_XSTATE, since the REGDISPLAY contains just plain CONTEXT structure
+    // that cannot contain any extended state.
+    pRD->pCurrentContext->ContextFlags &= ~(CONTEXT_XSTATE & CONTEXT_AREA_MASK);
 
     pRD->SP = m_ctx.Esp;
     pRD->ControlPC = m_ctx.Eip;
@@ -582,7 +517,7 @@ void FaultingExceptionFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
     RETURN;
 }
 
-void InlinedCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void InlinedCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
@@ -594,7 +529,6 @@ void InlinedCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 #ifdef PROFILING_SUPPORTED
         PRECONDITION(CORProfilerStackSnapshotEnabled() || InlinedCallFrame::FrameHasActiveCall(this));
 #endif
-        HOST_NOCALLS;
         MODE_ANY;
         SUPPORTS_DAC;
     }
@@ -676,14 +610,13 @@ TADDR ResumableFrame::GetReturnAddressPtr()
     return dac_cast<TADDR>(m_Regs) + offsetof(CONTEXT, Eip);
 }
 
-void ResumableFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void ResumableFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -757,12 +690,11 @@ void ResumableFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 
 // The HijackFrame has to know the registers that are pushed by OnHijackTripThread
 //  -> HijackFrame::UpdateRegDisplay should restore all the registers pushed by OnHijackTripThread
-void HijackFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void HijackFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACTL {
         NOTHROW;
         GC_NOTRIGGER;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACTL_END;
@@ -814,20 +746,19 @@ void HijackFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 
 #endif  // FEATURE_HIJACK
 
-void PInvokeCalliFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void PInvokeCalliFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
 
     VASigCookie *pVASigCookie = GetVASigCookie();
-    UpdateRegDisplayHelper(pRD, pVASigCookie->sizeOfArgs+sizeof(int));
+    UpdateRegDisplayHelper(pRD, pVASigCookie->sizeOfArgs);
 
     LOG((LF_GCROOTS, LL_INFO100000, "STACKWALK    PInvokeCalliFrame::UpdateRegDisplay(ip:%p, sp:%p)\n", pRD->ControlPC, pRD->SP));
 
@@ -835,14 +766,13 @@ void PInvokeCalliFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 }
 
 #ifndef UNIX_X86_ABI
-void TailCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void TailCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACT_VOID
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        HOST_NOCALLS;
         SUPPORTS_DAC;
     }
     CONTRACT_END;
@@ -883,7 +813,7 @@ void TailCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 #endif // !UNIX_X86_ABI
 
 #ifdef FEATURE_READYTORUN
-void DynamicHelperFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
+void DynamicHelperFrame::UpdateRegDisplay(const PREGDISPLAY pRD, bool updateFloats)
 {
     WRAPPER_NO_CONTRACT;
     UpdateRegDisplayHelper(pRD, 0);
@@ -983,39 +913,6 @@ Stub *GenerateInitPInvokeFrameHelper()
     RETURN psl->Link(SystemDomain::GetGlobalLoaderAllocator()->GetExecutableHeap());
 }
 
-
-extern "C" VOID STDCALL StubRareEnableWorker(Thread *pThread)
-{
-    WRAPPER_NO_CONTRACT;
-
-    //printf("RareEnable\n");
-    pThread->RareEnablePreemptiveGC();
-}
-
-
-
-
-// Disable when calling into managed code from a place that fails via Exceptions
-extern "C" VOID STDCALL StubRareDisableTHROWWorker(Thread *pThread)
-{
-    STATIC_CONTRACT_THROWS;
-    STATIC_CONTRACT_GC_TRIGGERS;
-
-    // Do not add a CONTRACT here.  We haven't set up SEH.
-
-    // WARNING!!!!
-    // when we start executing here, we are actually in cooperative mode.  But we
-    // haven't synchronized with the barrier to reentry yet.  So we are in a highly
-    // dangerous mode.  If we call managed code, we will potentially be active in
-    // the GC heap, even as GC's are occuring!
-
-    // We must do the following in this order, because otherwise we would be constructing
-    // the exception for the abort without synchronizing with the GC.  Also, we have no
-    // CLR SEH set up, despite the fact that we may throw a ThreadAbortException.
-    pThread->RareDisablePreemptiveGC();
-    pThread->HandleThreadAbort();
-}
-
 //////////////////////////////////////////////////////////////////////////////
 //
 // JITInterface
@@ -1023,7 +920,7 @@ extern "C" VOID STDCALL StubRareDisableTHROWWorker(Thread *pThread)
 //////////////////////////////////////////////////////////////////////////////
 
 /*********************************************************************/
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
 #pragma warning (disable : 4731)
 void ResumeAtJit(PCONTEXT pContext, LPVOID oldESP)
 {
@@ -1078,71 +975,8 @@ void ResumeAtJit(PCONTEXT pContext, LPVOID oldESP)
     }
 }
 #pragma warning (default : 4731)
-#endif // !EnC_SUPPORTED
+#endif // !FEATURE_METADATA_UPDATER
 
-
-#ifndef TARGET_UNIX
-#pragma warning(push)
-#pragma warning(disable: 4035)
-extern "C" DWORD __stdcall xmmYmmStateSupport()
-{
-    // No CONTRACT
-    STATIC_CONTRACT_NOTHROW;
-    STATIC_CONTRACT_GC_NOTRIGGER;
-
-    __asm
-    {
-        mov     ecx, 0                  ; Specify xcr0
-        xgetbv                          ; result in EDX:EAX
-        and eax, 06H
-        cmp eax, 06H                    ; check OS has enabled both XMM and YMM state support
-        jne     not_supported
-        mov     eax, 1
-        jmp     done
-    not_supported:
-        mov     eax, 0
-    done:
-    }
-}
-#pragma warning(pop)
-
-#else // !TARGET_UNIX
-
-void __cpuid(int cpuInfo[4], int function_id)
-{
-    // Based on the Clang implementation provided in cpuid.h:
-    // https://github.com/llvm/llvm-project/blob/master/clang/lib/Headers/cpuid.h
-
-    __asm("  cpuid"
-        : "=a"(cpuInfo[0]), "=b"(cpuInfo[1]), "=c"(cpuInfo[2]), "=d"(cpuInfo[3]) \
-        : "0"(function_id)
-    );
-}
-
-void __cpuidex(int cpuInfo[4], int function_id, int subFunction_id)
-{
-    // Based on the Clang implementation provided in cpuid.h:
-    // https://github.com/llvm/llvm-project/blob/master/clang/lib/Headers/cpuid.h
-
-    __asm("  cpuid"
-        : "=a"(cpuInfo[0]), "=b"(cpuInfo[1]), "=c"(cpuInfo[2]), "=d"(cpuInfo[3]) \
-        : "0"(function_id), "2"(subFunction_id)
-    );
-}
-
-extern "C" DWORD __stdcall xmmYmmStateSupport()
-{
-    DWORD eax;
-    __asm("  xgetbv\n" \
-        : "=a"(eax) /*output in eax*/\
-        : "c"(0) /*inputs - 0 in ecx*/\
-        : "edx" /* registers that are clobbered*/
-        );
-    // check OS has enabled both XMM and YMM state support
-    return ((eax & 0x06) == 0x06) ? 1 : 0;
-}
-
-#endif // !TARGET_UNIX
 
 void UMEntryThunkCode::Encode(UMEntryThunkCode *pEntryThunkCodeRX, BYTE* pTargetCode, void* pvSecretParam)
 {
@@ -1157,7 +991,7 @@ void UMEntryThunkCode::Encode(UMEntryThunkCode *pEntryThunkCodeRX, BYTE* pTarget
     m_jmp        = X86_INSTR_JMP_REL32;
     m_execstub   = (BYTE*) ((pTargetCode) - (4+((BYTE*)&pEntryThunkCodeRX->m_execstub)));
 
-    FlushInstructionCache(GetCurrentProcess(),pEntryThunkCodeRX->GetEntryPoint(),sizeof(UMEntryThunkCode));
+    ClrFlushInstructionCache(pEntryThunkCodeRX->GetEntryPoint(),sizeof(UMEntryThunkCode) - GetEntryPointOffset(), /* hasCodeExecutedBefore */ true);
 }
 
 void UMEntryThunkCode::Poison()
@@ -1172,7 +1006,7 @@ void UMEntryThunkCode::Poison()
     // mov ecx, imm32
     pThisRW->m_movEAX = 0xb9;
 
-    ClrFlushInstructionCache(GetEntryPoint(),sizeof(UMEntryThunkCode));
+    ClrFlushInstructionCache(GetEntryPoint(),sizeof(UMEntryThunkCode) - GetEntryPointOffset(), /* hasCodeExecutedBefore */ true);
 }
 
 UMEntryThunk* UMEntryThunk::Decode(LPVOID pCallback)
@@ -1235,7 +1069,7 @@ void DynamicHelpers::EmitHelperWithArg(BYTE*& p, size_t rxOffset, LoaderAllocato
     }
     CONTRACTL_END;
 
-    // Move an an argument into the second argument register and jump to a target function.
+    // Move an argument into the second argument register and jump to a target function.
 
     *p++ = 0xBA; // mov edx, XXXXXX
     *(INT32 *)p = (INT32)arg;
@@ -1434,9 +1268,7 @@ PCODE DynamicHelpers::CreateDictionaryLookupHelper(LoaderAllocator * pAllocator,
 {
     STANDARD_VM_CONTRACT;
 
-    PCODE helperAddress = (pLookup->helper == CORINFO_HELP_RUNTIMEHANDLE_METHOD ?
-        GetEEFuncEntryPoint(JIT_GenericHandleMethodWithSlotAndModule) :
-        GetEEFuncEntryPoint(JIT_GenericHandleClassWithSlotAndModule));
+    PCODE helperAddress = GetDictionaryLookupHelper(pLookup->helper);
 
     GenericHandleArgs * pArgs = (GenericHandleArgs *)(void *)pAllocator->GetDynamicHelpersHeap()->AllocAlignedMem(sizeof(GenericHandleArgs), DYNAMIC_HELPER_ALIGNMENT);
     ExecutableWriterHolder<GenericHandleArgs> argsWriterHolder(pArgs, sizeof(GenericHandleArgs));

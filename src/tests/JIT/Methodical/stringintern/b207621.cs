@@ -3,8 +3,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-internal class Test_b207621
+public class Test_b207621
 {
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     private static string FooBar()
@@ -12,7 +13,9 @@ internal class Test_b207621
         return "Hello World";
     }
 
-    static public int Main()
+    [Fact]
+    [OuterLoop]
+    static public int TestEntryPoint()
     {
         string a = null;
         string b = null;

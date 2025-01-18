@@ -10,12 +10,17 @@
 #include "mini.h"
 #include <mono/jit/mono-private-unstable.h>
 #include "interp/interp.h"
+#include "aot-runtime.h"
 
-#ifdef TARGET_WASM
+#ifdef HOST_WASM
 
 static char
-type_to_c (MonoType *t)
+type_to_c (MonoType *t, gboolean *is_byref_return)
 {
+	g_assert (t);
+
+	if (is_byref_return)
+		*is_byref_return = 0;
 	if (m_type_is_byref (t))
 		return 'I';
 
@@ -47,17 +52,39 @@ handle_enum:
 		return 'L';
 	case MONO_TYPE_VOID:
 		return 'V';
-	case MONO_TYPE_VALUETYPE:
+	case MONO_TYPE_VALUETYPE: {
 		if (m_class_is_enumtype (t->data.klass)) {
 			t = mono_class_enum_basetype_internal (t->data.klass);
 			goto handle_enum;
 		}
 
+		// https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md#function-signatures
+		// Any struct or union that recursively (including through nested structs, unions, and arrays)
+		//  contains just a single scalar value and is not specified to have greater than natural alignment.
+		// FIXME: Handle the scenario where there are fields of struct types that contain no members
+		MonoType *scalar_vtype;
+		if (mini_wasm_is_scalar_vtype (t, &scalar_vtype))
+			return type_to_c (scalar_vtype, NULL);
+
+		if (is_byref_return)
+			*is_byref_return = 1;
+
 		return 'I';
-	case MONO_TYPE_GENERICINST:
-		if (m_class_is_valuetype (t->data.klass))
+	}
+	case MONO_TYPE_GENERICINST: {
+		if (m_class_is_valuetype (t->data.klass)) {
+			MonoType *scalar_vtype;
+			if (mini_wasm_is_scalar_vtype (t, &scalar_vtype))
+				return type_to_c (scalar_vtype, NULL);
+
+			if (is_byref_return)
+				*is_byref_return = 1;
+
 			return 'S';
+		}
+
 		return 'I';
+	}
 	default:
 		g_warning ("CANT TRANSLATE %s", mono_type_full_name (t));
 		return 'X';
@@ -83,7 +110,43 @@ get_long_arg (InterpMethodArguments *margs, int idx)
 	return p.l;
 }
 
-#include "wasm_m2n_invoke.g.h"
+static MonoWasmNativeToInterpCallback mono_wasm_interp_to_native_callback;
+
+void
+mono_wasm_install_interp_to_native_callback (MonoWasmNativeToInterpCallback cb)
+{
+	mono_wasm_interp_to_native_callback = cb;
+}
+
+int
+mono_wasm_interp_method_args_get_iarg (InterpMethodArguments *margs, int i)
+{
+	return (int)(gssize)margs->iargs[i];
+}
+
+gint64
+mono_wasm_interp_method_args_get_larg (InterpMethodArguments *margs, int i)
+{
+	return get_long_arg (margs, i);
+}
+
+float
+mono_wasm_interp_method_args_get_farg (InterpMethodArguments *margs, int i)
+{
+	return *(float*)&margs->fargs [FIDX (i)];
+}
+
+double
+mono_wasm_interp_method_args_get_darg (InterpMethodArguments *margs, int i)
+{
+	return margs->fargs [FIDX (i)];
+}
+
+gpointer*
+mono_wasm_interp_method_args_get_retval (InterpMethodArguments *margs)
+{
+	return margs->retval;
+}
 
 static int
 compare_icall_tramp (const void *key, const void *elem)
@@ -95,24 +158,34 @@ gpointer
 mono_wasm_get_interp_to_native_trampoline (MonoMethodSignature *sig)
 {
 	char cookie [32];
-	int c_count;
+	int c_count, offset = 1;
+	gboolean is_byref_return = 0;
 
-	c_count = sig->param_count + sig->hasthis + 1;
+	memset (cookie, 0, 32);
+	cookie [0] = type_to_c (sig->ret, &is_byref_return);
+
+	c_count = sig->param_count + sig->hasthis + is_byref_return + 1;
 	g_assert (c_count < sizeof (cookie)); //ensure we don't overflow the local
 
-	cookie [0] = type_to_c (sig->ret);
-	if (sig->hasthis)
-		cookie [1] = 'I';
-	for (int i = 0; i < sig->param_count; ++i) {
-		cookie [1 + sig->hasthis + i] = type_to_c (sig->params [i]);
+	if (is_byref_return) {
+		cookie[0] = 'V';
+		// return value address goes in arg0
+		cookie[1] = 'I';
+		offset += 1;
 	}
-	cookie [c_count] = 0;
+	if (sig->hasthis) {
+		// thisptr goes in arg0/arg1 depending on return type
+		cookie [offset] = 'I';
+		offset += 1;
+	}
+	for (int i = 0; i < sig->param_count; ++i) {
+		cookie [offset + i] = type_to_c (sig->params [i], NULL);
+	}
 
-	void *p = bsearch (cookie, interp_to_native_signatures, G_N_ELEMENTS (interp_to_native_signatures), sizeof (gpointer), compare_icall_tramp);
+	void *p = mono_wasm_interp_to_native_callback (cookie);
 	if (!p)
 		g_error ("CANNOT HANDLE INTERP ICALL SIG %s\n", cookie);
-	int idx = (const char**)p - (const char**)interp_to_native_signatures;
-	return interp_to_native_invokes [idx];
+	return p;
 }
 
 static MonoWasmGetNativeToInterpTramp get_native_to_interp_tramp_cb;
@@ -134,6 +207,10 @@ mono_wasm_get_native_to_interp_trampoline (MonoMethod *method, gpointer extra_ar
 
 #else /* TARGET_WASM */
 
-MONO_EMPTY_SOURCE_FILE (aot_runtime_wasm);
+void
+mono_wasm_install_get_native_to_interp_tramp (MonoWasmGetNativeToInterpTramp cb)
+{
+	g_assert_not_reached ();
+}
 
 #endif /* TARGET_WASM */

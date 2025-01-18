@@ -1,15 +1,15 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Buffers;
-using System.Buffers.Text;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
 
 namespace System.Text.Json.Serialization.Converters
 {
-    internal sealed class VersionConverter : JsonConverter<Version>
+    internal sealed class VersionConverter : JsonPrimitiveConverter<Version?>
     {
-#if BUILDING_INBOX_LIBRARY
+#if NET
         private const int MinimumVersionLength = 3; // 0.0
 
         private const int MaximumVersionLength = 43; // 2147483647.2147483647.2147483647.2147483647
@@ -17,56 +17,36 @@ namespace System.Text.Json.Serialization.Converters
         private const int MaximumEscapedVersionLength = JsonConstants.MaxExpansionFactorWhileEscaping * MaximumVersionLength;
 #endif
 
-        public override Version Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override Version? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
+            if (reader.TokenType is JsonTokenType.Null)
+            {
+                return null;
+            }
+
             if (reader.TokenType != JsonTokenType.String)
             {
                 ThrowHelper.ThrowInvalidOperationException_ExpectedString(reader.TokenType);
             }
 
-#if BUILDING_INBOX_LIBRARY
-            bool isEscaped = reader._stringHasEscaping;
+            return ReadCore(ref reader);
+        }
 
-            int maxLength = isEscaped ? MaximumEscapedVersionLength : MaximumVersionLength;
-            ReadOnlySpan<byte> source = stackalloc byte[0];
-            if (reader.HasValueSequence)
+        private static Version ReadCore(ref Utf8JsonReader reader)
+        {
+            Debug.Assert(reader.TokenType is JsonTokenType.PropertyName or JsonTokenType.String);
+
+#if NET
+            if (!JsonHelpers.IsInRangeInclusive(reader.ValueLength, MinimumVersionLength, MaximumEscapedVersionLength))
             {
-                if (!JsonHelpers.IsInRangeInclusive(reader.ValueSequence.Length, MinimumVersionLength, maxLength))
-                {
-                    ThrowHelper.ThrowFormatException(DataType.Version);
-                }
-
-                Span<byte> stackSpan = stackalloc byte[isEscaped ? MaximumEscapedVersionLength : MaximumVersionLength];
-                reader.ValueSequence.CopyTo(stackSpan);
-                source = stackSpan.Slice(0, (int)reader.ValueSequence.Length);
-            }
-            else
-            {
-                source = reader.ValueSpan;
-
-                if (!JsonHelpers.IsInRangeInclusive(source.Length, MinimumVersionLength, maxLength))
-                {
-                    ThrowHelper.ThrowFormatException(DataType.Version);
-                }
+                ThrowHelper.ThrowFormatException(DataType.Version);
             }
 
-            if (isEscaped)
-            {
-                int backslash = source.IndexOf(JsonConstants.BackSlash);
-                Debug.Assert(backslash != -1);
+            Span<char> charBuffer = stackalloc char[MaximumEscapedVersionLength];
+            int bytesWritten = reader.CopyString(charBuffer);
+            ReadOnlySpan<char> source = charBuffer.Slice(0, bytesWritten);
 
-                Span<byte> sourceUnescaped = stackalloc byte[MaximumEscapedVersionLength];
-
-                JsonReaderHelper.Unescape(source, sourceUnescaped, backslash, out int written);
-                Debug.Assert(written > 0);
-
-                source = sourceUnescaped.Slice(0, written);
-                Debug.Assert(!source.IsEmpty);
-            }
-
-            byte firstChar = source[0];
-            byte lastChar = source[source.Length - 1];
-            if (!JsonHelpers.IsDigit(firstChar) || !JsonHelpers.IsDigit(lastChar))
+            if (!char.IsDigit(source[0]) || !char.IsDigit(source[^1]))
             {
                 // Since leading and trailing whitespaces are forbidden throughout System.Text.Json converters
                 // we need to make sure that our input doesn't have them,
@@ -75,9 +55,7 @@ namespace System.Text.Json.Serialization.Converters
                 ThrowHelper.ThrowFormatException(DataType.Version);
             }
 
-            Span<char> charBuffer = stackalloc char[MaximumVersionLength];
-            int writtenChars = JsonReaderHelper.s_utf8Encoding.GetChars(source, charBuffer);
-            if (Version.TryParse(charBuffer.Slice(0, writtenChars), out Version? result))
+            if (Version.TryParse(source, out Version? result))
             {
                 return result;
             }
@@ -100,10 +78,20 @@ namespace System.Text.Json.Serialization.Converters
             return null;
         }
 
-        public override void Write(Utf8JsonWriter writer, Version value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, Version? value, JsonSerializerOptions options)
         {
-#if BUILDING_INBOX_LIBRARY
+            if (value is null)
+            {
+                writer.WriteNullValue();
+                return;
+            }
+
+#if NET
+#if NET8_0_OR_GREATER
+            Span<byte> span = stackalloc byte[MaximumVersionLength];
+#else
             Span<char> span = stackalloc char[MaximumVersionLength];
+#endif
             bool formattedSuccessfully = value.TryFormat(span, out int charsWritten);
             Debug.Assert(formattedSuccessfully && charsWritten >= MinimumVersionLength);
             writer.WriteStringValue(span.Slice(0, charsWritten));
@@ -111,5 +99,39 @@ namespace System.Text.Json.Serialization.Converters
             writer.WriteStringValue(value.ToString());
 #endif
         }
+
+        internal override Version ReadAsPropertyNameCore(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return ReadCore(ref reader);
+        }
+
+        internal override void WriteAsPropertyNameCore(Utf8JsonWriter writer, Version value, JsonSerializerOptions options, bool isWritingExtensionDataProperty)
+        {
+            if (value is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(nameof(value));
+            }
+
+#if NET
+#if NET8_0_OR_GREATER
+            Span<byte> span = stackalloc byte[MaximumVersionLength];
+#else
+            Span<char> span = stackalloc char[MaximumVersionLength];
+#endif
+            bool formattedSuccessfully = value.TryFormat(span, out int charsWritten);
+            Debug.Assert(formattedSuccessfully && charsWritten >= MinimumVersionLength);
+            writer.WritePropertyName(span.Slice(0, charsWritten));
+#else
+            writer.WritePropertyName(value.ToString());
+#endif
+        }
+
+        internal override JsonSchema? GetSchema(JsonNumberHandling _) =>
+            new()
+            {
+                Type = JsonSchemaType.String,
+                Comment = "Represents a version string.",
+                Pattern = @"^\d+(\.\d+){1,3}$",
+            };
     }
 }

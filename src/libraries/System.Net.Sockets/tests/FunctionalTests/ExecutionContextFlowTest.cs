@@ -10,6 +10,7 @@ using Xunit;
 
 namespace System.Net.Sockets.Tests
 {
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public class ExecutionContextFlowTest : FileCleanupTestBase
     {
         [Theory]
@@ -33,14 +34,9 @@ namespace System.Net.Sockets.Tests
                 };
 
                 asyncLocal.Value = 42;
-                if (suppressContext) ExecutionContext.SuppressFlow();
-                try
+                using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                 {
                     Assert.True(listener.AcceptAsync(saea));
-                }
-                finally
-                {
-                    if (suppressContext) ExecutionContext.RestoreFlow();
                 }
                 asyncLocal.Value = 0;
 
@@ -65,18 +61,13 @@ namespace System.Net.Sockets.Tests
                 var tcs = new TaskCompletionSource<int>();
 
                 asyncLocal.Value = 42;
-                if (suppressContext) ExecutionContext.SuppressFlow();
-                try
+                using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                 {
                     listener.BeginAccept(iar =>
                     {
                         listener.EndAccept(iar).Dispose();
                         tcs.SetResult(asyncLocal.Value);
                     }, null);
-                }
-                finally
-                {
-                    if (suppressContext) ExecutionContext.RestoreFlow();
                 }
                 asyncLocal.Value = 0;
 
@@ -105,14 +96,9 @@ namespace System.Net.Sockets.Tests
 
                 bool pending;
                 asyncLocal.Value = 42;
-                if (suppressContext) ExecutionContext.SuppressFlow();
-                try
+                using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                 {
                     pending = client.ConnectAsync(saea);
-                }
-                finally
-                {
-                    if (suppressContext) ExecutionContext.RestoreFlow();
                 }
                 asyncLocal.Value = 0;
 
@@ -139,18 +125,13 @@ namespace System.Net.Sockets.Tests
 
                 bool pending;
                 asyncLocal.Value = 42;
-                if (suppressContext) ExecutionContext.SuppressFlow();
-                try
+                using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                 {
                     pending = !client.BeginConnect(listener.LocalEndPoint, iar =>
                     {
                         client.EndConnect(iar);
                         tcs.SetResult(asyncLocal.Value);
                     }, null).CompletedSynchronously;
-                }
-                finally
-                {
-                    if (suppressContext) ExecutionContext.RestoreFlow();
                 }
                 asyncLocal.Value = 0;
 
@@ -182,14 +163,9 @@ namespace System.Net.Sockets.Tests
 
                     bool pending;
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         pending = client.DisconnectAsync(saea);
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -220,18 +196,13 @@ namespace System.Net.Sockets.Tests
 
                     bool pending;
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         pending = !client.BeginDisconnect(reuseSocket: false, iar =>
                         {
                             client.EndDisconnect(iar);
                             tcs.SetResult(asyncLocal.Value);
                         }, null).CompletedSynchronously;
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -267,16 +238,11 @@ namespace System.Net.Sockets.Tests
                     saea.RemoteEndPoint = server.LocalEndPoint;
 
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         Assert.True(receiveFrom ?
                             client.ReceiveFromAsync(saea) :
                             client.ReceiveAsync(saea));
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -306,8 +272,7 @@ namespace System.Net.Sockets.Tests
                     var tcs = new TaskCompletionSource<int>();
 
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         EndPoint ep = server.LocalEndPoint;
                         Assert.False(receiveFrom ?
@@ -321,11 +286,6 @@ namespace System.Net.Sockets.Tests
                                 client.EndReceive(iar);
                                 tcs.SetResult(asyncLocal.Value);
                             }, null).CompletedSynchronously);
-                    }
-                    finally
-                    {
-                        if (suppressContext)
-                            ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -365,17 +325,12 @@ namespace System.Net.Sockets.Tests
 
                     bool pending;
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         pending =
                             sendMode == 0 ? client.SendAsync(saea) :
                             sendMode == 1 ? client.SendToAsync(saea) :
                             client.SendPacketsAsync(saea);
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -416,8 +371,7 @@ namespace System.Net.Sockets.Tests
 
                     bool pending;
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         pending = sendTo ?
                             !client.BeginSendTo(buffer, 0, buffer.Length, SocketFlags.None, server.LocalEndPoint, iar =>
@@ -430,10 +384,6 @@ namespace System.Net.Sockets.Tests
                                 client.EndSend(iar);
                                 tcs.SetResult(asyncLocal.Value);
                             }, null).CompletedSynchronously;
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -477,18 +427,13 @@ namespace System.Net.Sockets.Tests
 
                     bool pending;
                     asyncLocal.Value = 42;
-                    if (suppressContext) ExecutionContext.SuppressFlow();
-                    try
+                    using (suppressContext ? ExecutionContext.SuppressFlow() : default)
                     {
                         pending = !client.BeginSendFile(filePath, iar =>
                         {
                             client.EndSendFile(iar);
                             tcs.SetResult(asyncLocal.Value);
                         }, null).CompletedSynchronously;
-                    }
-                    finally
-                    {
-                        if (suppressContext) ExecutionContext.RestoreFlow();
                     }
                     asyncLocal.Value = 0;
 
@@ -501,7 +446,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop("Relies on finalization")]
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsPreciseGcSupported))]
         public void ExecutionContext_NotCachedInSocketAsyncEventArgs()
         {
             using (var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))

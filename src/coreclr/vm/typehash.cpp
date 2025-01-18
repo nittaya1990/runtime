@@ -206,7 +206,6 @@ static DWORD HashTypeHandle(TypeHandle t)
         GC_NOTRIGGER;
         MODE_ANY;
         PRECONDITION(CheckPointer(t));
-        PRECONDITION(!t.IsEncodedFixup());
         SUPPORTS_DAC;
     }
     CONTRACTL_END;
@@ -240,7 +239,7 @@ static DWORD HashTypeHandle(TypeHandle t)
 }
 
 // Calculate hash value from key
-DWORD HashTypeKey(TypeKey* pKey)
+DWORD HashTypeKey(const TypeKey* pKey)
 {
     CONTRACTL
     {
@@ -276,7 +275,7 @@ DWORD HashTypeKey(TypeKey* pKey)
 // We avoid restoring types during search by cracking the signature
 // encoding used by the zapper for out-of-module types e.g. in the
 // instantiation of an instantiated type.
-EETypeHashEntry_t *EETypeHashTable::FindItem(TypeKey* pKey)
+EETypeHashEntry_t *EETypeHashTable::FindItem(const TypeKey* pKey)
 {
     CONTRACTL
     {
@@ -338,26 +337,6 @@ EETypeHashEntry_t *EETypeHashTable::FindItem(TypeKey* pKey)
              pSearch != NULL;
              pSearch = BaseFindNextEntryByHash(&sContext))
         {
-            if (!pSearch->GetTypeHandle().IsRestored())
-            {
-                // workaround: If we encounter an unrestored MethodTable, then it
-                // isn't the type for which we are looking (plus, it will crash
-                // in GetSignatureCorElementType).  However TypeDescs can be
-                // accessed when unrestored.  Also they are accessed in that
-                // manner at startup when we're loading the global types
-                // (i.e. System.Object).
-
-                if (!pSearch->GetTypeHandle().IsTypeDesc())
-                {
-                    // Not a match
-                   continue;
-                }
-                else
-                {
-                    // We have an unrestored TypeDesc
-                }
-            }
-
             if (pSearch->GetTypeHandle().GetSignatureCorElementType() != kind)
                 continue;
 
@@ -479,7 +458,7 @@ BOOL EETypeHashTable::CompareFnPtrType(TypeHandle t, BYTE callConv, DWORD numArg
 #endif // #ifndef DACCESS_COMPILE
 }
 
-TypeHandle EETypeHashTable::GetValue(TypeKey *pKey)
+TypeHandle EETypeHashTable::GetValue(const TypeKey *pKey)
 {
     CONTRACTL
     {
@@ -494,12 +473,10 @@ TypeHandle EETypeHashTable::GetValue(TypeKey *pKey)
 
     if (pItem)
     {
-        TypeHandle th = pItem->GetTypeHandle();
-        g_IBCLogger.LogTypeHashTableAccess(&th);
         return pItem->GetTypeHandle();
     }
-    else
-        return TypeHandle();
+
+    return TypeHandle();
 }
 
 #ifndef DACCESS_COMPILE
@@ -530,7 +507,6 @@ VOID EETypeHashTable::InsertValue(TypeHandle data)
         INJECT_FAULT(COMPlusThrowOM(););
         PRECONDITION(IsUnsealed());          // If we are sealed then we should not be adding to this hashtable
         PRECONDITION(CheckPointer(data));
-        PRECONDITION(!data.IsEncodedFixup());
         PRECONDITION(!data.IsGenericTypeDefinition()); // Generic type defs live in typedef table (availableClasses)
         PRECONDITION(data.HasInstantiation() || data.HasTypeParam() || data.IsFnPtrType()); // It's an instantiated type or an array/ptr/byref type
         PRECONDITION(m_pModule == NULL || GetModule()->IsTenured()); // Destruct won't destruct m_pAvailableParamTypes for non-tenured modules - so make sure no one tries to insert one before the Module has been tenured

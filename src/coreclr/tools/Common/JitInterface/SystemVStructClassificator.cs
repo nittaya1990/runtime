@@ -5,12 +5,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using ILCompiler;
 using Internal.TypeSystem;
+using System.Runtime.CompilerServices;
+using static Internal.JitInterface.SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR;
+using static Internal.JitInterface.SystemVClassificationType;
 
 namespace Internal.JitInterface
 {
-    using static SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR;
-    using static SystemVClassificationType;
-
     internal static class SystemVStructClassificator
     {
         private struct SystemVStructRegisterPassingHelper
@@ -30,7 +30,7 @@ namespace Internal.JitInterface
                 FieldClassifications = new SystemVClassificationType[SYSTEMV_MAX_NUM_FIELDS_IN_REGISTER_PASSED_STRUCT];
                 FieldSizes = new int[SYSTEMV_MAX_NUM_FIELDS_IN_REGISTER_PASSED_STRUCT];
                 FieldOffsets = new int[SYSTEMV_MAX_NUM_FIELDS_IN_REGISTER_PASSED_STRUCT];
-                            
+
                 for (int i = 0; i < CLR_SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS; i++)
                 {
                     EightByteClassifications[i] = SystemVClassificationTypeNoClass;
@@ -65,36 +65,11 @@ namespace Internal.JitInterface
             public int[]                       FieldOffsets;
         };
 
-        private class FieldEnumerator
-        {
-            internal static IEnumerable<FieldDesc> GetInstanceFields(TypeDesc typeDesc, bool isFixedBuffer, int numIntroducedFields)
-            {
-                foreach (FieldDesc field in typeDesc.GetFields())
-                {
-                    if (field.IsStatic)
-                        continue;
-
-                    if (isFixedBuffer)
-                    {
-                        for (int i = 0; i < numIntroducedFields; i++)
-                        {
-                            yield return field;
-                        }
-                        break;
-                    }
-                    else
-                    {
-                        yield return field;
-                    }
-                }
-            }
-        }
-
         public static void GetSystemVAmd64PassStructInRegisterDescriptor(TypeDesc typeDesc, out SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structPassInRegDescPtr)
         {
             structPassInRegDescPtr = default;
             structPassInRegDescPtr.passedInRegisters = false;
-            
+
             int typeSize = typeDesc.GetElementSize().AsInt;
             if (typeDesc.IsValueType && (typeSize <= CLR_SYSTEMV_MAX_STRUCT_BYTES_TO_PASS_IN_REGISTERS))
             {
@@ -114,7 +89,7 @@ namespace Internal.JitInterface
                     structPassInRegDescPtr.eightByteClassifications0 = helper.EightByteClassifications[0];
                     structPassInRegDescPtr.eightByteSizes0 = (byte)helper.EightByteSizes[0];
                     structPassInRegDescPtr.eightByteOffsets0 = (byte)helper.EightByteOffsets[0];
-                        
+
                     structPassInRegDescPtr.eightByteClassifications1 = helper.EightByteClassifications[1];
                     structPassInRegDescPtr.eightByteSizes1 = (byte)helper.EightByteSizes[1];
                     structPassInRegDescPtr.eightByteOffsets1 = (byte)helper.EightByteOffsets[1];
@@ -167,7 +142,7 @@ namespace Internal.JitInterface
 
         // If we have a field classification already, but there is a union, we must merge the classification type of the field. Returns the
         // new, merged classification type.
-        static SystemVClassificationType ReClassifyField(SystemVClassificationType originalClassification, SystemVClassificationType newFieldClassification)
+        private static SystemVClassificationType ReClassifyField(SystemVClassificationType originalClassification, SystemVClassificationType newFieldClassification)
         {
             Debug.Assert((newFieldClassification == SystemVClassificationTypeInteger) ||
                             (newFieldClassification == SystemVClassificationTypeIntegerReference) ||
@@ -216,7 +191,7 @@ namespace Internal.JitInterface
         /// <summary>
         /// Returns 'true' if the struct is passed in registers, 'false' otherwise.
         /// </summary>
-        private static bool ClassifyEightBytes(TypeDesc typeDesc, 
+        private static bool ClassifyEightBytes(TypeDesc typeDesc,
                                                ref SystemVStructRegisterPassingHelper helper,
                                                int startOffsetOfStruct)
         {
@@ -226,27 +201,28 @@ namespace Internal.JitInterface
             {
                 if (!field.IsStatic)
                 {
-                    if (firstField == null)
-                    {
-                        firstField = field;
-                    }
+                    firstField ??= field;
                     numIntroducedFields++;
                 }
             }
 
             if (numIntroducedFields == 0)
             {
-                return false;
+                // Classify empty struct like padding
+                helper.LargestFieldOffset = startOffsetOfStruct;
+                AssignClassifiedEightByteTypes(ref helper);
+                return true;
             }
 
-            // The SIMD Intrinsic types are meant to be handled specially and should not be passed as struct registers
+            // The SIMD and Int128 Intrinsic types are meant to be handled specially and should not be passed as struct registers
             if (typeDesc.IsIntrinsic)
             {
                 InstantiatedType instantiatedType = typeDesc as InstantiatedType;
                 if (instantiatedType != null)
                 {
                     if (VectorFieldLayoutAlgorithm.IsVectorType(instantiatedType) ||
-                        VectorOfTFieldLayoutAlgorithm.IsVectorOfTType(instantiatedType))
+                        VectorOfTFieldLayoutAlgorithm.IsVectorOfTType(instantiatedType) ||
+                        Int128FieldLayoutAlgorithm.IsIntegerType(instantiatedType))
                     {
                         return false;
                     }
@@ -258,31 +234,25 @@ namespace Internal.JitInterface
 
             TypeDesc firstFieldElementType = firstField.FieldType;
             int firstFieldSize = firstFieldElementType.GetElementSize().AsInt;
+            bool hasImpliedRepeatedFields = mdType.HasImpliedRepeatedFields();
+            TypeDesc typeDescForFieldSearch = hasImpliedRepeatedFields ? new TypeWithRepeatedFields(mdType) : typeDesc;
 
-            // A fixed buffer type is always a value type that has exactly one value type field at offset 0
-            // and who's size is an exact multiple of the size of the field.
-            // It is possible that we catch a false positive with this check, but that chance is extremely slim
-            // and the user can always change their structure to something more descriptive of what they want
-            // instead of adding additional padding at the end of a one-field structure.
-            // We do this check here to save looking up the FixedBufferAttribute when loading the field
-            // from metadata.
-            bool isFixedBuffer = numIntroducedFields == 1
-                                    && firstFieldElementType.IsValueType
-                                    && firstField.Offset.AsInt == 0
-                                    && mdType.HasLayout()
-                                    && ((typeDesc.GetElementSize().AsInt % firstFieldSize) == 0);
-
-            if (isFixedBuffer)
+            if (hasImpliedRepeatedFields)
             {
                 numIntroducedFields = typeDesc.GetElementSize().AsInt / firstFieldSize;
             }
 
             int fieldIndex = 0;
-            foreach (FieldDesc field in FieldEnumerator.GetInstanceFields(typeDesc, isFixedBuffer, numIntroducedFields))
+            foreach (FieldDesc field in typeDescForFieldSearch.GetFields())
             {
+                if (field.IsStatic)
+                {
+                    continue;
+                }
+
                 Debug.Assert(fieldIndex < numIntroducedFields);
 
-                int fieldOffset = isFixedBuffer ? fieldIndex * firstFieldSize : field.Offset.AsInt;
+                int fieldOffset = field.Offset.AsInt;
                 int normalizedFieldOffset = fieldOffset + startOffsetOfStruct;
 
                 int fieldSize = field.FieldType.GetElementSize().AsInt;
@@ -290,25 +260,11 @@ namespace Internal.JitInterface
                 // The field can't span past the end of the struct.
                 if ((normalizedFieldOffset + fieldSize) > helper.StructSize)
                 {
-                    Debug.Assert(false, "Invalid struct size. The size of fields and overall size don't agree");
+                    Debug.Fail("Invalid struct size. The size of fields and overall size don't agree");
                     return false;
                 }
 
-                SystemVClassificationType fieldClassificationType;
-                if (typeDesc.IsByReferenceOfT)
-                {
-                    // ByReference<T> is a special type whose single IntPtr field holds a by-ref potentially interior pointer to GC
-                    // memory, so classify its field as such
-                    Debug.Assert(numIntroducedFields == 1);
-                    Debug.Assert(field.FieldType.IsWellKnownType(WellKnownType.IntPtr));
-
-                    fieldClassificationType = SystemVClassificationTypeIntegerByRef;
-                }
-                else
-                {
-                    fieldClassificationType = TypeDef2SystemVClassification(field.FieldType);
-                }
-
+                SystemVClassificationType fieldClassificationType = TypeDef2SystemVClassification(field.FieldType);
                 if (fieldClassificationType == SystemVClassificationTypeStruct)
                 {
                     bool inEmbeddedStructPrev = helper.InEmbeddedStruct;
@@ -316,7 +272,7 @@ namespace Internal.JitInterface
 
                     bool structRet = false;
                     structRet = ClassifyEightBytes(field.FieldType, ref helper, normalizedFieldOffset);
-                    
+
                     helper.InEmbeddedStruct = inEmbeddedStructPrev;
 
                     if (!structRet)
@@ -423,8 +379,12 @@ namespace Internal.JitInterface
                 // Calculate the eightbytes and their types.
 
                 int lastFieldOrdinal = sortedFieldOrder[largestFieldOffset];
-                int offsetAfterLastFieldByte = largestFieldOffset + helper.FieldSizes[lastFieldOrdinal];
-                SystemVClassificationType lastFieldClassification = helper.FieldClassifications[lastFieldOrdinal];
+                int lastFieldSize = (lastFieldOrdinal >= 0) ? helper.FieldSizes[lastFieldOrdinal] : 0;
+                int offsetAfterLastFieldByte = largestFieldOffset + lastFieldSize;
+                Debug.Assert(offsetAfterLastFieldByte <= helper.StructSize);
+                SystemVClassificationType lastFieldClassification = (lastFieldOrdinal >= 0)
+                    ? helper.FieldClassifications[lastFieldOrdinal]
+                    : SystemVClassificationTypeNoClass;
 
                 int usedEightBytes = 0;
                 int accumulatedSizeForEightBytes = 0;
@@ -451,6 +411,8 @@ namespace Internal.JitInterface
                         // the SysV ABI spec.
                         fieldSize = 1;
                         fieldClassificationType = offset < offsetAfterLastFieldByte ? SystemVClassificationTypeNoClass : lastFieldClassification;
+                        if (offset % SYSTEMV_EIGHT_BYTE_SIZE_IN_BYTES == 0) // new eightbyte
+                            foundFieldInEightByte = false;
                     }
                     else
                     {
@@ -482,7 +444,7 @@ namespace Internal.JitInterface
                         else if ((helper.EightByteClassifications[currentFieldEightByte] == SystemVClassificationTypeInteger) ||
                             (fieldClassificationType == SystemVClassificationTypeInteger))
                         {
-                            Debug.Assert((fieldClassificationType != SystemVClassificationTypeIntegerReference) && 
+                            Debug.Assert((fieldClassificationType != SystemVClassificationTypeIntegerReference) &&
                                             (fieldClassificationType != SystemVClassificationTypeIntegerByRef));
 
                             helper.EightByteClassifications[currentFieldEightByte] = SystemVClassificationTypeInteger;
@@ -503,13 +465,16 @@ namespace Internal.JitInterface
                         }
                     }
 
-                    if ((offset + 1) % SYSTEMV_EIGHT_BYTE_SIZE_IN_BYTES == 0) // If we just finished checking the last byte of an eightbyte
+                    // If we just finished checking the last byte of an eightbyte or the entire struct
+                    if ((offset + 1) % SYSTEMV_EIGHT_BYTE_SIZE_IN_BYTES == 0 || (offset + 1) == helper.StructSize)
                     {
                         if (!foundFieldInEightByte)
                         {
-                            // If we didn't find a field in an eight-byte (i.e. there are no explicit offsets that start a field in this eightbyte)
+                            // If we didn't find a field in an eightbyte (i.e. there are no explicit offsets that start a field in this eightbyte)
                             // then the classification of this eightbyte might be NoClass. We can't hand a classification of NoClass to the JIT
                             // so set the class to Integer (as though the struct has a char[8] padding) if the class is NoClass.
+                            //
+                            // TODO: Fix JIT, NoClass eightbytes are valid and passing them is broken because of this.
                             if (helper.EightByteClassifications[offset / SYSTEMV_EIGHT_BYTE_SIZE_IN_BYTES] == SystemVClassificationTypeNoClass)
                             {
                                 helper.EightByteClassifications[offset / SYSTEMV_EIGHT_BYTE_SIZE_IN_BYTES] = SystemVClassificationTypeInteger;

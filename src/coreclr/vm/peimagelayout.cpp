@@ -7,7 +7,6 @@
 #include "common.h"
 #include "peimagelayout.h"
 #include "peimagelayout.inl"
-#include "dataimage.h"
 
 #if defined(TARGET_WINDOWS)
 #include "amsi.h"
@@ -39,7 +38,7 @@ PEImageLayout* PEImageLayout::CreateFromHMODULE(HMODULE hModule, PEImage* pOwner
     CONTRACTL_END;
 
     PEImageLayout* pLoadLayout;
-    if (WszGetModuleHandle(NULL) == hModule)
+    if (GetModuleHandle(NULL) == hModule)
     {
         return new LoadedImageLayout(pOwner, hModule);
     }
@@ -59,7 +58,7 @@ PEImageLayout* PEImageLayout::CreateFromHMODULE(HMODULE hModule, PEImage* pOwner
 }
 #endif
 
-PEImageLayout* PEImageLayout::LoadConverted(PEImage* pOwner)
+PEImageLayout* PEImageLayout::LoadConverted(PEImage* pOwner, bool disableMapping)
 {
     STANDARD_VM_CONTRACT;
 
@@ -79,26 +78,32 @@ PEImageLayout* PEImageLayout::LoadConverted(PEImage* pOwner)
     if (pFlat == NULL || !pFlat->CheckILOnlyFormat())
         EEFileLoadException::Throw(pOwner->GetPathForErrorMessages(), COR_E_BADIMAGEFORMAT);
 
-#ifdef TARGET_UNIX
+// TODO: enable on OSX eventually
+//       right now we have binaries that will trigger this in a singlefile bundle.
+#ifdef TARGET_LINUX
     // we should not see R2R files here on Unix.
     // ConvertedImageLayout may be able to handle them, but the fact that we were unable to
     // load directly implies that MAPMapPEFile could not consume what crossgen produced.
     // that is suspicious, one or another might have a bug.
-    _ASSERTE(!pFlat->HasReadyToRunHeader());
+    _ASSERTE(!pOwner->IsFile() || !pFlat->HasReadyToRunHeader() || disableMapping);
 #endif
 
-    if (!pFlat->HasReadyToRunHeader() && !pFlat->HasWriteableSections())
+    // ignore R2R if the image is not a file.
+    if ((pFlat->HasReadyToRunHeader() && pOwner->IsFile()) ||
+        pFlat->HasWriteableSections())
     {
-        // we can use flat layout for this
-        return pFlat.Extract();
+        return new ConvertedImageLayout(pFlat, disableMapping);
     }
 
-    return new ConvertedImageLayout(pFlat);
+    // we can use flat layout for this
+    return pFlat.Extract();
 }
 
 PEImageLayout* PEImageLayout::Load(PEImage* pOwner, HRESULT* loadFailure)
 {
     STANDARD_VM_CONTRACT;
+
+    bool disableMapping = CLRConfig::GetConfigValue(CLRConfig::INTERNAL_PELoader_DisableMapping);
 
     if (pOwner->IsFile())
     {
@@ -108,19 +113,26 @@ PEImageLayout* PEImageLayout::Load(PEImage* pOwner, HRESULT* loadFailure)
 #endif
             )
         {
-            PEImageLayoutHolder pAlloc(new LoadedImageLayout(pOwner, loadFailure));
-            if (pAlloc->GetBase() != NULL)
-                return pAlloc.Extract();
+#if defined(TARGET_UNIX)
+            if (!disableMapping)
+#endif
+            {
+
+                PEImageLayoutHolder pAlloc(new LoadedImageLayout(pOwner, loadFailure));
+                if (pAlloc->GetBase() != NULL)
+                    return pAlloc.Extract();
 
 #if TARGET_WINDOWS
-            // OS loader is always right. If a file cannot be loaded, do not try any further.
-            // Even if we may be able to load it, we do not want to support such files.
-            return NULL;
+                // For regular PE files always use OS loader on Windows.
+                // If a file cannot be loaded, do not try any further.
+                // Even if we may be able to load it, we do not want to support such files.
+                return NULL;
 #endif
+            }
         }
     }
 
-    return PEImageLayout::LoadConverted(pOwner);
+    return PEImageLayout::LoadConverted(pOwner, disableMapping);
 }
 
 PEImageLayout* PEImageLayout::LoadFlat(PEImage* pOwner)
@@ -167,6 +179,13 @@ DWORD SectionCharacteristicsToPageProtection(UINT characteristics)
     return pageProtection;
 }
 #endif // TARGET_UNIX
+
+// IMAGE_REL_BASED_PTR is architecture specific reloc of virtual address
+#ifdef TARGET_64BIT
+#define IMAGE_REL_BASED_PTR IMAGE_REL_BASED_DIR64
+#else // !TARGET_64BIT
+#define IMAGE_REL_BASED_PTR IMAGE_REL_BASED_HIGHLOW
+#endif // !TARGET_64BIT
 
 //To force base relocation on Vista (which uses ASLR), unmask IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
 //(0x40) for OptionalHeader.DllCharacteristics
@@ -229,10 +248,18 @@ void PEImageLayout::ApplyBaseRelocations(bool relocationMustWriteCopy)
             // Restore the protection
             if (dwOldProtection != 0)
             {
+#if defined(__APPLE__) && defined(HOST_ARM64)
+                BOOL bExecRegion = (dwOldProtection & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                    PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+
+                // Disable writing on Apple Silicon
+                if (bExecRegion)
+                    PAL_JitWriteProtect(false);
+#else
                 if (!ClrVirtualProtect(pWriteableRegion, cbWriteableRegion,
                                        dwOldProtection, &dwOldProtection))
                     ThrowLastError();
-
+#endif // __APPLE__ && HOST_ARM64
                 dwOldProtection = 0;
             }
 
@@ -251,8 +278,9 @@ void PEImageLayout::ApplyBaseRelocations(bool relocationMustWriteCopy)
 #if defined(TARGET_UNIX)
                 if (((pSection->Characteristics & VAL32(IMAGE_SCN_MEM_EXECUTE)) != 0))
                 {
-#ifdef __APPLE__
-                    dwNewProtection = PAGE_READWRITE;
+#if defined(__APPLE__) && defined(HOST_ARM64)
+                    // Enable writing on Apple Silicon
+                    PAL_JitWriteProtect(true);
 #else
                     // On SELinux, we cannot change protection that doesn't have execute access rights
                     // to one that has it, so we need to set the protection to RWX instead of RW
@@ -260,9 +288,11 @@ void PEImageLayout::ApplyBaseRelocations(bool relocationMustWriteCopy)
 #endif
                 }
 #endif // TARGET_UNIX
+#if !(defined(__APPLE__) && defined(HOST_ARM64))
                 if (!ClrVirtualProtect(pWriteableRegion, cbWriteableRegion,
                                        dwNewProtection, &dwOldProtection))
                     ThrowLastError();
+#endif // __APPLE__ && HOST_ARM64
 #ifdef TARGET_UNIX
                 dwOldProtection = SectionCharacteristicsToPageProtection(pSection->Characteristics);
 #endif // TARGET_UNIX
@@ -323,13 +353,19 @@ void PEImageLayout::ApplyBaseRelocations(bool relocationMustWriteCopy)
 
     if (dwOldProtection != 0)
     {
+#if defined(__APPLE__) && defined(HOST_ARM64)
         BOOL bExecRegion = (dwOldProtection & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
             PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
 
+        // Disable writing on Apple Silicon
+        if (bExecRegion)
+            PAL_JitWriteProtect(false);
+#else
         // Restore the protection
         if (!ClrVirtualProtect(pWriteableRegion, cbWriteableRegion,
                                dwOldProtection, &dwOldProtection))
             ThrowLastError();
+#endif // __APPLE__ && HOST_ARM64
     }
 #ifdef TARGET_UNIX
     PAL_LOADMarkSectionAsNotNeeded((void*)dir);
@@ -380,11 +416,11 @@ void ConvertedImageLayout::FreeImageParts()
             CLRUnmapViewOfFile(PtrFromPart(imagePart));
         }
 
-        this->m_imageParts[i] = NULL;
+        this->m_imageParts[i] = 0;
     }
 }
 
-ConvertedImageLayout::ConvertedImageLayout(FlatImageLayout* source)
+ConvertedImageLayout::ConvertedImageLayout(FlatImageLayout* source, bool disableMapping)
 {
     CONTRACTL
     {
@@ -405,14 +441,17 @@ ConvertedImageLayout::ConvertedImageLayout(FlatImageLayout* source)
     LOG((LF_LOADER, LL_INFO100, "PEImage: Opening manually mapped stream\n"));
 
 #ifdef TARGET_WINDOWS
-    loadedImage = source->LoadImageByMappingParts(this->m_imageParts);
-    if (loadedImage == NULL)
+    if (!disableMapping)
     {
-        FreeImageParts();
-    }
-    else
-    {
-        relocationMustWriteCopy = true;
+        loadedImage = source->LoadImageByMappingParts(this->m_imageParts);
+        if (loadedImage == NULL)
+        {
+            FreeImageParts();
+        }
+        else
+        {
+            relocationMustWriteCopy = true;
+        }
     }
 #endif //TARGET_WINDOWS
 
@@ -423,7 +462,7 @@ ConvertedImageLayout::ConvertedImageLayout(FlatImageLayout* source)
 
     IfFailThrow(Init(loadedImage));
 
-    if (IsNativeMachineFormat() && g_fAllowNativeImages)
+    if (m_pOwner->IsFile() && IsNativeMachineFormat())
     {
         // Do base relocation and exception hookup, if necessary.
         // otherwise R2R will be disabled for this image.
@@ -494,7 +533,11 @@ LoadedImageLayout::LoadedImageLayout(PEImage* pOwner, HRESULT* loadFailure)
     }
 
     IfFailThrow(Init(m_Module, true));
-    LOG((LF_LOADER, LL_INFO1000, "PEImage: Opened HMODULE %S\n", (LPCWSTR)pOwner->GetPath()));
+
+#ifdef LOGGING
+    SString ownerPath{ pOwner->GetPath() };
+    LOG((LF_LOADER, LL_INFO1000, "PEImage: Opened HMODULE %s\n", ownerPath.GetUTF8()));
+#endif // LOGGING
 
 #else
     HANDLE hFile = pOwner->GetFileHandle();
@@ -508,8 +551,11 @@ LoadedImageLayout::LoadedImageLayout(PEImage* pOwner, HRESULT* loadFailure)
         return;
     }
 
-    LOG((LF_LOADER, LL_INFO1000, "PEImage: image %S (hFile %p) mapped @ %p\n",
-        (LPCWSTR)pOwner->GetPath(), hFile, (void*)m_LoadedFile));
+#ifdef LOGGING
+    SString ownerPath{ pOwner->GetPath() };
+    LOG((LF_LOADER, LL_INFO1000, "PEImage: image %s (hFile %p) mapped @ %p\n",
+        ownerPath.GetUTF8(), hFile, (void*)m_LoadedFile));
+#endif // LOGGING
 
     IfFailThrow(Init((void*)m_LoadedFile));
 
@@ -520,7 +566,7 @@ LoadedImageLayout::LoadedImageLayout(PEImage* pOwner, HRESULT* loadFailure)
         return;
     }
 
-    if (HasReadyToRunHeader() && g_fAllowNativeImages)
+    if (HasReadyToRunHeader())
     {
         //Do base relocation for PE, if necessary.
         if (!IsNativeMachineFormat())
@@ -576,7 +622,10 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
     INT64 offset = pOwner->GetOffset();
     INT64 size = pOwner->GetSize();
 
-    LOG((LF_LOADER, LL_INFO100, "PEImage: Opening flat %S\n", (LPCWSTR) pOwner->GetPath()));
+#ifdef LOGGING
+    SString ownerPath{ pOwner->GetPath() };
+    LOG((LF_LOADER, LL_INFO100, "PEImage: Opening flat %s\n", ownerPath.GetUTF8()));
+#endif // LOGGING
 
     // If a size is not specified, load the whole file
     if (size == 0)
@@ -603,7 +652,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
             mapAccess = PAGE_EXECUTE_READ;
         }
 #endif
-        m_FileMap.Assign(WszCreateFileMapping(hFile, NULL, mapAccess, 0, 0, NULL));
+        m_FileMap.Assign(CreateFileMapping(hFile, NULL, mapAccess, 0, 0, NULL));
         if (m_FileMap == NULL)
             ThrowLastError();
 
@@ -631,7 +680,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
             // We will create another anonymous memory-only mapping and uncompress file there.
             // The flat image will refer to the anonymous mapping instead and we will release the original mapping.
 
-            HandleHolder anonMap = WszCreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, uncompressedSize >> 32, (DWORD)uncompressedSize, NULL);
+            HandleHolder anonMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, uncompressedSize >> 32, (DWORD)uncompressedSize, NULL);
             if (anonMap == NULL)
                 ThrowLastError();
 
@@ -717,7 +766,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner, const BYTE* array, COUNT_T siz
 
 #endif // defined(TARGET_WINDOWS)
 
-        m_FileMap.Assign(WszCreateFileMapping(INVALID_HANDLE_VALUE, NULL, mapAccess, 0, size, NULL));
+        m_FileMap.Assign(CreateFileMapping(INVALID_HANDLE_VALUE, NULL, mapAccess, 0, size, NULL));
         if (m_FileMap == NULL)
             ThrowLastError();
 
@@ -748,10 +797,18 @@ void* FlatImageLayout::LoadImageByCopyingParts(SIZE_T* m_imageParts) const
     }
 #endif // FEATURE_ENABLE_NO_ADDRESS_SPACE_RANDOMIZATION
 
+    DWORD allocationType = MEM_RESERVE | MEM_COMMIT;
+#ifdef HOST_UNIX
+    // Tell PAL to use the executable memory allocator to satisfy this request for virtual memory.
+    // This is required on MacOS and otherwise will allow us to place native R2R code close to the
+    // coreclr library and thus improve performance by avoiding jump stubs in managed code.
+    allocationType |= MEM_RESERVE_EXECUTABLE;
+#endif
+
     COUNT_T allocSize = ALIGN_UP(this->GetVirtualSize(), g_SystemInfo.dwAllocationGranularity);
-    LPVOID base = ClrVirtualAlloc(preferredBase, allocSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    LPVOID base = ClrVirtualAlloc(preferredBase, allocSize, allocationType, PAGE_READWRITE);
     if (base == NULL && preferredBase != NULL)
-        base = ClrVirtualAlloc(NULL, allocSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        base = ClrVirtualAlloc(NULL, allocSize, allocationType, PAGE_READWRITE);
 
     if (base == NULL)
         ThrowLastError();
@@ -792,9 +849,13 @@ void* FlatImageLayout::LoadImageByCopyingParts(SIZE_T* m_imageParts) const
     // Finally, apply proper protection to copied sections
     for (section = sectionStart; section < sectionEnd; section++)
     {
+        DWORD executableProtection = PAGE_EXECUTE_READ;
+#if defined(__APPLE__) && defined(HOST_ARM64)
+        executableProtection = PAGE_EXECUTE_READWRITE;
+#endif
         // Add appropriate page protection.
         DWORD newProtection = section->Characteristics & IMAGE_SCN_MEM_EXECUTE ?
-            PAGE_EXECUTE_READ :
+            executableProtection :
             section->Characteristics & IMAGE_SCN_MEM_WRITE ?
             PAGE_READWRITE :
             PAGE_READONLY;
@@ -810,7 +871,7 @@ void* FlatImageLayout::LoadImageByCopyingParts(SIZE_T* m_imageParts) const
     return base;
 }
 
-#if TARGET_WINDOWS
+#ifdef TARGET_WINDOWS
 
 // VirtualAlloc2
 typedef PVOID(WINAPI* VirtualAlloc2Fn)(
@@ -848,7 +909,7 @@ static bool HavePlaceholderAPI()
 
     if (pMapViewOfFile3 == NULL)
     {
-        HMODULE hm = LoadLibraryW(_T("kernelbase.dll"));
+        HMODULE hm = WszLoadLibrary(W("kernelbase.dll"), NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (hm != NULL)
         {
             pVirtualAlloc2 = (VirtualAlloc2Fn)GetProcAddress(hm, "VirtualAlloc2");
@@ -1138,7 +1199,6 @@ NativeImageLayout::NativeImageLayout(LPCWSTR fullPath)
     PVOID loadedImage;
 #if TARGET_UNIX
     {
-        ErrorModeHolder mode(SEM_NOOPENFILEERRORBOX|SEM_FAILCRITICALERRORS);
         HANDLE fileHandle = WszCreateFile(
             fullPath,
             GENERIC_READ,

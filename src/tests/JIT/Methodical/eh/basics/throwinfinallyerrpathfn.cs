@@ -4,7 +4,10 @@
 // Throw from a finally,  error case
 
 using System;
+using Xunit;
 
+namespace Test_throwinfinallyerrpathfn_basics
+{
 public class a
 {
     private static TestUtil.TestLog testLog;
@@ -39,7 +42,9 @@ public class a
         Console.WriteLine("Unreached...");
     }
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         //Start recording
         testLog.StartRecording();
@@ -58,4 +63,5 @@ public class a
 
         return testLog.VerifyOutput();
     }
+}
 }

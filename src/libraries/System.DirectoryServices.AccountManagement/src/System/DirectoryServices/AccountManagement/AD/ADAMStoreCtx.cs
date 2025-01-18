@@ -2,15 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Net;
-using System.Security.Principal;
-
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
@@ -37,8 +36,7 @@ namespace System.DirectoryServices.AccountManagement
             LoadFilterMappingTable(mappingIndex, s_filterPropertiesTableRaw);
             LoadPropertyMappingTable(mappingIndex, s_propertyMappingTableRaw);
 
-            if (NonPresentAttrDefaultStateMapping == null)
-                NonPresentAttrDefaultStateMapping = new Dictionary<string, bool>();
+            NonPresentAttrDefaultStateMapping ??= new Dictionary<string, bool>();
 
             for (int i = 0; i < s_presenceStateTable.GetLength(0); i++)
             {
@@ -251,7 +249,7 @@ namespace System.DirectoryServices.AccountManagement
         }
 
         //------------------------------------------------------------------------------------
-        // Taking a server target and Auxillary class name return
+        // Taking a server target and Auxiliary class name return
         // a list of all possible objectClasses that include that auxClass.  A search for object that have a specific
         // aux class cannot be done directly on the objects because static auxClasses to not appear in the
         // actual object.  This is done by
@@ -266,7 +264,7 @@ namespace System.DirectoryServices.AccountManagement
 
             try
             {
-                using (DirectoryEntry deRoot = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/rootDSE", credentials == null ? null : credentials.UserName, credentials == null ? null : credentials.Password, authTypes))
+                using (DirectoryEntry deRoot = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/rootDSE", credentials?.UserName, credentials?.Password, authTypes))
                 {
                     if (deRoot.Properties["schemaNamingContext"].Count == 0)
                     {
@@ -277,7 +275,7 @@ namespace System.DirectoryServices.AccountManagement
                     SchemaNamingContext = (string)deRoot.Properties["schemaNamingContext"].Value;
                 }
 
-                using (DirectoryEntry deSCN = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/" + SchemaNamingContext, credentials == null ? null : credentials.UserName, credentials == null ? null : credentials.Password, authTypes))
+                using (DirectoryEntry deSCN = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/" + SchemaNamingContext, credentials?.UserName, credentials?.Password, authTypes))
                 {
                     using (DirectorySearcher dirSearcher = new DirectorySearcher(deSCN))
                     {

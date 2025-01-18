@@ -1,10 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Globalization;
-using System.Threading;
 using System.Collections;
 using System.Diagnostics;
+using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.DirectoryServices.Protocols
@@ -124,7 +124,7 @@ namespace System.DirectoryServices.Protocols
             tmpCallback?.Invoke(asyncResult);
         }
 
-        private void GetResultsHelper(LdapPartialAsyncResult asyncResult)
+        private static void GetResultsHelper(LdapPartialAsyncResult asyncResult)
         {
             LdapConnection connection = asyncResult._con;
             ResultAll resultType = ResultAll.LDAP_MSG_RECEIVED;
@@ -308,7 +308,7 @@ namespace System.DirectoryServices.Protocols
             }
         }
 
-        private void AddResult(SearchResponse partialResults, SearchResponse newResult)
+        private static void AddResult(SearchResponse partialResults, SearchResponse newResult)
         {
             if (newResult == null)
             {

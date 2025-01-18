@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace System.ServiceModel.Syndication
 {
@@ -35,7 +35,7 @@ namespace System.ServiceModel.Syndication
 
         public Collection<SyndicationCategory> Categories
         {
-            get => _categories ?? (_categories = new NullNotAllowedCollection<SyndicationCategory>());
+            get => _categories ??= new NullNotAllowedCollection<SyndicationCategory>();
         }
 
         public bool IsFixed { get; set; }

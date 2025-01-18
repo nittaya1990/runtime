@@ -1,13 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
+
 namespace System.Xml.Serialization
 {
-    using System;
-    using System.Collections;
-    using System.IO;
-    using System.Globalization;
-
     internal sealed class CaseInsensitiveKeyComparer : CaseInsensitiveComparer, IEqualityComparer
     {
         public CaseInsensitiveKeyComparer() : base(CultureInfo.CurrentCulture)
@@ -167,6 +168,7 @@ namespace System.Xml.Serialization
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         public object ToArray(Type type)
         {
             //Array array = Array.CreateInstance(type, identifiers.Values.Count);

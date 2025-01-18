@@ -5,6 +5,9 @@ using Microsoft.Extensions.Hosting;
 
 namespace Microsoft.Extensions.Hosting
 {
+    /// <summary>
+    /// Specifies options to configure the lifetime of a Windows service.
+    /// </summary>
     public class WindowsServiceLifetimeOptions
     {
         /// <summary>

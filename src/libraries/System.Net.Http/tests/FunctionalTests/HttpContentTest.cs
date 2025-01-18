@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
@@ -316,6 +316,50 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        public async Task ReadAsStreamShouldRewindOffset()
+        {
+            using (MemoryStream textMemoryStream = new MemoryStream(Encoding.UTF8.GetBytes("Hello World")))
+            using (StreamContent streamContent = new StreamContent(textMemoryStream))
+            {
+                using (MemoryStream copyToDestinationMemoryStream = new MemoryStream())
+                {
+                    await streamContent.CopyToAsync(copyToDestinationMemoryStream);
+                    using (StreamReader streamReader = new StreamReader(copyToDestinationMemoryStream))
+                    {
+                        streamReader.ReadToEnd();
+
+                        using (Stream resultStream = streamContent.ReadAsStream())
+                        {
+                            Assert.Equal(0, resultStream.Position);
+                        }
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public async Task ReadAsStreamAsyncShouldRewindOffset()
+        {
+            using (MemoryStream textMemoryStream = new MemoryStream(Encoding.UTF8.GetBytes("Hello World")))
+            using (StreamContent streamContent = new StreamContent(textMemoryStream))
+            {
+                using (MemoryStream copyToDestinationMemoryStream = new MemoryStream())
+                {
+                    await streamContent.CopyToAsync(copyToDestinationMemoryStream);
+                    using (StreamReader streamReader = new StreamReader(copyToDestinationMemoryStream))
+                    {
+                        streamReader.ReadToEnd();
+
+                        using (Stream resultStream = await streamContent.ReadAsStreamAsync())
+                        {
+                            Assert.Equal(0, resultStream.Position);
+                        }
+                    }
+                }
+            }
+        }
+
+        [Fact]
         public async Task LoadIntoBufferAsync_BufferSizeSmallerThanContentSizeWithCalculatedContentLength_ThrowsHttpRequestException()
         {
             var content = new MockContent(MockOptions.CanCalculateLength);
@@ -366,7 +410,7 @@ namespace System.Net.Http.Functional.Tests
         [InlineData(false)]
         public async Task LoadIntoBufferAsync_CallOnMockContentWithLessLengthThanContentLengthHeader_BufferedStreamLengthMatchesActualLengthNotContentLengthHeaderValue(bool readStreamAsync)
         {
-            byte[] data = Encoding.UTF8.GetBytes("16 bytes of data");
+            byte[] data = "16 bytes of data"u8.ToArray();
             var content = new MockContent(data);
             content.Headers.ContentLength = 32; // Set the Content-Length header to a value > actual data length.
             Assert.Equal(32, content.Headers.ContentLength);
@@ -465,6 +509,93 @@ namespace System.Net.Http.Functional.Tests
             Assert.IsType<IOException>(ex.InnerException);
         }
 
+        [Fact]
+        public async Task LoadIntoBufferAsync_Buffered_IgnoresCancellationToken()
+        {
+            string content = Guid.NewGuid().ToString();
+
+            await LoopbackServer.CreateClientAndServerAsync(
+                async uri =>
+                {
+                    using HttpClient httpClient = CreateHttpClient();
+
+                    HttpResponseMessage response = await httpClient.GetAsync(
+                        uri,
+                        HttpCompletionOption.ResponseContentRead);
+
+                    CancellationToken cancellationToken = new CancellationToken(canceled: true);
+
+                    await response.Content.LoadIntoBufferAsync(cancellationToken);
+                },
+                async server =>
+                {
+                    await server.AcceptConnectionSendResponseAndCloseAsync(content: content);
+                });
+        }
+
+        [Fact]
+        public async Task LoadIntoBufferAsync_Unbuffered_CanBeCanceled_AlreadyCanceledCts()
+        {
+            await LoopbackServer.CreateClientAndServerAsync(
+                async uri =>
+                {
+                    using HttpClient httpClient = CreateHttpClient();
+
+                    HttpResponseMessage response = await httpClient.GetAsync(
+                        uri,
+                        HttpCompletionOption.ResponseHeadersRead);
+
+                    CancellationToken cancellationToken = new CancellationToken(canceled: true);
+
+                    Task task = response.Content.LoadIntoBufferAsync(cancellationToken);
+
+                    var exception = await Assert.ThrowsAsync<TaskCanceledException>(() => task);
+
+                    Assert.Equal(cancellationToken, exception.CancellationToken);
+                },
+                async server =>
+                {
+                    await IgnoreExceptions(server.AcceptConnectionSendResponseAndCloseAsync());
+                });
+        }
+
+        [OuterLoop("Uses Task.Delay")]
+        [Fact]
+        public async Task LoadIntoBufferAsync_Unbuffered_CanBeCanceled()
+        {
+            var cts = new CancellationTokenSource();
+
+            await LoopbackServer.CreateClientAndServerAsync(
+                async uri =>
+                {
+                    using HttpClient httpClient = base.CreateHttpClient();
+
+                    HttpResponseMessage response = await httpClient.GetAsync(
+                        uri,
+                        HttpCompletionOption.ResponseHeadersRead);
+
+                    CancellationToken cancellationToken = cts.Token;
+
+                    Task task = response.Content.LoadIntoBufferAsync(cancellationToken);
+
+                    var exception = await Assert.ThrowsAsync<TaskCanceledException>(() => task);
+
+                    Assert.Equal(cancellationToken, exception.CancellationToken);
+                },
+                async server =>
+                {
+                    await server.AcceptConnectionAsync(async connection =>
+                    {
+                        await connection.ReadRequestHeaderAsync();
+                        await connection.SendResponseAsync(LoopbackServer.GetHttpResponseHeaders(contentLength: 100));
+                        await Task.Delay(250);
+                        cts.Cancel();
+                        await Task.Delay(500);
+                        await IgnoreExceptions(connection.SendResponseAsync(new string('a', 100)));
+                    });
+                });
+        }
+
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
@@ -558,6 +689,18 @@ namespace System.Net.Http.Functional.Tests
             Assert.Equal(sourceString, result);
         }
 
+        [Fact]
+        public async Task ReadAsStringAsync_UsesCharsetEncoding()
+        {
+            var content = new ByteArrayContent(Encoding.UTF8.GetBytes("ő"));
+
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/plain", Encoding.Latin1.WebName);
+
+            string result = await content.ReadAsStringAsync();
+
+            Assert.Equal(['\xC5', '\x91'], result);
+        }
+
         [Theory]
         [InlineData("\"\"invalid")]
         [InlineData("invalid\"\"")]
@@ -578,6 +721,24 @@ namespace System.Net.Http.Functional.Tests
             string result = await content.ReadAsStringAsync();
 
             Assert.Equal(sourceString, result);
+        }
+
+        [Theory]
+        [InlineData(65001)] // UTF8
+        [InlineData(12000)] // UTF32
+        [InlineData(1200)] // Unicode
+        [InlineData(1201)] // BigEndianUnicode
+        public async Task ReadAsStringAsync_NoCharSet_EncodingIsInferredFromPreamble(int codePage)
+        {
+            Encoding encoding = Encoding.GetEncoding(codePage);
+
+            byte[] stringBytes = encoding.GetBytes("oő");
+
+            var content = new ByteArrayContent([..encoding.GetPreamble(), ..stringBytes]);
+
+            string result = await content.ReadAsStringAsync();
+
+            Assert.Equal(encoding.GetString(stringBytes), result);
         }
 
         [Fact]
@@ -606,7 +767,7 @@ namespace System.Net.Http.Functional.Tests
 
             // Note that we don't throw when users access the Headers property. This is useful e.g. to be able to
             // read the headers of a content, even though the content is already disposed. Note that the .NET guidelines
-            // only require members to throw ObjectDisposedExcpetion for members "that cannot be used after the object
+            // only require members to throw ObjectDisposedException for members "that cannot be used after the object
             // has been disposed of".
             _output.WriteLine(content.Headers.ToString());
         }
@@ -639,6 +800,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86317", typeof(PlatformDetection), nameof(PlatformDetection.IsNodeJS))]
         public async Task ReadAsStringAsync_Unbuffered_CanBeCanceled_AlreadyCanceledCts()
         {
             await LoopbackServer.CreateClientAndServerAsync(
@@ -657,11 +819,7 @@ namespace System.Net.Http.Functional.Tests
                 },
                 async server =>
                 {
-                    try
-                    {
-                        await server.AcceptConnectionSendResponseAndCloseAsync();
-                    }
-                    catch { }
+                    await IgnoreExceptions(server.AcceptConnectionSendResponseAndCloseAsync());
                 });
         }
 
@@ -690,11 +848,7 @@ namespace System.Net.Http.Functional.Tests
                         await Task.Delay(250);
                         cts.Cancel();
                         await Task.Delay(500);
-                        try
-                        {
-                            await connection.SendResponseAsync(new string('a', 100));
-                        }
-                        catch { }
+                        await IgnoreExceptions(connection.SendResponseAsync(new string('a', 100)));
                     });
                 });
         }
@@ -727,6 +881,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86317", typeof(PlatformDetection), nameof(PlatformDetection.IsNodeJS))]
         public async Task ReadAsByteArrayAsync_Unbuffered_CanBeCanceled_AlreadyCanceledCts()
         {
             await LoopbackServer.CreateClientAndServerAsync(
@@ -745,11 +900,7 @@ namespace System.Net.Http.Functional.Tests
                 },
                 async server =>
                 {
-                    try
-                    {
-                        await server.AcceptConnectionSendResponseAndCloseAsync();
-                    }
-                    catch { }
+                    await IgnoreExceptions(server.AcceptConnectionSendResponseAndCloseAsync());
                 });
         }
 
@@ -778,11 +929,7 @@ namespace System.Net.Http.Functional.Tests
                         await Task.Delay(250);
                         cts.Cancel();
                         await Task.Delay(500);
-                        try
-                        {
-                            await connection.SendResponseAsync(new string('a', 100));
-                        }
-                        catch { }
+                        await IgnoreExceptions(connection.SendResponseAsync(new string('a', 100)));
                     });
                 });
         }
@@ -949,15 +1096,7 @@ namespace System.Net.Http.Functional.Tests
             public MockContent(byte[] mockData, MockOptions options)
             {
                 _options = options;
-
-                if (mockData == null)
-                {
-                    _mockData = Encoding.UTF8.GetBytes("data");
-                }
-                else
-                {
-                    _mockData = mockData;
-                }
+                _mockData = mockData ?? "data"u8.ToArray();
             }
 
             public byte[] GetMockData()

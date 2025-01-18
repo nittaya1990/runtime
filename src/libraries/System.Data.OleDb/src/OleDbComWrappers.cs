@@ -2,11 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
-using System.Diagnostics;
 using System.Data.Common;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+// We need to target netstandard2.0, so keep using ref for MemoryMarshal.Write
+// CS9191: The 'ref' modifier for argument 2 corresponding to 'in' parameter is equivalent to 'in'. Consider using 'in' instead.
+#pragma warning disable CS9191
 
 namespace System.Data.OleDb
 {
@@ -15,7 +19,7 @@ namespace System.Data.OleDb
     ///
     /// Supports IErrorInfo COM interface.
     /// </summary>
-    internal unsafe sealed class OleDbComWrappers : ComWrappers
+    internal sealed unsafe class OleDbComWrappers : ComWrappers
     {
         private const int S_OK = (int)OleDbHResult.S_OK;
         private static readonly Guid IID_IErrorInfo = new Guid(0x1CF2B120, 0x547D, 0x101B, 0x8E, 0x65, 0x08, 0x00, 0x2B, 0x2B, 0xD1, 0x19);
@@ -34,7 +38,9 @@ namespace System.Data.OleDb
             Debug.Assert(flags == CreateObjectFlags.UniqueInstance);
 
             Guid errorInfoIID = IID_IErrorInfo;
+#pragma warning disable CS9191 // The 'ref' modifier for argument 1 corresponding to 'in' parameter is equivalent to 'in'. Consider using 'in' instead.
             int hr = Marshal.QueryInterface(externalComObject, ref errorInfoIID, out IntPtr comObject);
+#pragma warning restore CS9191
             if (hr == S_OK)
             {
                 return new ErrorInfoWrapper(comObject);
@@ -48,8 +54,8 @@ namespace System.Data.OleDb
             throw new NotImplementedException();
         }
 
-        // Doc and type layout: https://docs.microsoft.com/windows/win32/api/oaidl/nn-oaidl-ierrorinfo
-        private class ErrorInfoWrapper : UnsafeNativeMethods.IErrorInfo, IDisposable
+        // Doc and type layout: https://learn.microsoft.com/windows/win32/api/oaidl/nn-oaidl-ierrorinfo
+        private sealed class ErrorInfoWrapper : UnsafeNativeMethods.IErrorInfo, IDisposable
         {
             private readonly IntPtr _wrappedInstance;
 

@@ -64,9 +64,7 @@ InitFieldIter(DeepFieldDescIterator* fieldIter,
         includeParents = true;
     }
 
-    if (typeHandle.IsNull() ||
-        !typeHandle.GetMethodTable() ||
-        !typeHandle.IsRestored())
+    if (typeHandle.IsNull() || !typeHandle.GetMethodTable())
     {
         return E_INVALIDARG;
     }
@@ -1047,7 +1045,7 @@ ClrDataValue::GetString(
 
             if (strLen)
             {
-                *strLen = static_cast<ULONG32>(wcslen(msgStr) + 1);
+                *strLen = static_cast<ULONG32>(u16_strlen(msgStr) + 1);
             }
             status = StringCchCopy(str, bufLen, msgStr) == S_OK ?
                 S_OK : S_FALSE;
@@ -2683,8 +2681,7 @@ ClrDataTypeDefinition::NewFromModule(ClrDataAccess* dac,
     // If the type isn't loaded a metadata-query
     // TypeDefinition is produced.
     TypeHandle typeHandle = module->LookupTypeDef(token);
-    if (!typeHandle.IsNull() &&
-        !typeHandle.IsRestored())
+    if (!typeHandle.IsNull())
     {
         // The type isn't fully usable so just go with metadata.
         typeHandle = TypeHandle();
@@ -2822,7 +2819,7 @@ ClrDataTypeInstance::EnumMethodInstance(
 
     EX_TRY
     {
-        for (;;)
+        while (true)
         {
             mdMethodDef token;
 
@@ -2938,7 +2935,7 @@ ClrDataTypeInstance::EnumMethodInstanceByName(
 
     EX_TRY
     {
-        for (;;)
+        while (true)
         {
             mdMethodDef token;
 
@@ -3556,7 +3553,7 @@ ClrDataTypeInstance::GetDefinition(
             // XXX Microsoft - Generics issues?
 
             // Question - what does the GetCl return return here? The underlying element type?
-            // If so, we are lossing informaiton.
+            // If so, we are lossing information.
             //
             defType = m_typeHandle;
             *typeDefinition = new (nothrow)
@@ -3799,8 +3796,7 @@ ClrDataTypeInstance::NewFromModule(ClrDataAccess* dac,
                                    IXCLRDataTypeInstance** pubTypeInst)
 {
     TypeHandle typeHandle = module->LookupTypeDef(token);
-    if (typeHandle.IsNull() ||
-        !typeHandle.IsRestored())
+    if (typeHandle.IsNull())
     {
         return E_INVALIDARG;
     }

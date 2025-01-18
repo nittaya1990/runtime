@@ -48,7 +48,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
                 dataBuilder.AddSymbol(this);
 
                 SignatureContext innerContext = dataBuilder.EmitFixup(factory, _fixupKind, _declMethod.Token.Module, factory.SignatureContext);
-                dataBuilder.EmitUInt((uint)(_implMethod != null ? ReadyToRunVirtualFunctionOverrideFlags.VirtualFunctionOverriden : ReadyToRunVirtualFunctionOverrideFlags.None));
+                dataBuilder.EmitUInt((uint)(_implMethod != null ? ReadyToRunVirtualFunctionOverrideFlags.VirtualFunctionOverridden : ReadyToRunVirtualFunctionOverrideFlags.None));
                 dataBuilder.EmitMethodSignature(_declMethod, enforceDefEncoding: false, enforceOwningType: false, innerContext, isInstantiatingStub: false);
                 dataBuilder.EmitTypeSignature(_implType, innerContext);
                 if (_implMethod != null)
@@ -63,11 +63,11 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
             sb.Append(nameMangler.CompilationUnitPrefix);
             sb.Append($@"VirtualResolutionFixupSignature({_fixupKind.ToString()}): ");
             _declMethod.AppendMangledName(nameMangler, sb);
-            sb.Append(":");
+            sb.Append(":"u8);
             sb.Append(nameMangler.GetMangledTypeName(_implType));
-            sb.Append(":");
+            sb.Append(":"u8);
             if (_implMethod == null)
-                sb.Append("(null)");
+                sb.Append("(null)"u8);
             else
                 _implMethod.AppendMangledName(nameMangler, sb);
         }

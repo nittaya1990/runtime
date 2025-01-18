@@ -9,13 +9,14 @@
  *   -Added Dummy2 object whose finalizer should get called for comparison
  *
  * Notes:
- *   - passes with complus_jitminops set*
- *   - passes with complus_gcstress = 0,1,2,3,4
+ *   - passes with DOTNET_jitminops set*
+ *   - passes with DOTNET_gcstress = 0,1,2,3,4
  *   - passes in debug mode
  */
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public class Test_KeepAlive
 {
@@ -63,7 +64,7 @@ public class Test_KeepAlive
 
         RunTest2();
 
-        // *uncomment the for loop to make test fail with complus_jitminops set
+        // *uncomment the for loop to make test fail with DOTNET_jitminops set
         // by design as per briansul
 
         //for (int i=0; i<5; i++) {
@@ -79,7 +80,8 @@ public class Test_KeepAlive
         return success;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool success = RunTest();
 

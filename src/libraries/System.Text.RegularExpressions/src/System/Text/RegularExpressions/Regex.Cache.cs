@@ -64,7 +64,13 @@ namespace System.Text.RegularExpressions
         /// <summary>Gets or sets the maximum size of the cache.</summary>
         public static int MaxCacheSize
         {
-            get => s_maxCacheSize;
+            get
+            {
+                lock (SyncObj)
+                {
+                    return s_maxCacheSize;
+                }
+            }
             set
             {
                 Debug.Assert(value >= 0);
@@ -84,9 +90,10 @@ namespace System.Text.RegularExpressions
                     else if (value < s_cacheList.Count)
                     {
                         // If the value is being changed to less than the number of items we're currently storing,
-                        // sort the entries descending by last access stamp, and remove the excess.  This is expensive, but
-                        // this should be exceedingly rare, as CacheSize is generally set once (if at all) and then left unchanged.
-                        s_cacheList.Sort((n1, n2) => Volatile.Read(ref n2.LastAccessStamp).CompareTo(Volatile.Read(ref n1.LastAccessStamp)));
+                        // just trim off the excess.  This is almost never done in practice (if Regex.CacheSize is set
+                        // at all, it's almost always done once towards the beginning of the process, and when it is done,
+                        // it's typically to either 0 or to a larger value than the current limit), so we're not concerned
+                        // with ensuring the actual oldest items are trimmed away.
                         s_lastAccessed = s_cacheList[0];
                         for (int i = value; i < s_cacheList.Count; i++)
                         {
@@ -105,7 +112,7 @@ namespace System.Text.RegularExpressions
         {
             // Does not delegate to GetOrAdd(..., RegexOptions, ...) in order to avoid having
             // a statically-reachable path to the 'new Regex(..., RegexOptions, ...)', which
-            // will force the Regex compiler to be reachable and thus rooted for the linker.
+            // will force the Regex compiler to be reachable and thus rooted for trimming.
 
             Regex.ValidatePattern(pattern);
 
@@ -241,13 +248,22 @@ namespace System.Text.RegularExpressions
                         }
                     }
 
-                    // Remove the key found to have the smallest access stamp.
+                    // Remove the key found to have the smallest access stamp. List ordering isn't important, so rather than
+                    // just removing the element at minListIndex, which would result in an O(N) shift down, we copy the last
+                    // element to minListIndex, and then remove the last. (If minListIndex is the last, this is a no-op.)
                     s_cacheDictionary.TryRemove(s_cacheList[minListIndex].Key, out _);
-                    s_cacheList.RemoveAt(minListIndex);
+                    s_cacheList[minListIndex] = s_cacheList[^1];
+                    s_cacheList.RemoveAt(s_cacheList.Count - 1);
                 }
 
                 // Finally add the regex.
                 var node = new Node(key, regex);
+
+                if (s_lastAccessed is { } lastAccessed)
+                {
+                    node.LastAccessStamp = Volatile.Read(ref lastAccessed.LastAccessStamp) + 1;
+                }
+
                 s_lastAccessed = node;
                 s_cacheList.Add(node);
                 s_cacheDictionary.TryAdd(key, node);
@@ -292,20 +308,14 @@ namespace System.Text.RegularExpressions
         }
 
         /// <summary>Node for a cached Regex instance.</summary>
-        private sealed class Node
+        private sealed class Node(Key key, Regex regex)
         {
             /// <summary>The key associated with this cached instance.</summary>
-            public readonly Key Key;
+            public readonly Key Key = key;
             /// <summary>The cached Regex instance.</summary>
-            public readonly Regex Regex;
+            public readonly Regex Regex = regex;
             /// <summary>A "time" stamp representing the approximate last access time for this Regex.</summary>
             public long LastAccessStamp;
-
-            public Node(Key key, Regex regex)
-            {
-                Key = key;
-                Regex = regex;
-            }
         }
     }
 }

@@ -17,13 +17,15 @@ namespace System.Text.Json.Serialization.Converters
             ((Dictionary<TKey, TValue>)state.Current.ReturnValue!)[key] = value;
         }
 
-        internal sealed override bool CanHaveIdMetadata => false;
+        internal sealed override bool CanHaveMetadata => false;
 
-        protected sealed override void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state)
+        internal override bool SupportsCreateObjectDelegate => false;
+        protected sealed override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state)
         {
             state.Current.ReturnValue = new Dictionary<TKey, TValue>();
         }
 
+        internal sealed override bool IsConvertibleCollection => true;
         protected sealed override void ConvertCollection(ref ReadStack state, JsonSerializerOptions options)
         {
             Func<IEnumerable<KeyValuePair<TKey, TValue>>, TDictionary>? creator =

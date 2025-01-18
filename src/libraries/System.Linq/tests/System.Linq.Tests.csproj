@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
-    <DebuggerSupport Condition="'$(DebuggerSupport)' == '' and '$(TargetOS)' == 'Browser'">true</DebuggerSupport>
+    <DebuggerSupport Condition="'$(DebuggerSupport)' == '' and '$(TargetOS)' == 'browser'">true</DebuggerSupport>
   </PropertyGroup>
+  <ItemGroup>
+    <RdXmlFile Include="default.rd.xml" />
+    <!-- Apple mobile trimming descriptor for Mono runtime -->
+    <TrimmerRootDescriptor Condition="'$(TargetsAppleMobile)' == 'true' and '$(EnableAggressiveTrimming)' == 'true' and '$(UseNativeAotRuntime)' != 'true'" Include="$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="AggregateTests.cs" />
     <Compile Include="AllTests.cs" />
@@ -15,23 +20,26 @@
     <Compile Include="ConcatTests.cs" />
     <Compile Include="ConsistencyTests.cs" />
     <Compile Include="ContainsTests.cs" />
+    <Compile Include="AggregateByTests.cs" />
     <Compile Include="CountTests.cs" />
     <Compile Include="DefaultIfEmptyTests.cs" />
+    <Compile Include="CountByTests.cs" />
     <Compile Include="DistinctTests.cs" />
     <Compile Include="ElementAtOrDefaultTests.cs" />
     <Compile Include="ElementAtTests.cs" />
     <Compile Include="EmptyEnumerable.cs" />
-    <Compile Include="EmptyPartitionTests.cs" />
     <Compile Include="EnumerableTests.cs" />
     <Compile Include="ExceptTests.cs" />
     <Compile Include="FirstOrDefaultTests.cs" />
     <Compile Include="FirstTests.cs" />
     <Compile Include="GroupByTests.cs" />
     <Compile Include="GroupJoinTests.cs" />
+    <Compile Include="IndexTests.cs" />
     <Compile Include="IntersectTests.cs" />
     <Compile Include="JoinTests.cs" />
     <Compile Include="LastOrDefaultTests.cs" />
     <Compile Include="LastTests.cs" />
+    <Compile Include="LeftJoinTests.cs" />
     <Compile Include="LifecycleTests.cs" />
     <Compile Include="LongCountTests.cs" />
     <Compile Include="MaxTests.cs" />
@@ -39,10 +47,13 @@
     <Compile Include="OfTypeTests.cs" />
     <Compile Include="OrderByDescendingTests.cs" />
     <Compile Include="OrderByTests.cs" />
+    <Compile Include="OrderDescendingTests.cs" />
     <Compile Include="OrderedSubsetting.cs" />
+    <Compile Include="OrderTests.cs" />
     <Compile Include="RangeTests.cs" />
     <Compile Include="RepeatTests.cs" />
     <Compile Include="ReverseTests.cs" />
+    <Compile Include="RightJoinTests.cs" />
     <Compile Include="SelectManyTests.cs" />
     <Compile Include="SelectTests.cs" />
     <Compile Include="SequenceEqualTests.cs" />

@@ -220,7 +220,7 @@ namespace System.Configuration
 
             string parentListEnclosed = "," + _seedList + ",";
             if (name.Equals(_ignoreName) ||
-#if NETCOREAPP
+#if NET
                 parentListEnclosed.Contains("," + name + ",", StringComparison.Ordinal))
 #else
                 parentListEnclosed.IndexOf("," + name + ",", StringComparison.Ordinal) >= 0)
@@ -274,7 +274,7 @@ namespace System.Configuration
             IsModified = true;
         }
 
-        internal void ClearInternal(bool useSeedIfAvailble)
+        internal void ClearInternal(bool useSeedIfAvailable)
         {
             ArrayList removeList = new ArrayList();
             foreach (DictionaryEntry de in _internalDictionary)
@@ -289,7 +289,7 @@ namespace System.Configuration
             }
 
             // Clearing an Exception list really means revert to parent
-            if (useSeedIfAvailble && !string.IsNullOrEmpty(_seedList))
+            if (useSeedIfAvailable && !string.IsNullOrEmpty(_seedList))
             {
                 string[] keys = _seedList.Split(',');
                 foreach (string key in keys) Add(key, ConfigurationValueFlags.Inherited);

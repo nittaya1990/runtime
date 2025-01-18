@@ -9,27 +9,27 @@ parameters:
   archType: ''                    # required -- targeting CPU architecture
   osGroup: ''                     # required -- operating system for the job
   osSubgroup: ''                  # optional -- operating system subgroup
+  crossBuild: ''                  # optional -- 'true' if this is a cross-build
   continueOnError: 'false'        # optional -- determines whether to continue the build if the step errors
   dependsOn: ''                   # optional -- dependencies of the job
   timeoutInMinutes: 320           # optional -- timeout for the job
   enableTelemetry: false          # optional -- enable for telemetry
   liveLibrariesBuildConfig: ''    # optional -- live-live libraries configuration to use for the run
   helixQueues: ''                 # required -- Helix queues
-  dependOnEvaluatePaths: false
 
 jobs:
-- template: xplat-pipeline-job.yml
+- template: /eng/pipelines/common/templates/runtimes/xplat-job.yml
   parameters:
     dependsOn: ${{ parameters.dependsOn }}
     buildConfig: ${{ parameters.buildConfig }}
     archType: ${{ parameters.archType }}
     osGroup: ${{ parameters.osGroup }}
     osSubgroup: ${{ parameters.osSubgroup }}
+    crossBuild: ${{ parameters.crossBuild }}
     liveLibrariesBuildConfig: ${{ parameters.liveLibrariesBuildConfig }}
     enableTelemetry: ${{ parameters.enableTelemetry }}
     enablePublishBuildArtifacts: true
     continueOnError: ${{ parameters.continueOnError }}
-    dependOnEvaluatePaths: ${{ parameters.dependOnEvaluatePaths }}
     timeoutInMinutes: ${{ parameters.timeoutInMinutes }}
 
     ${{ if ne(parameters.displayName, '') }}:
@@ -38,18 +38,19 @@ jobs:
       displayName: '${{ parameters.jobName }}'
 
     variables:
+    - template: /eng/pipelines/common/templates/runtimes/native-test-assets-variables.yml
+      parameters:
+        runtimeFlavor: coreclr
+        testGroup: ${{ parameters.testGroup }}
+        liveLibrariesBuildConfig: ${{ parameters.liveLibrariesBuildConfig }}
 
     - ${{ each variable in parameters.variables }}:
-      - ${{ if ne(variable.name, '') }}:
-        - name: ${{ variable.name }}
-          value: ${{ variable.value }}
-      - ${{ if ne(variable.group, '') }}:
-        - group: ${{ variable.group }}
+      - ${{insert}}: ${{ variable }}
 
-    - name: PythonScript
-      value: 'py -3'
-    - name: PipScript
-      value: 'py -3 -m pip'
+    - template: /eng/pipelines/coreclr/templates/jit-python-variables.yml
+      parameters:
+        osGroup: ${{ parameters.osGroup }}
+
     - name: SpmiCollectionLocation
       value: '$(Build.SourcesDirectory)\artifacts\spmi\'
     - name: SpmiLogsLocation
@@ -64,6 +65,9 @@ jobs:
     container: ${{ parameters.container }}
     steps:
     - ${{ parameters.steps }}
+
+    - script: $(PythonSetupScript)
+      displayName: Enable python venv
 
     - script: |
         mkdir $(SpmiCollectionLocation)
@@ -89,7 +93,6 @@ jobs:
         BuildConfig: ${{ parameters.buildConfig }}
         osGroup: ${{ parameters.osGroup }}
         archType: ${{ parameters.archType }}
-        shouldContinueOnError: true # Run the future step i.e. upload superpmi logs
 
       # Always upload the available logs for diagnostics
     - task: CopyFiles@2
@@ -104,12 +107,14 @@ jobs:
       displayName: Publish SuperPMI logs
       inputs:
         targetPath: $(SpmiLogsLocation)
-        artifactName: 'SuperPMI_Logs_$(archType)_$(buildConfig)'
+        artifactName: 'SuperPMI_Logs_$(archType)_$(buildConfig)_Attempt$(System.JobAttempt)'
       condition: always()
+      continueOnError: true
 
     - task: PublishPipelineArtifact@1
       displayName: Publish SuperPMI build logs
       inputs:
         targetPath: $(Build.SourcesDirectory)/artifacts/log
-        artifactName: 'SuperPMI_BuildLogs_$(archType)_$(buildConfig)'
+        artifactName: 'SuperPMI_BuildLogs_$(archType)_$(buildConfig)_Attempt$(System.JobAttempt)'
       condition: always()
+      continueOnError: true

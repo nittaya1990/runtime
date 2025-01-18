@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
-    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);SYSLIB0038</NoWarn>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
   </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="System.Data.Common.TypeForwards.cs" />
     <Compile Include="System\Data\DataReaderExtensions.cs" />
@@ -211,6 +213,7 @@
     <Compile Include="System\Data\Common\DbDataReader.cs" />
     <Compile Include="System\Data\Common\DbDataReaderExtensions.cs" />
     <Compile Include="System\Data\Common\DbDataRecord.cs" />
+    <Compile Include="System\Data\Common\DbDataSource.cs" />
     <Compile Include="System\Data\Common\DbDataSourceEnumerator.cs" />
     <Compile Include="System\Data\Common\DbEnumerator.cs" />
     <Compile Include="System\Data\Common\DbException.cs" />
@@ -225,6 +228,7 @@
     <Compile Include="System\Data\Common\DBSchemaTable.cs" />
     <Compile Include="System\Data\Common\DbTransaction.cs" />
     <Compile Include="System\Data\Common\DecimalStorage.cs" />
+    <Compile Include="System\Data\Common\DefaultDataSource.cs" />
     <Compile Include="System\Data\Common\DoubleStorage.cs" />
     <Compile Include="System\Data\Common\FieldNameLookup.cs" />
     <Compile Include="System\Data\Common\Groupbybehavior.cs" />
@@ -305,14 +309,14 @@
     <Compile Include="$(CommonPath)System\Obsoletions.cs"
              Link="Common\System\Obsoletions.cs" />
   </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="$(CoreLibProject)" />
     <ProjectReference Include="..\..\System.Collections\src\System.Collections.csproj" />
     <ProjectReference Include="..\..\System.Collections.NonGeneric\src\System.Collections.NonGeneric.csproj" />
     <ProjectReference Include="..\..\System.ComponentModel.TypeConverter\src\System.ComponentModel.TypeConverter.csproj" />
     <ProjectReference Include="..\..\System.Runtime\src\System.Runtime.csproj" />
-    <ProjectReference Include="..\..\System.Runtime.Extensions\src\System.Runtime.Extensions.csproj" />
-    <ProjectReference Include="..\..\System.Private.Uri\src\System.Private.Uri.csproj" />
+    <ProjectReference Include="..\..\System.Private.Uri\src\System.Private.Uri.csproj" PrivateAssets="all" />
     <Reference Include="System.Collections.Concurrent" />
     <Reference Include="System.ComponentModel" />
     <Reference Include="System.ComponentModel.Primitives" />
@@ -326,5 +330,10 @@
     <Reference Include="System.Transactions.Local" />
     <Reference Include="System.Xml.ReaderWriter" />
     <Reference Include="System.Xml.XmlSerializer" />
+    <ProjectReference Include="..\..\System.Text.RegularExpressions\gen\System.Text.RegularExpressions.Generator.csproj"
+                  SetTargetFramework="TargetFramework=netstandard2.0"
+                  OutputItemType="Analyzer"
+                  ReferenceOutputAssembly="false" />
   </ItemGroup>
+
 </Project>

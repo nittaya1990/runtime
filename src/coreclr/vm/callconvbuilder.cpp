@@ -11,27 +11,39 @@
 
 // According to ECMA-335, type name strings are UTF-8. Since we are
 // looking for type names that are equivalent in ASCII and UTF-8,
-// using a const char constant is acceptable. Type name strings are
-// in Fully Qualified form, so we include the ',' delimiter.
-#define MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME_PREFIX(callConvTypeName) CMOD_CALLCONV_NAMESPACE "." callConvTypeName ","
+// using a const char constant is acceptable.
+#define MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME(callConvTypeName) CMOD_CALLCONV_NAMESPACE "." callConvTypeName
 
 namespace
 {
-    // Function to compute if a char string begins with another char string.
-    bool BeginsWith(size_t s1Len, const char* s1, size_t s2Len, const char* s2)
+    // Function to compute if a Type name string matches another
+    bool BeginsWithTypeName(size_t strLen, const char* str, size_t typeNameLen, const char* typeName)
     {
         WRAPPER_NO_CONTRACT;
 
-        if (s1Len < s2Len)
+        // If the string is less than the type name it can't.
+        if (strLen < typeNameLen)
             return false;
 
-        return (0 == strncmp(s1, s2, s2Len));
+        // The string is not less than the type name so check for a match.
+        if (0 != strncmp(str, typeName, typeNameLen))
+            return false;
+
+        // If the type is being used in the assembly it is defined, we can match
+        // the type name precisely. This is most common when SPCL uses an attribute.
+        if (strLen == typeNameLen)
+            return true;
+
+        // The string length is more than the type name, so we also check for
+        // the trailing ',' delimiter. This happens when a type name is in Fully Qualified
+        // form outside its declaring assembly - most common scenario.
+        return str[typeNameLen] == ',';
     }
 
     // Function to compute if a char string is equal to another char string.
     bool Equals(size_t s1Len, const char* s1, size_t s2Len, const char* s2)
     {
-        return (s1Len == s2Len) && (0 == strcmp(s1, s2));
+        return (s1Len == s2Len) && (0 == strncmp(s1, s2, s2Len));
     }
 
     // All base calling conventions and modifiers should be defined below.
@@ -41,7 +53,8 @@ namespace
     BASE_CALL_CONV(CMOD_CALLCONV_NAME_CDECL, C)             \
     BASE_CALL_CONV(CMOD_CALLCONV_NAME_STDCALL, Stdcall)     \
     BASE_CALL_CONV(CMOD_CALLCONV_NAME_THISCALL, Thiscall)   \
-    BASE_CALL_CONV(CMOD_CALLCONV_NAME_FASTCALL, Fastcall)
+    BASE_CALL_CONV(CMOD_CALLCONV_NAME_FASTCALL, Fastcall)   \
+    BASE_CALL_CONV(CMOD_CALLCONV_NAME_SWIFT, Swift)
 
 #define DECLARE_MOD_CALL_CONVS \
     CALL_CONV_MODIFIER(CMOD_CALLCONV_NAME_SUPPRESSGCTRANSITION, CALL_CONV_MOD_SUPPRESSGCTRANSITION) \
@@ -59,10 +72,10 @@ namespace
     const TypeWithFlag<CorInfoCallConvExtension> FullyQualifiedTypeBaseCallConvs[] =
     {
 #define BASE_CALL_CONV(name, flag) { \
-        MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME_PREFIX(name), \
-        STRING_LENGTH(MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME_PREFIX(name)), \
+        MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME(name), \
+        STRING_LENGTH(MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME(name)), \
         CorInfoCallConvExtension::flag, \
-        BeginsWith },
+        BeginsWithTypeName },
 
         DECLARE_BASE_CALL_CONVS
 
@@ -85,10 +98,10 @@ namespace
     const TypeWithFlag<CallConvBuilder::CallConvModifiers> FullyQualifiedTypeModCallConvs[] =
     {
 #define CALL_CONV_MODIFIER(name, flag) { \
-        MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME_PREFIX(name), \
-        STRING_LENGTH(MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME_PREFIX(name)), \
+        MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME(name), \
+        STRING_LENGTH(MAKE_FULLY_QUALIFIED_CALLCONV_TYPE_NAME(name)), \
         CallConvBuilder::flag, \
-        BeginsWith },
+        BeginsWithTypeName },
 
         DECLARE_MOD_CALL_CONVS
 
@@ -164,6 +177,8 @@ namespace
             return CorInfoCallConvExtension::FastcallMemberFunction;
         case CorInfoCallConvExtension::Thiscall:
             return CorInfoCallConvExtension::Thiscall;
+        case CorInfoCallConvExtension::Swift:
+            return CorInfoCallConvExtension::Swift;
         default:
             _ASSERTE("Calling convention is not an unmanaged base calling convention.");
             return baseCallConv;
@@ -283,15 +298,12 @@ namespace
     {
         STANDARD_VM_CONTRACT;
 
-        TypeHandle type;
-        MethodDesc* pMD;
-        FieldDesc* pFD;
+        ResolvedToken resolved{};
+        pResolver->ResolveToken(token, &resolved);
 
-        pResolver->ResolveToken(token, &type, &pMD, &pFD);
+        _ASSERTE(!resolved.TypeHandle.IsNull());
 
-        _ASSERTE(!type.IsNull());
-
-        *nameOut = type.GetMethodTable()->GetFullyQualifiedNameInfo(namespaceOut);
+        *nameOut = resolved.TypeHandle.GetMethodTable()->GetFullyQualifiedNameInfo(namespaceOut);
 
         return S_OK;
     }
@@ -320,7 +332,7 @@ HRESULT CallConv::TryGetUnmanagedCallingConventionFromModOpt(
     _In_ PCCOR_SIGNATURE pSig,
     _In_ ULONG cSig,
     _Inout_ CallConvBuilder* builder,
-    _Out_ UINT *errorResID)
+    _Out_ UINT* errorResID)
 {
     CONTRACTL
     {
@@ -346,25 +358,49 @@ HRESULT CallConv::TryGetUnmanagedCallingConventionFromModOpt(
     _ASSERTE(pWalk <= pSig + cSig);
 
     CallConvBuilder& callConvBuilder = *builder;
-    while ((pWalk < (pSig + cSig)) && ((*pWalk == ELEMENT_TYPE_CMOD_OPT) || (*pWalk == ELEMENT_TYPE_CMOD_REQD)))
+    while ((pWalk < (pSig + cSig)) && ((*pWalk == ELEMENT_TYPE_CMOD_OPT) || (*pWalk == ELEMENT_TYPE_CMOD_REQD) || (*pWalk == ELEMENT_TYPE_CMOD_INTERNAL)))
     {
-        BOOL fIsOptional = (*pWalk == ELEMENT_TYPE_CMOD_OPT);
-
-        pWalk++;
-        if (pWalk + CorSigUncompressedDataSize(pWalk) > pSig + cSig)
-        {
-            *errorResID = BFA_BAD_SIGNATURE;
-            return COR_E_BADIMAGEFORMAT; // Bad formatting
-        }
-
+        CORINFO_MODULE_HANDLE tokenLookupModule = pModule;
         mdToken tk;
-        pWalk += CorSigUncompressToken(pWalk, &tk);
-
-        if (!fIsOptional)
-            continue;
-
         LPCSTR typeNamespace;
         LPCSTR typeName;
+        if (*pWalk == ELEMENT_TYPE_CMOD_INTERNAL)
+        {
+            // Skip internal modifiers
+            pWalk++;
+            if (pWalk + 1 + sizeof(void*) > pSig + cSig)
+            {
+                *errorResID = BFA_BAD_SIGNATURE;
+                return COR_E_BADIMAGEFORMAT; // Bad formatting
+            }
+
+            BOOL required = *pWalk++ != 0;
+            void* pType;
+            pWalk += CorSigUncompressPointer(pWalk, &pType);
+            TypeHandle type = TypeHandle::FromPtr(pType);
+            
+            if (!required)
+                continue;
+            
+            tokenLookupModule = GetScopeHandle(type.GetModule());
+            tk = type.GetCl();
+        }
+        else
+        {
+            BOOL fIsOptional = (*pWalk == ELEMENT_TYPE_CMOD_OPT);
+
+            pWalk++;
+            if (pWalk + CorSigUncompressedDataSize(pWalk) > pSig + cSig)
+            {
+                *errorResID = BFA_BAD_SIGNATURE;
+                return COR_E_BADIMAGEFORMAT; // Bad formatting
+            }
+
+            pWalk += CorSigUncompressToken(pWalk, &tk);
+
+            if (!fIsOptional)
+                continue;
+        }
 
         // Check for CallConv types specified in modopt
         if (FAILED(GetNameOfTypeRefOrDef(pModule, tk, &typeNamespace, &typeName)))
@@ -440,8 +476,8 @@ HRESULT CallConv::TryGetCallingConventionFromUnmanagedCallConv(
     callConvsArg.Init("CallConvs", SERIALIZATION_TYPE_SZARRAY, callConvsType);
 
     InlineFactory<SArray<CaValue>, 4> caValueArrayFactory;
-    DomainAssembly* domainAssembly = pMD->GetLoaderModule()->GetDomainAssembly();
-    IfFailThrow(Attribute::ParseAttributeArgumentValues(
+    Assembly* assembly = pMD->GetLoaderModule()->GetAssembly();
+    IfFailThrow(CustomAttribute::ParseArgumentValues(
         pData,
         cData,
         &caValueArrayFactory,
@@ -449,7 +485,7 @@ HRESULT CallConv::TryGetCallingConventionFromUnmanagedCallConv(
         0,
         &callConvsArg,
         1,
-        domainAssembly));
+        assembly ));
 
     // Value isn't defined
     if (callConvsArg.val.type.tag == SERIALIZATION_TYPE_UNDEFINED)
@@ -478,21 +514,14 @@ bool CallConv::TryGetCallingConventionFromUnmanagedCallersOnly(_In_ MethodDesc* 
     BYTE* pData = NULL;
     LONG cData = 0;
 
-    bool nativeCallableInternalData = false;
     HRESULT hr = pMD->GetCustomAttribute(WellKnownAttribute::UnmanagedCallersOnly, (const VOID **)(&pData), (ULONG *)&cData);
-    if (hr == S_FALSE)
-    {
-        hr = pMD->GetCustomAttribute(WellKnownAttribute::NativeCallableInternal, (const VOID **)(&pData), (ULONG *)&cData);
-        nativeCallableInternalData = SUCCEEDED(hr);
-    }
-
     IfFailThrow(hr);
 
     _ASSERTE(cData > 0);
 
     CustomAttributeParser ca(pData, cData);
 
-    // UnmanagedCallersOnly and NativeCallableInternal each
+    // UnmanagedCallersOnly each
     // have optional named arguments.
     CaNamedArg namedArgs[2];
 
@@ -500,23 +529,16 @@ bool CallConv::TryGetCallingConventionFromUnmanagedCallersOnly(_In_ MethodDesc* 
     CaType caCallConvs;
 
     // Define attribute specific optional named properties
-    if (nativeCallableInternalData)
-    {
-        namedArgs[0].InitI4FieldEnum("CallingConvention", "System.Runtime.InteropServices.CallingConvention", (ULONG)(CorPinvokeMap)0);
-    }
-    else
-    {
-        caCallConvs.Init(SERIALIZATION_TYPE_SZARRAY, SERIALIZATION_TYPE_TYPE, SERIALIZATION_TYPE_UNDEFINED, NULL, 0);
-        namedArgs[0].Init("CallConvs", SERIALIZATION_TYPE_SZARRAY, caCallConvs);
-    }
+    caCallConvs.Init(SERIALIZATION_TYPE_SZARRAY, SERIALIZATION_TYPE_TYPE, SERIALIZATION_TYPE_UNDEFINED, NULL, 0);
+    namedArgs[0].Init("CallConvs", SERIALIZATION_TYPE_SZARRAY, caCallConvs);
 
     // Define common optional named properties
     CaTypeCtor caEntryPoint(SERIALIZATION_TYPE_STRING);
     namedArgs[1].Init("EntryPoint", SERIALIZATION_TYPE_STRING, caEntryPoint);
 
     InlineFactory<SArray<CaValue>, 4> caValueArrayFactory;
-    DomainAssembly* domainAssembly = pMD->GetLoaderModule()->GetDomainAssembly();
-    IfFailThrow(Attribute::ParseAttributeArgumentValues(
+    Assembly* assembly = pMD->GetLoaderModule()->GetAssembly();
+    IfFailThrow(CustomAttribute::ParseArgumentValues(
         pData,
         cData,
         &caValueArrayFactory,
@@ -524,31 +546,23 @@ bool CallConv::TryGetCallingConventionFromUnmanagedCallersOnly(_In_ MethodDesc* 
         0,
         namedArgs,
         ARRAY_SIZE(namedArgs),
-        domainAssembly));
+        assembly));
 
     // If the value isn't defined, then return without setting anything.
     if (namedArgs[0].val.type.tag == SERIALIZATION_TYPE_UNDEFINED)
         return false;
 
-    CorInfoCallConvExtension callConvLocal;
-    if (nativeCallableInternalData)
+    CallConvBuilder builder;
+    if (!TryGetCallingConventionFromTypeArray(&namedArgs[0].val, &builder))
     {
-        callConvLocal = (CorInfoCallConvExtension)(namedArgs[0].val.u4 << 8);
+        // We found a second base calling convention.
+        return false;
     }
-    else
-    {
-        CallConvBuilder builder;
-        if (!TryGetCallingConventionFromTypeArray(&namedArgs[0].val, &builder))
-        {
-            // We found a second base calling convention.
-            return false;
-        }
 
-        callConvLocal = builder.GetCurrentCallConv();
-        if (callConvLocal == CallConvBuilder::UnsetValue)
-        {
-            callConvLocal = CallConv::GetDefaultUnmanagedCallingConvention();
-        }
+    CorInfoCallConvExtension callConvLocal = builder.GetCurrentCallConv();
+    if (callConvLocal == CallConvBuilder::UnsetValue)
+    {
+        callConvLocal = CallConv::GetDefaultUnmanagedCallingConvention();
     }
 
     *pCallConv = callConvLocal;

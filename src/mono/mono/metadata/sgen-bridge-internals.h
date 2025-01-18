@@ -52,7 +52,6 @@ typedef struct {
 	void (*processing_stw_step) (void);
 	void (*processing_build_callback_data) (int generation);
 	void (*processing_after_callback) (int generation);
-	MonoGCBridgeObjectKind (*class_kind) (MonoClass *klass);
 	void (*register_finalized_object) (GCObject *object);
 	void (*describe_pointer) (GCObject *object);
 
@@ -69,7 +68,6 @@ typedef struct {
 	MonoGCBridgeXRef *api_xrefs;
 } SgenBridgeProcessor;
 
-void sgen_old_bridge_init (SgenBridgeProcessor *collector);
 void sgen_new_bridge_init (SgenBridgeProcessor *collector);
 void sgen_tarjan_bridge_init (SgenBridgeProcessor *collector);
 void sgen_set_bridge_implementation (const char *name);

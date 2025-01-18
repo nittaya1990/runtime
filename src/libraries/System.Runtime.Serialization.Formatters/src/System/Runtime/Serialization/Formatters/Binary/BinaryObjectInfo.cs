@@ -209,10 +209,7 @@ namespace System.Runtime.Serialization.Formatters.Binary
 
             if (!_si.IsAssemblyNameSetExplicit)
             {
-                if (typeInformation == null)
-                {
-                    typeInformation = BinaryFormatter.GetTypeInformation(_si.ObjectType);
-                }
+                typeInformation ??= BinaryFormatter.GetTypeInformation(_si.ObjectType);
                 assemblyString = typeInformation.AssemblyString;
                 hasTypeForwardedFrom = typeInformation.HasTypeForwardedFrom;
             }
@@ -712,7 +709,7 @@ namespace System.Runtime.Serialization.Formatters.Binary
                         // A field on the type isn't found. See if the field has OptionalFieldAttribute.  We only throw
                         // when the assembly format is set appropriately.
                         if (!_isSimpleAssembly &&
-                            _cache._memberInfos[i].GetCustomAttribute(typeof(OptionalFieldAttribute), inherit: false) == null)
+                            _cache._memberInfos[i].GetCustomAttribute<OptionalFieldAttribute>(inherit: false) == null)
                         {
                             Debug.Assert(_cache._memberNames != null);
                             throw new SerializationException(SR.Format(SR.Serialization_MissingMember, _cache._memberNames[i], objectType, typeof(OptionalFieldAttribute).FullName));

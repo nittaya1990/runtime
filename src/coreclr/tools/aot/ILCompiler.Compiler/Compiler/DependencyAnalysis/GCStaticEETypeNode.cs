@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Text;
 
 using Internal.Runtime;
 using Internal.Text;
@@ -17,35 +16,38 @@ namespace ILCompiler.DependencyAnalysis
     /// types. It only fills out enough pieces of the MethodTable structure so that the GC can operate on it. Runtime should
     /// never see these.
     /// </summary>
-    public class GCStaticEETypeNode : ObjectNode, ISymbolDefinitionNode
+    public class GCStaticEETypeNode : DehydratableObjectNode, ISymbolDefinitionNode
     {
         private GCPointerMap _gcMap;
         private TargetDetails _target;
+        private bool _requiresAlign8;
 
-        public GCStaticEETypeNode(TargetDetails target, GCPointerMap gcMap)
+        public GCStaticEETypeNode(TargetDetails target, GCPointerMap gcMap, bool requiresAlign8)
         {
             _gcMap = gcMap;
             _target = target;
+            _requiresAlign8 = requiresAlign8;
         }
 
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
 
-        public override ObjectNodeSection Section
+        protected override ObjectNodeSection GetDehydratedSection(NodeFactory factory)
         {
-            get
-            {
-                if (_target.IsWindows)
-                    return ObjectNodeSection.ReadOnlyDataSection;
-                else
-                    return ObjectNodeSection.DataSection;
-            }
+            if (_target.IsWindows)
+                return ObjectNodeSection.ReadOnlyDataSection;
+            else
+                return ObjectNodeSection.DataSection;
         }
 
         public override bool StaticDependenciesAreComputed => true;
 
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
-            sb.Append("__GCStaticEEType_").Append(_gcMap.ToString());
+            sb.Append("__GCStaticEEType_"u8).Append(_gcMap.ToString());
+            if (_requiresAlign8)
+            {
+                sb.Append("_align8"u8);
+            }
         }
 
         int ISymbolDefinitionNode.Offset
@@ -61,14 +63,13 @@ namespace ILCompiler.DependencyAnalysis
 
         public override bool IsShareable => true;
 
-        public override ObjectData GetData(NodeFactory factory, bool relocsOnly)
+        protected override ObjectData GetDehydratableData(NodeFactory factory, bool relocsOnly = false)
         {
             ObjectDataBuilder dataBuilder = new ObjectDataBuilder(factory, relocsOnly);
             dataBuilder.RequireInitialPointerAlignment();
             dataBuilder.AddSymbol(this);
 
-            // +1 for SyncBlock (in CoreRT static size already includes MethodTable)
-            Debug.Assert(factory.Target.Abi == TargetAbi.CoreRT || factory.Target.Abi == TargetAbi.CppCodegen);
+            // +1 for SyncBlock (static size already includes MethodTable)
             int totalSize = (_gcMap.Size + 1) * _target.PointerSize;
 
             // We only need to check for containsPointers because ThreadStatics are always allocated
@@ -83,13 +84,19 @@ namespace ILCompiler.DependencyAnalysis
 
             Debug.Assert(dataBuilder.CountBytes == ((ISymbolDefinitionNode)this).Offset);
 
-            dataBuilder.EmitShort(0); // ComponentSize is always 0
-
-            short flags = 0;
+            // ComponentSize is always 0
+            uint flags = 0;
             if (containsPointers)
-                flags |= (short)EETypeFlags.HasPointersFlag;
+                flags |= (uint)EETypeFlags.HasPointersFlag;
 
-            dataBuilder.EmitShort(flags);
+            if (_requiresAlign8)
+            {
+                // Mark the method table as non-value type that requires 8-byte alignment
+                flags |= (uint)EETypeFlagsEx.RequiresAlign8Flag;
+                flags |= (uint)EETypeElementType.Class << (byte)EETypeFlags.ElementTypeShift;
+            }
+
+            dataBuilder.EmitUInt(flags);
 
             totalSize = Math.Max(totalSize, _target.PointerSize * 3); // minimum GC MethodTable size is 3 pointers
             dataBuilder.EmitInt(totalSize);
@@ -104,7 +111,14 @@ namespace ILCompiler.DependencyAnalysis
 
         public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)
         {
-            return _gcMap.CompareTo(((GCStaticEETypeNode)other)._gcMap);
+            GCStaticEETypeNode otherGCStaticEETypeNode = (GCStaticEETypeNode)other;
+            int mapCompare = _gcMap.CompareTo(otherGCStaticEETypeNode._gcMap);
+            if (mapCompare == 0)
+            {
+                return _requiresAlign8.CompareTo(otherGCStaticEETypeNode._requiresAlign8);
+            }
+
+            return mapCompare;
         }
     }
 }

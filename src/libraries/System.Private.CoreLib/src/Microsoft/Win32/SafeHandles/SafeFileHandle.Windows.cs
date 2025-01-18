@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -35,8 +36,10 @@ namespace Microsoft.Win32.SafeHandles
             return _lengthCanBeCached && cachedLength >= 0;
         }
 
-        internal static unsafe SafeFileHandle Open(string fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, long preallocationSize)
+        internal static SafeFileHandle Open(string fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, long preallocationSize, UnixFileMode? unixCreateMode = null)
         {
+            Debug.Assert(!unixCreateMode.HasValue);
+
             using (DisableMediaInsertionPrompt.Create())
             {
                 // we don't use NtCreateFile as there is no public and reliable way
@@ -50,7 +53,7 @@ namespace Microsoft.Win32.SafeHandles
 
                 if ((options & FileOptions.Asynchronous) != 0)
                 {
-                    // the handle has not been exposed yet, so we don't need to aquire a lock
+                    // the handle has not been exposed yet, so we don't need to acquire a lock
                     fileHandle.InitThreadPoolBinding();
                 }
 
@@ -107,6 +110,7 @@ namespace Microsoft.Win32.SafeHandles
                     errorCode = Interop.Errors.ERROR_ACCESS_DENIED;
                 }
 
+                fileHandle.Dispose();
                 throw Win32Marshal.GetExceptionForWin32Error(errorCode, fullPath);
             }
 
@@ -132,8 +136,11 @@ namespace Microsoft.Win32.SafeHandles
                 int errorCode = Marshal.GetLastPInvokeError();
 
                 // Only throw for errors that indicate there is not enough space.
-                if (errorCode == Interop.Errors.ERROR_DISK_FULL ||
-                    errorCode == Interop.Errors.ERROR_FILE_TOO_LARGE)
+                // SetFileInformationByHandle fails with ERROR_DISK_FULL in certain cases when the size is disallowed by filesystem,
+                // such as >4GB on FAT32 volume. We cannot distinguish them currently.
+                if (errorCode is Interop.Errors.ERROR_DISK_FULL or
+                    Interop.Errors.ERROR_FILE_TOO_LARGE or
+                    Interop.Errors.ERROR_INVALID_PARAMETER)
                 {
                     fileHandle.Dispose();
 
@@ -143,7 +150,7 @@ namespace Microsoft.Win32.SafeHandles
                     throw new IOException(SR.Format(errorCode == Interop.Errors.ERROR_DISK_FULL
                                                         ? SR.IO_DiskFull_Path_AllocationSize
                                                         : SR.IO_FileTooLarge_Path_AllocationSize,
-                                            fullPath, preallocationSize));
+                                            fullPath, preallocationSize), Win32Marshal.MakeHRFromErrorCode(errorCode));
                 }
             }
         }
@@ -283,12 +290,43 @@ namespace Microsoft.Win32.SafeHandles
             {
                 Interop.Kernel32.FILE_STANDARD_INFO info;
 
-                if (!Interop.Kernel32.GetFileInformationByHandleEx(this, Interop.Kernel32.FileStandardInfo, &info, (uint)sizeof(Interop.Kernel32.FILE_STANDARD_INFO)))
+                if (Interop.Kernel32.GetFileInformationByHandleEx(this, Interop.Kernel32.FileStandardInfo, &info, (uint)sizeof(Interop.Kernel32.FILE_STANDARD_INFO)))
+                {
+                    return info.EndOfFile;
+                }
+
+                // In theory when GetFileInformationByHandleEx fails, then
+                // a) IsDevice can modify last error (not true today, but can be in the future),
+                // b) DeviceIoControl can succeed (last error set to ERROR_SUCCESS) but return fewer bytes than requested.
+                // The error is stored and in such cases exception for the first failure is going to be thrown.
+                int lastError = Marshal.GetLastPInvokeError();
+
+                if (Path is null || !PathInternal.IsDevice(Path))
+                {
+                    throw Win32Marshal.GetExceptionForWin32Error(lastError, Path);
+                }
+
+                Interop.Kernel32.STORAGE_READ_CAPACITY storageReadCapacity;
+                bool success = Interop.Kernel32.DeviceIoControl(
+                    this,
+                    dwIoControlCode: Interop.Kernel32.IOCTL_STORAGE_READ_CAPACITY,
+                    lpInBuffer: null,
+                    nInBufferSize: 0,
+                    lpOutBuffer: &storageReadCapacity,
+                    nOutBufferSize: (uint)sizeof(Interop.Kernel32.STORAGE_READ_CAPACITY),
+                    out uint bytesReturned,
+                    IntPtr.Zero);
+
+                if (!success)
                 {
                     throw Win32Marshal.GetExceptionForLastWin32Error(Path);
                 }
+                else if (bytesReturned != sizeof(Interop.Kernel32.STORAGE_READ_CAPACITY))
+                {
+                    throw Win32Marshal.GetExceptionForWin32Error(lastError, Path);
+                }
 
-                return info.EndOfFile;
+                return storageReadCapacity.DiskLength;
             }
         }
     }

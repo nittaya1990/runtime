@@ -33,7 +33,6 @@ HRESULT SigParser::SkipExactlyOne()
         switch ((DWORD)typ)
         {
             default:
-                // _ASSERT(!"Illegal or unimplement type in COM+ sig.");
                 return META_E_BAD_SIGNATURE;
                 break;
             case ELEMENT_TYPE_VAR:
@@ -126,7 +125,7 @@ HRESULT SigParser::SkipExactlyOne()
 //
 HRESULT
 SigParser::SkipMethodHeaderSignature(
-    uint32_t * pcArgs)
+    uint32_t * pcArgs, bool skipReturnType /*= true*/)
 {
     CONTRACTL
     {
@@ -157,8 +156,11 @@ SigParser::SkipMethodHeaderSignature(
     // Get arg count;
     IfFailRet(GetData(pcArgs));
 
-    // Skip return type;
-    IfFailRet(SkipExactlyOne());
+    if (skipReturnType)
+    {
+        // Skip return type;
+        IfFailRet(SkipExactlyOne());
+    }
 
     return hr;
 } // SigParser::SkipMethodHeaderSignature

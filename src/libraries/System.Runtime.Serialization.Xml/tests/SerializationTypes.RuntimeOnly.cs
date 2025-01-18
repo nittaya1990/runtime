@@ -6,17 +6,16 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Text;
+using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Schema;
 using System.Xml.Serialization;
-using System.IO;
-using System.Text;
-using System.Reflection;
-using System.Threading.Tasks;
-using System.Runtime.Serialization.Json;
 
 namespace SerializationTypes
 {
@@ -1145,10 +1144,10 @@ namespace SerializationTypes
         Option0, Option1, Option2
     }
 
-    public class TypeWithNestedGenericClassImplementingIXmlSerialiable
+    public class TypeWithNestedGenericClassImplementingIXmlSerializable
     {
         // T can only be string
-        public class NestedGenericClassImplementingIXmlSerialiable<T> : IXmlSerializable
+        public class NestedGenericClassImplementingIXmlSerializable<T> : IXmlSerializable
         {
             public static bool WriteXmlInvoked = false;
             public static bool ReadXmlInvoked = false;
@@ -1156,7 +1155,7 @@ namespace SerializationTypes
             public string StringValue { get; set; }
             private T GenericValue { get; set; }
 
-            public NestedGenericClassImplementingIXmlSerialiable()
+            public NestedGenericClassImplementingIXmlSerializable()
             {
                 GenericValue = default(T);
             }
@@ -1743,13 +1742,13 @@ namespace SerializationTypes
         public string Name { get; set; }
     }
 
-    public class SimpleTypeWihtMoreProperties
+    public class SimpleTypeWithMoreProperties
     {
         public string StringProperty { get; set; }
         public int IntProperty { get; set; }
         public MyEnum EnumProperty { get; set; }
         public List<string> CollectionProperty { get; set; }
-        public List<SimpleTypeWihtMoreProperties> SimpleTypeList { get; set; }
+        public List<SimpleTypeWithMoreProperties> SimpleTypeList { get; set; }
     }
 
     public class TypeWith2DArrayProperty1
@@ -3198,7 +3197,7 @@ public class TypeWithSerializableEnum
 }
 
 [DataContract]
-public class Poseesions
+public class Posessions
 {
     [DataMember]
     public string ItemName;
@@ -4146,6 +4145,9 @@ public class MyArgumentException : Exception, ISerializable
         _paramName = paramName;
     }
 
+#if NET8_0_OR_GREATER
+    [Obsolete("Exception..ctor(SerializationInfo, StreamingContext) is obsolete.", DiagnosticId = "SYSLIB0051")]
+#endif
     protected MyArgumentException(SerializationInfo info, StreamingContext context) : base(info, context) {
         _paramName = info.GetString("ParamName");
     }
@@ -4162,6 +4164,9 @@ public class MyArgumentException : Exception, ISerializable
         }
     }
 
+#if NET8_0_OR_GREATER
+    [Obsolete("Exception.GetObjectData is obsolete.", DiagnosticId = "SYSLIB0051")]
+#endif
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         if (info == null)

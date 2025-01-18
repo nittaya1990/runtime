@@ -1,8 +1,6 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
-
 using System.IO;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -22,9 +20,12 @@ namespace Microsoft.Extensions.Hosting
         }
 
         /// <summary>
-        /// If <see langword="false"/>, configures the <see cref="HostApplicationBuilder"/> instance with pre-configured defaults.
-        /// This has a similar effect to calling <see cref="HostingHostBuilderExtensions.ConfigureDefaults(IHostBuilder, string[])"/>.
+        /// Gets or sets a value that indicates whether the <see cref="HostApplicationBuilder"/> instance is configured with pre-configured defaults.
         /// </summary>
+        /// <value>
+        /// <see langword="false"/> if the <see cref="HostApplicationBuilder"/> instance is configured with pre-configured defaults.
+        /// This has a similar effect to calling <see cref="HostingHostBuilderExtensions.ConfigureDefaults(IHostBuilder, string[])"/>.
+        /// </value>
         /// <remarks>
         ///   The following defaults are applied to the <see cref="IHostBuilder"/>:
         ///     * set the <see cref="IHostEnvironment.ContentRootPath"/> to the result of <see cref="Directory.GetCurrentDirectory()"/>
@@ -39,29 +40,29 @@ namespace Microsoft.Extensions.Hosting
         public bool DisableDefaults { get; set; }
 
         /// <summary>
-        /// The command line arguments. This is unused if <see cref="DisableDefaults"/> is <see langword="true"/>.
+        /// Gets or sets the command-line arguments to add to the <see cref="HostApplicationBuilder.Configuration"/>.
         /// </summary>
         public string[]? Args { get; set; }
 
         /// <summary>
-        /// Initial configuration sources to be added to the <see cref="HostApplicationBuilder.Configuration"/>. These sources can influence
+        /// Gets or sets the initial configuration sources to be added to the <see cref="HostApplicationBuilder.Configuration"/>. These sources can influence
         /// the <see cref="HostApplicationBuilder.Environment"/> through the use of <see cref="HostDefaults"/> keys. Disposing the built
         /// <see cref="IHost"/> disposes the <see cref="ConfigurationManager"/>.
         /// </summary>
         public ConfigurationManager? Configuration { get; set; }
 
         /// <summary>
-        /// The environment name.
+        /// Gets or sets the environment name.
         /// </summary>
         public string? EnvironmentName { get; set; }
 
         /// <summary>
-        /// The application name.
+        /// Gets or sets the application name.
         /// </summary>
         public string? ApplicationName { get; set; }
 
         /// <summary>
-        /// The content root path.
+        /// Gets or sets the content root path.
         /// </summary>
         public string? ContentRootPath { get; set; }
     }

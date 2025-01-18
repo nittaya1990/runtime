@@ -111,14 +111,13 @@ namespace System.Globalization
         private string? _sAM1159; // (user can override) AM designator
         private string? _sPM2359; // (user can override) PM designator
         private string? _sTimeSeparator;
-        private volatile string[]? _saLongTimes; // (user can override) time format
-        private volatile string[]? _saShortTimes; // (user can override) short time format
-        private volatile string[]? _saDurationFormats; // time duration format
+        private string[]? _saLongTimes; // (user can override) time format
+        private string[]? _saShortTimes; // (user can override) short time format
 
         // Calendar specific data
         private int _iFirstDayOfWeek = undef; // (user can override) first day of week (gregorian really)
         private int _iFirstWeekOfYear = undef; // (user can override) first week of year (gregorian really)
-        private volatile CalendarId[]? _waCalendars; // all available calendar type(s).  The first one is the default calendar
+        private CalendarId[]? _waCalendars; // all available calendar type(s).  The first one is the default calendar
 
         // Store for specific data about each calendar
         private CalendarData?[]? _calendars; // Store for specific calendar data
@@ -150,7 +149,7 @@ namespace System.Globalization
         /// </remarks>
         private static Dictionary<string, string> RegionNames =>
             s_regionNames ??=
-            new Dictionary<string, string>(257 /* prime */, StringComparer.OrdinalIgnoreCase)
+            new Dictionary<string, string>(255, StringComparer.OrdinalIgnoreCase)
             {
                 { "001", "en-001" },
                 { "029", "en-029" },
@@ -164,7 +163,7 @@ namespace System.Globalization
                 { "AL", "sq-AL" },
                 { "AM", "hy-AM" },
                 { "AO", "pt-AO" },
-                { "AQ", "en-A" },
+                { "AQ", "en-AQ" },
                 { "AR", "es-AR" },
                 { "AS", "en-AS" },
                 { "AT", "de-AT" },
@@ -189,7 +188,7 @@ namespace System.Globalization
                 { "BR", "pt-BR" },
                 { "BS", "en-BS" },
                 { "BT", "dz-BT" },
-                { "BV", "nb-B" },
+                { "BV", "nb-BV" },
                 { "BW", "en-BW" },
                 { "BY", "be-BY" },
                 { "BZ", "en-BZ" },
@@ -202,7 +201,7 @@ namespace System.Globalization
                 { "CI", "fr-CI" },
                 { "CK", "en-CK" },
                 { "CL", "es-CL" },
-                { "CM", "fr-C" },
+                { "CM", "fr-CM" },
                 { "CN", "zh-CN" },
                 { "CO", "es-CO" },
                 { "CR", "es-CR" },
@@ -245,13 +244,13 @@ namespace System.Globalization
                 { "GP", "fr-GP" },
                 { "GQ", "es-GQ" },
                 { "GR", "el-GR" },
-                { "GS", "en-G" },
+                { "GS", "en-GS" },
                 { "GT", "es-GT" },
                 { "GU", "en-GU" },
                 { "GW", "pt-GW" },
                 { "GY", "en-GY" },
                 { "HK", "zh-HK" },
-                { "HM", "en-H" },
+                { "HM", "en-HM" },
                 { "HN", "es-HN" },
                 { "HR", "hr-HR" },
                 { "HT", "fr-HT" },
@@ -372,7 +371,7 @@ namespace System.Globalization
                 { "SZ", "ss-SZ" },
                 { "TC", "en-TC" },
                 { "TD", "fr-TD" },
-                { "TF", "fr-T" },
+                { "TF", "fr-TF" },
                 { "TG", "fr-TG" },
                 { "TH", "th-TH" },
                 { "TJ", "tg-Cyrl-TJ" },
@@ -411,7 +410,7 @@ namespace System.Globalization
 
         // Cache of regions we've already looked up
         private static volatile Dictionary<string, CultureData>? s_cachedRegions;
-        private static volatile Dictionary<string, string>? s_regionNames;
+        private static Dictionary<string, string>? s_regionNames;
 
         /// <summary>
         /// The culture name to use to interop with the underlying native globalization libraries like ICU or Windows NLS APIs.
@@ -424,7 +423,7 @@ namespace System.Globalization
             // First do a shortcut for Invariant
             if (string.IsNullOrEmpty(cultureName))
             {
-                return CultureData.Invariant;
+                return Invariant;
             }
 
             // First check if GetCultureData() can find it (ie: its a real culture)
@@ -537,7 +536,7 @@ namespace System.Globalization
             if (GlobalizationMode.Invariant)
             {
                 // in invariant mode we always return invariant culture only from the enumeration
-                return new CultureInfo[] { new CultureInfo("") };
+                return [new CultureInfo("")];
             }
 
 #pragma warning restore 618
@@ -586,7 +585,7 @@ namespace System.Globalization
             invariant._sNegativeSign = "-";                    // negative sign
             invariant._iDigits = 2;                      // number of fractional digits
             invariant._iNegativeNumber = 1;                      // negative number format
-            invariant._waGrouping = new int[] { 3 };          // grouping of digits
+            invariant._waGrouping = [3];          // grouping of digits
             invariant._sDecimalSeparator = ".";                    // decimal separator
             invariant._sThousandSeparator = ",";                    // thousands separator
             invariant._sNaN = "NaN";                  // Not a Number
@@ -607,7 +606,7 @@ namespace System.Globalization
             invariant._iCurrencyDigits = 2;                      // # local monetary fractional digits
             invariant._iCurrency = 0;                      // positive currency format
             invariant._iNegativeCurrency = 0;                      // negative currency format
-            invariant._waMonetaryGrouping = new int[] { 3 };          // monetary grouping of digits
+            invariant._waMonetaryGrouping = [3];          // monetary grouping of digits
             invariant._sMonetaryDecimal = ".";                    // monetary decimal separator
             invariant._sMonetaryThousand = ",";                    // monetary thousands separator
 
@@ -619,18 +618,17 @@ namespace System.Globalization
             invariant._sTimeSeparator = ":";
             invariant._sAM1159 = "AM";                   // AM designator
             invariant._sPM2359 = "PM";                   // PM designator
-            invariant._saLongTimes = new string[] { "HH:mm:ss" };                             // time format
-            invariant._saShortTimes = new string[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }; // short time format
-            invariant._saDurationFormats = new string[] { "HH:mm:ss" };                             // time duration format
+            invariant._saLongTimes = ["HH:mm:ss"];                             // time format
+            invariant._saShortTimes = ["HH:mm", "hh:mm tt", "H:mm", "h:mm tt"]; // short time format
 
             // Calendar specific data
             invariant._iFirstDayOfWeek = 0;                      // first day of week
             invariant._iFirstWeekOfYear = 0;                      // first week of year
 
             // all available calendar type(s).  The first one is the default calendar
-            invariant._waCalendars = new CalendarId[] { CalendarId.GREGORIAN };
+            invariant._waCalendars = [CalendarId.GREGORIAN];
 
-            if (!GlobalizationMode.Invariant)
+            if (!GlobalizationMode.InvariantNoLoad)
             {
                 // Store for specific data about each calendar
                 invariant._calendars = new CalendarData[CalendarData.MAX_CALENDARS];
@@ -648,7 +646,7 @@ namespace System.Globalization
             invariant._iDefaultMacCodePage = 10000;         // default macintosh code page
             invariant._iDefaultEbcdicCodePage = 037;        // default EBCDIC code page
 
-            if (GlobalizationMode.Invariant)
+            if (GlobalizationMode.InvariantNoLoad)
             {
                 invariant._sLocalizedCountry = invariant._sNativeCountry;
             }
@@ -661,7 +659,7 @@ namespace System.Globalization
         /// We need an invariant instance, which we build hard-coded
         /// </summary>
         internal static CultureData Invariant => s_Invariant ??= CreateCultureWithInvariantData();
-        private static volatile CultureData? s_Invariant;
+        private static CultureData? s_Invariant;
 
         // Cache of cultures we've already looked up
         private static volatile Dictionary<string, CultureData>? s_cachedCultures;
@@ -672,12 +670,12 @@ namespace System.Globalization
             // First do a shortcut for Invariant
             if (string.IsNullOrEmpty(cultureName))
             {
-                return CultureData.Invariant;
+                return Invariant;
             }
 
             if (GlobalizationMode.PredefinedCulturesOnly)
             {
-                if (GlobalizationMode.Invariant || (GlobalizationMode.UseNls ? !NlsIsEnsurePredefinedLocaleName(cultureName): !IcuIsEnsurePredefinedLocaleName(cultureName)))
+                if (GlobalizationMode.Invariant || (GlobalizationMode.UseNls ? !NlsIsEnsurePredefinedLocaleName(cultureName) : !IcuIsEnsurePredefinedLocaleName(cultureName)))
                     return null;
             }
 
@@ -740,7 +738,7 @@ namespace System.Globalization
 
             while (i < name.Length && name[i] != '-' && name[i] != '_')
             {
-                if (name[i] >= 'A' && name[i] <= 'Z')
+                if (char.IsAsciiLetterUpper(name[i]))
                 {
                     // lowercase characters before '-'
                     normalizedName[i] = (char)(((int)name[i]) + 0x20);
@@ -761,7 +759,7 @@ namespace System.Globalization
 
             while (i < name.Length)
             {
-                if (name[i] >= 'a' && name[i] <= 'z')
+                if (char.IsAsciiLetterLower(name[i]))
                 {
                     normalizedName[i] = (char)(((int)name[i]) - 0x20);
                     changed = true;
@@ -804,18 +802,21 @@ namespace System.Globalization
                 // Always map the "C" locale to Invariant to avoid mapping it to en_US_POSIX on Linux because POSIX
                 // locale collation doesn't support case insensitive comparisons.
                 // We do the same mapping on Windows for the sake of consistency.
-                return CultureData.Invariant;
+                return Invariant;
             }
 
             CultureData culture = new CultureData();
             culture._sRealName = cultureName;
             culture._bUseOverridesUserSetting = useUserOverride;
 
-            // Ask native code if that one's real
+            // Ask native code if that one's real, populate _sWindowsName
             if (!culture.InitCultureDataCore() && !culture.InitCompatibilityCultureData())
             {
                 return null;
             }
+#if TARGET_BROWSER
+            culture.JSInitLocaleInfo();
+#endif
 
             // We need _sWindowsName to be initialized to know if we're using overrides.
             culture.InitUserOverride(useUserOverride);
@@ -868,6 +869,16 @@ namespace System.Globalization
 
             if (GlobalizationMode.Invariant)
             {
+                if (!GlobalizationMode.PredefinedCulturesOnly)
+                {
+                    if (culture is < 1 or > 0xf_ffff)
+                    {
+                        throw new CultureNotFoundException(nameof(culture), culture, SR.Argument_CultureNotSupported);
+                    }
+
+                    return Invariant;
+                }
+
                 // LCID is not supported in the InvariantMode
                 throw new CultureNotFoundException(nameof(culture), culture, SR.Argument_CultureNotSupportedInInvariantMode);
             }
@@ -902,13 +913,7 @@ namespace System.Globalization
                 // since windows doesn't know about zh-CHS and zh-CHT,
                 // we leave sRealName == zh-Hanx but we still need to
                 // pretend that it was zh-CHX.
-                switch (_sName)
-                {
-                    case "zh-CHS":
-                    case "zh-CHT":
-                        return _sName;
-                }
-                return _sRealName;
+                return _sName is "zh-CHS" or "zh-CHT" ? _sName : _sRealName;
             }
         }
 
@@ -959,6 +964,10 @@ namespace System.Globalization
 
         private string GetLanguageDisplayNameCore(string cultureName) => GlobalizationMode.UseNls ?
                                                                             NlsGetLanguageDisplayName(cultureName) :
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                                                                         GlobalizationMode.Hybrid ?
+                                                                            GetLocaleInfoNative(cultureName, LocaleStringData.LocalizedDisplayName, CultureInfo.CurrentUICulture.Name) :
+#endif
                                                                             IcuGetLanguageDisplayName(cultureName);
 
         /// <summary>
@@ -999,7 +1008,7 @@ namespace System.Globalization
                             // Our existing names mostly look like:
                             // "English" + "United States" -> "English (United States)"
                             // "Azeri (Latin)" + "Azerbaijan" -> "Azeri (Latin, Azerbaijan)"
-                            if (EnglishLanguageName[^1] == ')')
+                            if (EnglishLanguageName.EndsWith(')'))
                             {
                                 // "Azeri (Latin)" + "Azerbaijan" -> "Azeri (Latin, Azerbaijan)"
                                 englishDisplayName = string.Concat(
@@ -1358,18 +1367,10 @@ namespace System.Globalization
             {
                 if (_saLongTimes == null && !GlobalizationMode.Invariant)
                 {
-                    Debug.Assert(!GlobalizationMode.Invariant);
-
                     string[]? longTimes = GetTimeFormatsCore(shortFormat: false);
-                    if (longTimes == null || longTimes.Length == 0)
-                    {
-                        _saLongTimes = Invariant._saLongTimes!;
-                    }
-                    else
-                    {
-                        _saLongTimes = longTimes;
-                    }
+                    _saLongTimes = longTimes != null && longTimes.Length != 0 ? longTimes : Invariant._saLongTimes!;
                 }
+
                 return _saLongTimes!;
             }
         }
@@ -1384,23 +1385,13 @@ namespace System.Globalization
             {
                 if (_saShortTimes == null && !GlobalizationMode.Invariant)
                 {
-                    Debug.Assert(!GlobalizationMode.Invariant);
-
                     // Try to get the short times from the OS/culture.dll
+                    // If we couldn't find short times, then compute them from long times
+                    // (eg: CORECLR on < Win7 OS & fallback for missing culture.dll)
                     string[]? shortTimes = GetTimeFormatsCore(shortFormat: true);
-
-                    if (shortTimes == null || shortTimes.Length == 0)
-                    {
-                        //
-                        // If we couldn't find short times, then compute them from long times
-                        // (eg: CORECLR on < Win7 OS & fallback for missing culture.dll)
-                        //
-                        shortTimes = DeriveShortTimesFromLong();
-                    }
-
-                    // Found short times, use them
-                    _saShortTimes = shortTimes;
+                    _saShortTimes = shortTimes != null && shortTimes.Length != 0 ? shortTimes : DeriveShortTimesFromLong();
                 }
+
                 return _saShortTimes!;
             }
         }
@@ -1541,7 +1532,16 @@ namespace System.Globalization
             {
                 if (_iFirstDayOfWeek == undef && !GlobalizationMode.Invariant)
                 {
-                    _iFirstDayOfWeek = ShouldUseUserOverrideNlsData ? NlsGetFirstDayOfWeek() : IcuGetLocaleInfo(LocaleNumberData.FirstDayOfWeek);
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                    if (GlobalizationMode.Hybrid)
+                    {
+                        _iFirstDayOfWeek = GetLocaleInfoNative(LocaleNumberData.FirstDayOfWeek);
+                    }
+                    else
+#endif
+                    {
+                        _iFirstDayOfWeek = ShouldUseUserOverrideNlsData ? NlsGetFirstDayOfWeek() : IcuGetLocaleInfo(LocaleNumberData.FirstDayOfWeek);
+                    }
                 }
                 return _iFirstDayOfWeek;
             }
@@ -2094,7 +2094,7 @@ namespace System.Globalization
         private static int IndexOfTimePart(string format, int startIndex, string timeParts)
         {
             Debug.Assert(startIndex >= 0, "startIndex cannot be negative");
-            Debug.Assert(timeParts.AsSpan().IndexOfAny('\'', '\\') < 0, "timeParts cannot include quote characters");
+            Debug.Assert(!timeParts.AsSpan().ContainsAny('\'', '\\'), "timeParts cannot include quote characters");
             bool inQuote = false;
             for (int i = startIndex; i < format.Length; ++i)
             {
@@ -2138,7 +2138,7 @@ namespace System.Globalization
         {
             string[] result = NumberFormatInfo.s_asciiDigits;
 
-            // LOCALE_SNATIVEDIGITS (array of 10 single character strings).
+            // NLS LOCALE_SNATIVEDIGITS (array of 10 single character strings). In case of ICU, the buffer can be longer.
             string digits = GetLocaleInfoCoreUserOverride(LocaleStringData.Digits);
 
             // if digits.Length < NumberFormatInfo.s_asciiDigits.Length means the native digits setting is messed up in the host machine.
@@ -2148,36 +2148,54 @@ namespace System.Globalization
                 return result;
             }
 
-            // Try to check if the digits are all ASCII so we can avoid the array allocation and use the static array NumberFormatInfo.s_asciiDigits instead.
-            // If we have non-ASCII digits, we should exit the loop very quickly.
-            int i = 0;
-            while (i < NumberFormatInfo.s_asciiDigits.Length)
-            {
-                if (digits[i] != NumberFormatInfo.s_asciiDigits[i][0])
-                {
-                    break;
-                }
-                i++;
-            }
+            // In ICU we separate the digits with the '\uFFFF' character
 
-            if (i >= NumberFormatInfo.s_asciiDigits.Length)
+            if (digits.StartsWith("0\uFFFF1\uFFFF2\uFFFF3\uFFFF4\uFFFF5\uFFFF6\uFFFF7\uFFFF8\uFFFF9\uFFFF", StringComparison.Ordinal) ||  // ICU common cases
+                digits.StartsWith("0123456789", StringComparison.Ordinal))  // NLS common cases
             {
                 return result;
             }
 
-            // we have non-ASCII digits
+            // Non-ASCII digits
+
+            // Check if values coming from ICU separated by 0xFFFF
+            int ffffPos = digits.IndexOf('\uFFFF');
+
             result = new string[10];
-            for (i = 0; i < result.Length; i++)
+            if (ffffPos < 0) // NLS case
             {
-                result[i] = char.ToString(digits[i]);
+                for (int i = 0; i < result.Length; i++)
+                {
+                    result[i] = char.ToString(digits[i]);
+                }
+
+                return result;
             }
 
-            return result;
+            // ICU case
+
+            int start = 0;
+            int index = 0;
+
+            do
+            {
+                result[index++] = digits.Substring(start, ffffPos - start);
+                start = ++ffffPos;
+                while ((uint)ffffPos < (uint)digits.Length && digits[ffffPos] != '\uFFFF')
+                {
+                    ffffPos++;
+                }
+
+            } while (ffffPos < digits.Length && index < 10);
+
+            Debug.Assert(index >= 10, $"Couldn't read native digits for '{_sWindowsName}' successfully.");
+
+            return index < 10 ? NumberFormatInfo.s_asciiDigits : result;
         }
 
         internal void GetNFIValues(NumberFormatInfo nfi)
         {
-            if (GlobalizationMode.Invariant || IsInvariantCulture)
+            if (GlobalizationMode.InvariantNoLoad || IsInvariantCulture)
             {
                 nfi._positiveSign = _sPositiveSign!;
                 nfi._negativeSign = _sNegativeSign!;
@@ -2267,8 +2285,11 @@ namespace System.Globalization
             // This is never reached but helps illinker statically remove dependencies
             if (GlobalizationMode.Invariant)
                 return 0;
-
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(type) : IcuGetLocaleInfo(type);
+#else
             return GlobalizationMode.UseNls ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
+#endif
         }
 
         private int GetLocaleInfoCoreUserOverride(LocaleNumberData type)
@@ -2276,8 +2297,11 @@ namespace System.Globalization
             // This is never reached but helps illinker statically remove dependencies
             if (GlobalizationMode.Invariant)
                 return 0;
-
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(type) : IcuGetLocaleInfo(type);
+#else
             return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
+#endif
         }
 
         private string GetLocaleInfoCoreUserOverride(LocaleStringData type)
@@ -2286,7 +2310,11 @@ namespace System.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(type) : IcuGetLocaleInfo(type);
+#else
             return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
+#endif
         }
 
         private string GetLocaleInfoCore(LocaleStringData type, string? uiCultureName = null)
@@ -2295,7 +2323,11 @@ namespace System.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(type, uiCultureName) : IcuGetLocaleInfo(type, uiCultureName);
+#else
             return GlobalizationMode.UseNls ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type, uiCultureName);
+#endif
         }
 
         private string GetLocaleInfoCore(string localeName, LocaleStringData type, string? uiCultureName = null)
@@ -2304,7 +2336,11 @@ namespace System.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(localeName, type, uiCultureName) : IcuGetLocaleInfo(localeName, type, uiCultureName);
+#else
             return GlobalizationMode.UseNls ? NlsGetLocaleInfo(localeName, type) : IcuGetLocaleInfo(localeName, type, uiCultureName);
+#endif
         }
 
         private int[] GetLocaleInfoCoreUserOverride(LocaleGroupingData type)
@@ -2313,7 +2349,11 @@ namespace System.Globalization
             if (GlobalizationMode.Invariant)
                 return null!;
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            return GlobalizationMode.Hybrid ? GetLocaleInfoNative(type) : IcuGetLocaleInfo(type);
+#else
             return ShouldUseUserOverrideNlsData ? NlsGetLocaleInfo(type) : IcuGetLocaleInfo(type);
+#endif
         }
 
         /// <remarks>

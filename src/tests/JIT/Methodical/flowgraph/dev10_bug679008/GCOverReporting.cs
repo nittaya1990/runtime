@@ -25,13 +25,15 @@
  * 2
  * 3
  * and then a crash!
- * 
+ *
  */
 
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
 
+namespace Test_GCOverReporting_cs
+{
 public struct MB8
 {
     public object foo;
@@ -98,12 +100,12 @@ public class Repro
     }
 
     [Fact]
-    public static int TestEntryPoint()
+    public static void TestEntryPoint()
     {
         Method();
         TrashStack();
         ConsumeStack(0);
         DoTest();
-        return 100;
     }
+}
 }

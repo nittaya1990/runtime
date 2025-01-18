@@ -7,7 +7,7 @@ namespace System.Security.Cryptography.X509Certificates
 {
     internal partial class X509Pal
     {
-        private sealed partial class AppleX509Pal : ManagedX509ExtensionProcessor, IX509Pal
+        private sealed partial class AppleX509Pal : IX509Pal
         {
             public ECDsa DecodeECDsaPublicKey(ICertificatePal? certificatePal)
             {
@@ -35,8 +35,10 @@ namespace System.Security.Cryptography.X509Certificates
                 // algorithm in the test suite (as of macOS Mojave Developer Preview 4).
                 if (key.IsInvalid)
                 {
+                    key.Dispose();
                     throw Interop.AppleCrypto.CreateExceptionForOSStatus(errSecInvalidKeyRef);
                 }
+
                 // EccGetKeySizeInBits can fail for two reasons. First, the Apple implementation has changed
                 // and we receive values from API that were not previously handled. In that case the
                 // implementation will need to be adjusted to handle these values. Second, we deliberately

@@ -14,7 +14,8 @@
 
 using System.Runtime.InteropServices;
 using System;
-internal class DblArray1
+using Xunit;
+public class DblArray1
 {
     private static int s_LOH_GEN = 0;
     public static void f0()
@@ -90,7 +91,11 @@ internal class DblArray1
         }
     }
 
-    public static int Main()
+    [Fact]
+    [SkipOnCoreClr("This test is not compatible with GCStress.", RuntimeTestModes.AnyGCStress)]
+    [OuterLoop]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/101284", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+    public static int TestEntryPoint()
     {
         if (RuntimeInformation.ProcessArchitecture == Architecture.X86)
         {

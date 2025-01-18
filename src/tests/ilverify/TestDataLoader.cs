@@ -36,7 +36,7 @@ namespace ILVerification.Tests
         ///  [FriendlyName]_ValidType_Valid
         /// </summary>
         /// <returns></returns>
-        public static TheoryData<TestCase> GetTypesWithValidType()
+        public static IEnumerable<TestCase[]> GetTypesWithValidType()
         {
             var typeSelector = new Func<string[], TypeDefinitionHandle, TestCase>((mparams, typeDefinitionHandle) =>
             {
@@ -54,19 +54,19 @@ namespace ILVerification.Tests
         ///  [FriendlyName]_InvalidType_[ExpectedVerifierError1]@[ExpectedVerifierError2]....[ExpectedVerifierErrorN]
         /// </summary>
         /// <returns></returns>
-        public static TheoryData<TestCase> GetTypesWithInvalidType()
+        public static IEnumerable<TestCase[]> GetTypesWithInvalidType()
         {
             var typeSelector = new Func<string[], TypeDefinitionHandle, TestCase>((mparams, typeDefinitionHandle) =>
             {
                 if (mparams[1] == "InvalidType")
                 {
-                    var verificationErros = new List<VerifierError>();
+                    var verificationErrors = new List<VerifierError>();
                     foreach (var expectedError in mparams[2].Split('@'))
                     {
-                        verificationErros.Add((VerifierError)Enum.Parse(typeof(VerifierError), expectedError));
+                        verificationErrors.Add((VerifierError)Enum.Parse(typeof(VerifierError), expectedError));
                     }
                     var newItem = new InvalidTypeTestCase { MetadataToken = MetadataTokens.GetToken(typeDefinitionHandle) };
-                    newItem.ExpectedVerifierErrors = verificationErros;
+                    newItem.ExpectedVerifierErrors = verificationErrors;
                     return newItem;
                 }
                 return null;
@@ -74,9 +74,9 @@ namespace ILVerification.Tests
             return GetTestTypeFromDll(typeSelector);
         }
 
-        private static TheoryData<TestCase> GetTestTypeFromDll(Func<string[], TypeDefinitionHandle, TestCase> typeSelector)
+        private static List<TestCase[]> GetTestTypeFromDll(Func<string[], TypeDefinitionHandle, TestCase> typeSelector)
         {
-            var retVal = new TheoryData<TestCase>();
+            var retVal = new List<TestCase[]>();
 
             foreach (var testDllName in GetAllTestDlls())
             {
@@ -95,7 +95,7 @@ namespace ILVerification.Tests
                             newItem.TestName = mparams[0];
                             newItem.TypeName = typeName;
                             newItem.ModuleName = testDllName;
-                            retVal.Add(newItem);
+                            retVal.Add(new[] { newItem });
                         }
                     }
                 }
@@ -110,7 +110,7 @@ namespace ILVerification.Tests
         /// The word after the '_' has to be 'Valid' (Case sensitive)
         /// E.g.: 'SimpleAdd_Valid'
         /// </summary>
-        public static TheoryData<TestCase> GetMethodsWithValidIL()
+        public static IEnumerable<TestCase[]> GetMethodsWithValidIL()
         {
             var methodSelector = new Func<string[], MethodDefinitionHandle, TestCase>((mparams, methodHandle) =>
             {
@@ -132,20 +132,20 @@ namespace ILVerification.Tests
         /// 3. part: the expected VerifierErrors as string separated by '.'.
         /// E.g.: SimpleAdd_Invalid_ExpectedNumericType
         /// </summary>
-        public static TheoryData<TestCase> GetMethodsWithInvalidIL()
+        public static IEnumerable<TestCase[]> GetMethodsWithInvalidIL()
         {
             var methodSelector = new Func<string[], MethodDefinitionHandle, TestCase>((mparams, methodHandle) =>
             {
                 if (mparams.Length == 3 && mparams[1] == "Invalid")
                 {
                     var expectedErrors = mparams[2].Split('.');
-                    var verificationErros = new List<VerifierError>();
+                    var verificationErrors = new List<VerifierError>();
 
                     foreach (var item in expectedErrors)
                     {
                         if (Enum.TryParse(item, out VerifierError expectedError))
                         {
-                            verificationErros.Add(expectedError);
+                            verificationErrors.Add(expectedError);
                         }
                     }
 
@@ -153,7 +153,7 @@ namespace ILVerification.Tests
 
                     if (expectedErrors.Length > 0)
                     {
-                        newItem.ExpectedVerifierErrors = verificationErros;
+                        newItem.ExpectedVerifierErrors = verificationErrors;
                     }
 
                     return newItem;
@@ -163,9 +163,9 @@ namespace ILVerification.Tests
             return GetTestMethodsFromDll(methodSelector);
         }
 
-        private static TheoryData<TestCase> GetTestMethodsFromDll(Func<string[], MethodDefinitionHandle, TestCase> methodSelector)
+        private static List<TestCase[]> GetTestMethodsFromDll(Func<string[], MethodDefinitionHandle, TestCase> methodSelector)
         {
-            var retVal = new TheoryData<TestCase>();
+            var retVal = new List<TestCase[]>();
 
             foreach (var testDllName in GetAllTestDlls())
             {
@@ -206,7 +206,7 @@ namespace ILVerification.Tests
                         newItem.MethodName = methodName;
                         newItem.ModuleName = testDllName;
 
-                        retVal.Add(newItem);
+                        retVal.Add(new[] { newItem });
                     }
                 }
             }
@@ -279,10 +279,10 @@ namespace ILVerification.Tests
                 _simpleNameToPathMap = simpleNameToPathMap;
             }
 
-            PEReader IResolver.ResolveAssembly(AssemblyName assemblyName)
+            PEReader IResolver.ResolveAssembly(AssemblyNameInfo assemblyName)
                 => Resolve(assemblyName.Name);
 
-            PEReader IResolver.ResolveModule(AssemblyName referencingModule, string fileName)
+            PEReader IResolver.ResolveModule(AssemblyNameInfo referencingModule, string fileName)
                 => Resolve(Path.GetFileNameWithoutExtension(fileName));
 
             public PEReader Resolve(string simpleName)

@@ -12,7 +12,6 @@ namespace System.Security.Cryptography.Tests
     public class AesCcmTests : CommonAEADTests
     {
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         [MemberData(nameof(EncryptTamperAADDecryptTestInputs))]
         public static void EncryptTamperAADDecrypt(int dataLength, int additionalDataLength)
         {
@@ -34,7 +33,7 @@ namespace System.Security.Cryptography.Tests
                 additionalData[0] ^= 1;
 
                 byte[] decrypted = new byte[dataLength];
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesCcm.Decrypt(nonce, ciphertext, tag, decrypted, additionalData));
             }
         }
@@ -73,7 +72,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetValidNonceSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void ValidNonceSize(int nonceSize)
         {
             const int dataLength = 35;
@@ -116,7 +114,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetValidTagSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void ValidTagSize(int tagSize)
         {
             const int dataLength = 35;
@@ -139,7 +136,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void TwoEncryptionsAndDecryptionsUsingOneInstance()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -267,7 +263,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void InplaceEncryptDecrypt()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -288,7 +283,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void InplaceEncryptTamperTagDecrypt()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -305,7 +299,7 @@ namespace System.Security.Cryptography.Tests
 
                 tag[0] ^= 1;
 
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesCcm.Decrypt(nonce, data, tag, data));
                 Assert.Equal(new byte[data.Length], data);
             }
@@ -313,7 +307,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetNistCcmTestCases))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void AesCcmNistTests(AEADTest testCase)
         {
             using (var aesCcm = new AesCcm(testCase.Key))
@@ -332,7 +325,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetNistCcmTestCases))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void AesCcmNistTestsTamperTag(AEADTest testCase)
         {
             using (var aesCcm = new AesCcm(testCase.Key))
@@ -347,7 +339,7 @@ namespace System.Security.Cryptography.Tests
 
                 byte[] plaintext = new byte[testCase.Plaintext.Length];
                 RandomNumberGenerator.Fill(plaintext);
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesCcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData));
                 Assert.Equal(new byte[plaintext.Length], plaintext);
             }
@@ -355,7 +347,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetNistCcmTestCasesWithNonEmptyPT))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void AesCcmNistTestsTamperCiphertext(AEADTest testCase)
         {
             using (var aesCcm = new AesCcm(testCase.Key))
@@ -370,10 +361,26 @@ namespace System.Security.Cryptography.Tests
 
                 byte[] plaintext = new byte[testCase.Plaintext.Length];
                 RandomNumberGenerator.Fill(plaintext);
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesCcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData));
                 Assert.Equal(new byte[plaintext.Length], plaintext);
             }
+        }
+
+        [Fact]
+        public static void UseAfterDispose()
+        {
+            byte[] key = "eda32f751456e33195f1f499cf2dc7c97ea127b6d488f211ccc5126fbb24afa6".HexToByteArray();
+            byte[] nonce = "a544218dadd3c1".HexToByteArray();
+            byte[] plaintext = Array.Empty<byte>();
+            byte[] ciphertext = Array.Empty<byte>();
+            byte[] tag = "469c90bb".HexToByteArray();
+
+            AesCcm aesCcm = new AesCcm(key);
+            aesCcm.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => aesCcm.Encrypt(nonce, plaintext, ciphertext, new byte[tag.Length]));
+            Assert.Throws<ObjectDisposedException>(() => aesCcm.Decrypt(nonce, ciphertext, tag, plaintext));
         }
 
         public static IEnumerable<object[]> GetValidNonceSizes()

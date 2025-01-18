@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
@@ -131,8 +131,7 @@ namespace System.DirectoryServices.AccountManagement
                 //                {
                 foreach (Hashtable propertyMappingTableByProperty in byPropertyTables)
                 {
-                    if (propertyMappingTableByProperty[propertyName] == null)
-                        propertyMappingTableByProperty[propertyName] = new ArrayList();
+                    propertyMappingTableByProperty[propertyName] ??= new ArrayList();
 
                     ((ArrayList)propertyMappingTableByProperty[propertyName]).Add(propertyEntry);
                 }
@@ -147,8 +146,7 @@ namespace System.DirectoryServices.AccountManagement
 
                     foreach (Hashtable propertyMappingTableByWinNT in byWinNTTables)
                     {
-                        if (propertyMappingTableByWinNT[winNTAttributeLower] == null)
-                            propertyMappingTableByWinNT[winNTAttributeLower] = new ArrayList();
+                        propertyMappingTableByWinNT[winNTAttributeLower] ??= new ArrayList();
 
                         ((ArrayList)propertyMappingTableByWinNT[winNTAttributeLower]).Add(propertyEntry);
                     }
@@ -219,8 +217,8 @@ namespace System.DirectoryServices.AccountManagement
         // have been set, prior to persisting the Principal.
         internal override void Insert(Principal p)
         {
-            Debug.Assert(p.unpersisted == true);
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(p.unpersisted);
+            Debug.Assert(!p.fakePrincipal);
 
             try
             {
@@ -368,8 +366,8 @@ namespace System.DirectoryServices.AccountManagement
         internal override void InitializeUserAccountControl(AuthenticablePrincipal p)
         {
             Debug.Assert(p != null);
-            Debug.Assert(p.fakePrincipal == false);
-            Debug.Assert(p.unpersisted == true); // should only ever be called for new principals
+            Debug.Assert(!p.fakePrincipal);
+            Debug.Assert(p.unpersisted); // should only ever be called for new principals
 
             // set the userAccountControl bits on the underlying directory entry
             DirectoryEntry de = (DirectoryEntry)p.UnderlyingObject;
@@ -445,8 +443,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (copyOfDe != null)
-                    copyOfDe.Dispose();
+                copyOfDe?.Dispose();
             }
         }
 
@@ -575,7 +572,7 @@ namespace System.DirectoryServices.AccountManagement
             return FindByDate(FindByDateMatcher.DateProperty.AccountExpirationTime, matchType, dt, principalType);
         }
 
-        private ResultSet FindByDate(
+        private SAMQuerySet FindByDate(
                         FindByDateMatcher.DateProperty property,
                         MatchType matchType,
                         DateTime value,
@@ -1056,7 +1053,7 @@ namespace System.DirectoryServices.AccountManagement
                 if (err == 0)
                 {
                     UnsafeNativeMethods.WKSTA_INFO_100 wkstaInfo =
-                        (UnsafeNativeMethods.WKSTA_INFO_100)Marshal.PtrToStructure(buffer, typeof(UnsafeNativeMethods.WKSTA_INFO_100));
+                        Marshal.PtrToStructure<UnsafeNativeMethods.WKSTA_INFO_100>(buffer);
 
                     _machineFlatName = wkstaInfo.wki100_computername;
                     GlobalDebug.WriteLineIf(GlobalDebug.Info, "SAMStoreCtx", "LoadComputerInfo: machineFlatName={0}", _machineFlatName);

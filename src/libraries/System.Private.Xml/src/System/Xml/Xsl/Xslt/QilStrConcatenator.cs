@@ -2,11 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
-using System.Xml;
 using System.Text;
+using System.Xml;
 using System.Xml.Schema;
-using System.Xml.Xsl.XPath;
 using System.Xml.Xsl.Qil;
+using System.Xml.Xsl.XPath;
 
 namespace System.Xml.Xsl.Xslt
 {
@@ -33,10 +33,7 @@ namespace System.Xml.Xsl.Xslt
 
         private void FlushBuilder()
         {
-            if (_concat == null)
-            {
-                _concat = _f.BaseFactory.Sequence();
-            }
+            _concat ??= _f.BaseFactory.Sequence();
             if (_builder.Length != 0)
             {
                 _concat.Add(_f.String(_builder.ToString()));

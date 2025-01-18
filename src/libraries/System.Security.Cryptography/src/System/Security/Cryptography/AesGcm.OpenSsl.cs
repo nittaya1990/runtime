@@ -12,6 +12,7 @@ namespace System.Security.Cryptography
         private SafeEvpCipherCtxHandle _ctxHandle;
 
         public static bool IsSupported { get; } = Interop.OpenSslNoInit.OpenSslIsAvailable;
+        public static KeySizes TagByteSizes { get; } = new KeySizes(12, 16, 1);
 
         [MemberNotNull(nameof(_ctxHandle))]
         private void ImportKey(ReadOnlySpan<byte> key)
@@ -22,7 +23,7 @@ namespace System.Security.Cryptography
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
                 key,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 Interop.Crypto.EvpCipherDirection.NoChange);
             Interop.Crypto.EvpCipherSetGcmNonceLength(_ctxHandle, NonceSize);
         }
@@ -36,7 +37,7 @@ namespace System.Security.Cryptography
         {
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 nonce,
                 Interop.Crypto.EvpCipherDirection.Encrypt);
 
@@ -106,7 +107,7 @@ namespace System.Security.Cryptography
                 out int bytesWritten))
             {
                 CryptographicOperations.ZeroMemory(plaintext);
-                throw new CryptographicException(SR.Cryptography_AuthTagMismatch);
+                throw new AuthenticationTagMismatchException();
             }
 
             plaintextBytesWritten += bytesWritten;

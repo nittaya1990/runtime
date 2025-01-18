@@ -1,5 +1,6 @@
 include(CheckCSourceCompiles)
 include(CheckIncludeFiles)
+include(CheckFunctionExists)
 
 if(CLR_CMAKE_HOST_WIN32)
     # Our posix abstraction layer will provide these headers
@@ -10,13 +11,13 @@ if(CLR_CMAKE_HOST_WIN32)
     # Fake it until support is added
     check_include_files(stdalign.h HAVE_STDALIGN_H)
     if (NOT HAVE_STDALIGN_H)
-        configure_file(${CLR_SRC_NATIVE_DIR}/external/libunwind/include/win/fakestdalign.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/stdalign.h COPYONLY)
+        configure_file(${CLR_SRC_NATIVE_DIR}/external/libunwind/include/remote/win/fakestdalign.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/stdalign.h COPYONLY)
     endif (NOT HAVE_STDALIGN_H)
 
     # MSVC compiler is currently missing C11 stdatomic.h header
     check_c_source_compiles("#include <stdatomic.h> void main() { _Atomic int a; }" HAVE_STDATOMIC_H)
     if (NOT HAVE_STDATOMIC_H)
-        configure_file(${CLR_SRC_NATIVE_DIR}/external/libunwind/include/win/fakestdatomic.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/stdatomic.h COPYONLY)
+        configure_file(${CLR_SRC_NATIVE_DIR}/external/libunwind/include/remote/win/fakestdatomic.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/stdatomic.h COPYONLY)
     endif (NOT HAVE_STDATOMIC_H)
 
     # MSVC compiler is currently missing C11 _Thread_local
@@ -35,17 +36,7 @@ endif(CLR_CMAKE_HOST_WIN32)
 check_include_files(link.h HAVE_LINK_H)
 check_include_files(sys/link.h HAVE_SYS_LINK_H)
 
-check_include_files(atomic_ops.h HAVE_ATOMIC_OPS_H)
-
-check_c_source_compiles("
-int main(int argc, char **argv)
-{
-    __sync_bool_compare_and_swap((int *)0, 0, 1);
-    __sync_fetch_and_add((int *)0, 1);
-
-    return 0;
-}" HAVE_SYNC_ATOMICS)
-
+check_function_exists(pipe2 HAVE_PIPE2)
 
 check_c_source_compiles("
 int main(int argc, char **argv)
@@ -54,16 +45,6 @@ int main(int argc, char **argv)
 
     return 0;
 }" HAVE__BUILTIN_UNREACHABLE)
-
-check_c_source_compiles("
-#include <stdalign.h>
-
-int main(void)
-{
-    alignas(128) char result = 0;
-
-    return result;
-}" HAVE_STDALIGN_ALIGNAS)
 
 configure_file(${CMAKE_CURRENT_LIST_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/config.h)
 add_definitions(-DHAVE_CONFIG_H=1)

@@ -8,15 +8,14 @@
 //
 // -- CLASSES --
 //
-// LegalPolicy          - partial class providing common legality checks
-// DefaultPolicy        - default inliner policy
-// ExtendedDefaltPolicy - a more aggressive and profile-driven variation of DefaultPolicy
-// DiscretionaryPolicy  - default variant with uniform size policy
-// ModelPolicy          - policy based on statistical modelling
-// ProfilePolicy        - policy based on statistical modelling and profile feedback
+// LegalPolicy           - partial class providing common legality checks
+// DefaultPolicy         - default inliner policy
+// ExtendedDefaultPolicy - a more aggressive and profile-driven variation of DefaultPolicy
+// DiscretionaryPolicy   - default variant with uniform size policy
+// ModelPolicy           - policy based on statistical modelling
+// ProfilePolicy         - policy based on statistical modelling and profile feedback
 //
-// These experimental policies are available only in
-// DEBUG or release+INLINE_DATA builds of the jit.
+// These experimental policies are available only in DEBUG builds of the jit.
 //
 // RandomPolicy         - randomized inlining
 // FullPolicy           - inlines everything up to size and depth limits
@@ -49,7 +48,8 @@ class LegalPolicy : public InlinePolicy
 
 public:
     // Constructor
-    LegalPolicy(bool isPrejitRoot) : InlinePolicy(isPrejitRoot)
+    LegalPolicy(bool isPrejitRoot)
+        : InlinePolicy(isPrejitRoot)
     {
         // empty
     }
@@ -57,12 +57,12 @@ public:
     // Handle an observation that must cause inlining to fail.
     void NoteFatal(InlineObservation obs) override;
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
     // Record observation for prior failure
     void NotePriorFailure(InlineObservation obs) override;
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
 protected:
     // Helper methods
@@ -112,6 +112,7 @@ public:
         , m_IsNoReturnKnown(false)
         , m_ConstArgFeedsIsKnownConst(false)
         , m_ArgFeedsIsKnownConst(false)
+        , m_InsideThrowBlock(false)
     {
         // empty
     }
@@ -126,20 +127,25 @@ public:
     void DetermineProfitability(CORINFO_METHOD_INFO* methodInfo) override;
     bool BudgetCheck() const override;
 
+    virtual unsigned EstimatedTotalILSize() const
+    {
+        return m_CodeSize;
+    }
+
     // Policy policies
     bool PropagateNeverToRuntime() const override;
 
     // Policy estimates
     int CodeSizeEstimate() override;
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
     void OnDumpXml(FILE* file, unsigned indent = 0) const override;
 
     const char* GetName() const override
     {
         return "DefaultPolicy";
     }
-#endif // (DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
 protected:
     // Constants
@@ -152,7 +158,7 @@ protected:
     // Helper methods
     virtual double DetermineMultiplier();
     int            DetermineNativeSizeEstimate();
-    int DetermineCallsiteNativeSizeEstimate(CORINFO_METHOD_INFO* methodInfo);
+    int            DetermineCallsiteNativeSizeEstimate(CORINFO_METHOD_INFO* methodInfo);
 
     // Data members
     Compiler*               m_RootCompiler; // root compiler instance
@@ -169,19 +175,20 @@ protected:
     unsigned                m_ConstantArgFeedsConstantTest;
     int                     m_CalleeNativeSizeEstimate;
     int                     m_CallsiteNativeSizeEstimate;
-    bool                    m_IsForceInline : 1;
-    bool                    m_IsForceInlineKnown : 1;
-    bool                    m_IsInstanceCtor : 1;
+    bool                    m_IsForceInline              : 1;
+    bool                    m_IsForceInlineKnown         : 1;
+    bool                    m_IsInstanceCtor             : 1;
     bool                    m_IsFromPromotableValueClass : 1;
-    bool                    m_HasSimd : 1;
-    bool                    m_LooksLikeWrapperMethod : 1;
-    bool                    m_MethodIsMostlyLoadStore : 1;
-    bool                    m_CallsiteIsInTryRegion : 1;
-    bool                    m_CallsiteIsInLoop : 1;
-    bool                    m_IsNoReturn : 1;
-    bool                    m_IsNoReturnKnown : 1;
-    bool                    m_ConstArgFeedsIsKnownConst : 1;
-    bool                    m_ArgFeedsIsKnownConst : 1;
+    bool                    m_HasSimd                    : 1;
+    bool                    m_LooksLikeWrapperMethod     : 1;
+    bool                    m_MethodIsMostlyLoadStore    : 1;
+    bool                    m_CallsiteIsInTryRegion      : 1;
+    bool                    m_CallsiteIsInLoop           : 1;
+    bool                    m_IsNoReturn                 : 1;
+    bool                    m_IsNoReturnKnown            : 1;
+    bool                    m_ConstArgFeedsIsKnownConst  : 1;
+    bool                    m_ArgFeedsIsKnownConst       : 1;
+    bool                    m_InsideThrowBlock           : 1;
 };
 
 // ExtendedDefaultPolicy is a slightly more aggressive variant of
@@ -209,13 +216,14 @@ public:
         , m_FoldableExprUn(0)
         , m_FoldableBranch(0)
         , m_FoldableSwitch(0)
+        , m_UnrollableMemop(0)
         , m_Switch(0)
         , m_DivByCns(0)
         , m_ReturnsStructByValue(false)
         , m_IsFromValueClass(false)
         , m_NonGenericCallsGeneric(false)
         , m_IsCallsiteInNoReturnRegion(false)
-        , m_HasProfile(false)
+        , m_HasProfileWeights(false)
     {
         // Empty
     }
@@ -226,19 +234,21 @@ public:
 
     double DetermineMultiplier() override;
 
+    unsigned EstimatedTotalILSize() const override;
+
     bool RequiresPreciseScan() override
     {
         return true;
     }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
     void OnDumpXml(FILE* file, unsigned indent = 0) const override;
 
     const char* GetName() const override
     {
         return "ExtendedDefaultPolicy";
     }
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
 protected:
     double   m_ProfileFrequency;
@@ -259,13 +269,14 @@ protected:
     unsigned m_FoldableExprUn;
     unsigned m_FoldableBranch;
     unsigned m_FoldableSwitch;
+    unsigned m_UnrollableMemop;
     unsigned m_Switch;
     unsigned m_DivByCns;
-    bool     m_ReturnsStructByValue : 1;
-    bool     m_IsFromValueClass : 1;
-    bool     m_NonGenericCallsGeneric : 1;
+    bool     m_ReturnsStructByValue       : 1;
+    bool     m_IsFromValueClass           : 1;
+    bool     m_NonGenericCallsGeneric     : 1;
     bool     m_IsCallsiteInNoReturnRegion : 1;
-    bool     m_HasProfile : 1;
+    bool     m_HasProfileWeights          : 1;
 };
 
 // DiscretionaryPolicy is a variant of the default policy.  It
@@ -295,7 +306,7 @@ public:
     // Policy estimates
     int CodeSizeEstimate() override;
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
     // Externalize data
     void DumpData(FILE* file) const override;
@@ -307,7 +318,7 @@ public:
         return "DiscretionaryPolicy";
     }
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
 protected:
     void ComputeOpcodeBin(OPCODE opcode);
@@ -360,7 +371,7 @@ protected:
     unsigned    m_CallSiteWeight;
     int         m_ModelCodeSizeEstimate;
     int         m_PerCallInstructionEstimate;
-    bool        m_HasProfile;
+    bool        m_HasProfileWeights;
     bool        m_IsClassCtor;
     bool        m_IsSameThis;
     bool        m_CallerHasNewArray;
@@ -389,7 +400,7 @@ public:
         return true;
     }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
     // Miscellaneous
     const char* GetName() const override
@@ -397,7 +408,7 @@ public:
         return "ModelPolicy";
     }
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 };
 
 // ProfilePolicy is an experimental policy that uses the results
@@ -415,7 +426,7 @@ public:
     // Policy determinations
     void DetermineProfitability(CORINFO_METHOD_INFO* methodInfo) override;
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
     // Miscellaneous
     const char* GetName() const override
@@ -423,10 +434,10 @@ public:
         return "ProfilePolicy";
     }
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 };
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
 // RandomPolicy implements a policy that inlines at random.
 // It is mostly useful for stress testing.
@@ -453,9 +464,9 @@ private:
     CLRRandom* m_Random;
 };
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
-#if defined(DEBUG) || defined(INLINE_DATA)
+#if defined(DEBUG)
 
 // FullPolicy is an experimental policy that will always inline if
 // possible, subject to externally settable depth and size limits.
@@ -550,6 +561,6 @@ private:
     bool                 m_WasForceInline;
 };
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif // defined(DEBUG)
 
 #endif // _INLINE_POLICY_H_

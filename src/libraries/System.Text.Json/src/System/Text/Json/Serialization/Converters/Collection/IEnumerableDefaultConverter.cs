@@ -12,7 +12,7 @@ namespace System.Text.Json.Serialization.Converters
     internal abstract class IEnumerableDefaultConverter<TCollection, TElement> : JsonCollectionConverter<TCollection, TElement>
         where TCollection : IEnumerable<TElement>
     {
-        internal override bool CanHaveIdMetadata => true;
+        internal override bool CanHaveMetadata => true;
 
         protected override bool OnWriteResume(Utf8JsonWriter writer, TCollection value, JsonSerializerOptions options, ref WriteStack state)
         {
@@ -22,6 +22,7 @@ namespace System.Text.Json.Serialization.Converters
             if (state.Current.CollectionEnumerator == null)
             {
                 enumerator = value.GetEnumerator();
+                state.Current.CollectionEnumerator = enumerator;
                 if (!enumerator.MoveNext())
                 {
                     enumerator.Dispose();
@@ -37,18 +38,18 @@ namespace System.Text.Json.Serialization.Converters
             JsonConverter<TElement> converter = GetElementConverter(ref state);
             do
             {
-                if (ShouldFlush(writer, ref state))
+                if (ShouldFlush(ref state, writer))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
 
                 TElement element = enumerator.Current;
                 if (!converter.TryWrite(writer, element, options, ref state))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
+
+                state.Current.EndCollectionElement();
             } while (enumerator.MoveNext());
 
             enumerator.Dispose();

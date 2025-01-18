@@ -4,6 +4,9 @@
 //testing double narrowing
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.FPtrunc.convr8a;
 
 public struct VT
 {
@@ -85,7 +88,9 @@ public class ConvR8test
         return s_f1 / s_a1;
     }
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         bool pass = true;
 

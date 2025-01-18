@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Xunit;
-using Xunit.Abstractions;
 using System.IO;
 using System.Xml.Schema;
 using System.Xml.XPath;
+using Xunit;
+using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaTests
 {
     //[TestCase(Name = "TC_SchemaSet_Misc", Desc = "")]
     public class TC_SchemaSet_Misc : TC_SchemaSetBase
@@ -89,7 +89,7 @@ namespace System.Xml.Tests
                                        XmlSchemaValidationFlags.ProcessInlineSchema;
             settings.ValidationEventHandler += new ValidationEventHandler(ValidationCallback);
             settings.Schemas.Add(ss);
-            XmlReader vr = XmlReader.Create(Path.Combine(TestData._Root, "bug115049.xml"), settings);
+            using XmlReader vr = XmlReader.Create(Path.Combine(TestData._Root, "bug115049.xml"), settings);
             while (vr.Read()) ;
             CError.Compare(errorCount, 1, "Error Count mismatch!");
             return;
@@ -108,34 +108,34 @@ namespace System.Xml.Tests
                                        XmlSchemaValidationFlags.ProcessSchemaLocation |
                                        XmlSchemaValidationFlags.ProcessInlineSchema;
             settings.ValidationEventHandler += new ValidationEventHandler(ValidationCallback);
-            XmlReader vr = XmlReader.Create(new StringReader(xml), settings, (string)null);
+            using XmlReader vr = XmlReader.Create(new StringReader(xml), settings, (string)null);
             while (vr.Read()) ;
             CError.Compare(errorCount, 0, "Error Count mismatch!");
             CError.Compare(warningCount, 1, "Warning Count mismatch!");
             return;
         }
 
-        /* Parameters = file name , is custom xml namespace System.Xml.Tests */
+        /* Parameters = file name , is custom xml namespace System.Xml.XmlSchemaTests */
 
-        //[Variation(Desc = "v20 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v10.xsd", 2, false })]
+        //[Variation(Desc = "v20 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v10.xsd", 2, false })]
         [InlineData("bug264908_v10.xsd", 2, false)]
-        //[Variation(Desc = "v19 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v9.xsd", 5, true })]
+        //[Variation(Desc = "v19 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v9.xsd", 5, true })]
         [InlineData("bug264908_v9.xsd", 5, true)]
-        //[Variation(Desc = "v18 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v8.xsd", 5, false })]
+        //[Variation(Desc = "v18 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v8.xsd", 5, false })]
         [InlineData("bug264908_v8.xsd", 5, false)]
-        //[Variation(Desc = "v17 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v7.xsd", 4, false })]
+        //[Variation(Desc = "v17 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v7.xsd", 4, false })]
         [InlineData("bug264908_v7.xsd", 4, false)]
-        //[Variation(Desc = "v16 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v6.xsd", 4, true })]
+        //[Variation(Desc = "v16 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v6.xsd", 4, true })]
         [InlineData("bug264908_v6.xsd", 4, true)]
-        //[Variation(Desc = "v15 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v5.xsd", 4, false })]
+        //[Variation(Desc = "v15 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v5.xsd", 4, false })]
         [InlineData("bug264908_v5.xsd", 4, false)]
-        //[Variation(Desc = "v14 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v4.xsd", 4, true })]
+        //[Variation(Desc = "v14 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v4.xsd", 4, true })]
         [InlineData("bug264908_v4.xsd", 4, true)]
-        //[Variation(Desc = "v13 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v3.xsd", 1, true })]
+        //[Variation(Desc = "v13 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v3.xsd", 1, true })]
         [InlineData("bug264908_v3.xsd", 1, true)]
-        //[Variation(Desc = "v12 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v2.xsd", 1, true })]
+        //[Variation(Desc = "v12 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v2.xsd", 1, true })]
         [InlineData("bug264908_v2.xsd", 1, true)]
-        //[Variation(Desc = "v11 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.Tests", Priority = 1, Params = new object[] { "bug264908_v1.xsd", 3, true })]
+        //[Variation(Desc = "v11 - DCR 264908 - XSD: Support user specified schema for http://www.w3.org/XML/1998/namespace System.Xml.XmlSchemaTests", Priority = 1, Params = new object[] { "bug264908_v1.xsd", 3, true })]
         [InlineData("bug264908_v1.xsd", 3, true)]
         [Theory]
         public void v10(object param0, object param1, object param2)
@@ -162,7 +162,7 @@ namespace System.Xml.Tests
                     if (a.QualifiedName.Name == attName)
                         return;
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
             return;
         }
@@ -190,7 +190,7 @@ namespace System.Xml.Tests
                 if (a.QualifiedName.Name == attName)
                     return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v22 - Bug 338038 - Component should be additive into the Xml namespace", Priority = 1)]
@@ -216,10 +216,10 @@ namespace System.Xml.Tests
                 if (a.QualifiedName.Name == attName)
                     return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
-        //[Variation(Desc = "v23 - Bug 338038 - Conflicting components in custome xml namespace System.Xml.Tests be caught", Priority = 1)]
+        //[Variation(Desc = "v23 - Bug 338038 - Conflicting components in custome xml namespace System.Xml.XmlSchemaTests be caught", Priority = 1)]
         [Fact]
         public void v22()
         {
@@ -239,10 +239,10 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
-        //[Variation(Desc = "v24 - Bug 338038 - Change type of xml:lang to decimal in custome xml namespace System.Xml.Tests", Priority = 1)]
+        //[Variation(Desc = "v24 - Bug 338038 - Change type of xml:lang to decimal in custome xml namespace System.Xml.XmlSchemaTests", Priority = 1)]
         [Fact]
         public void v24()
         {
@@ -267,7 +267,7 @@ namespace System.Xml.Tests
                 }
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v25 - Bug 338038 - Conflicting definitions for xml attributes in two schemas", Priority = 1)]
@@ -292,7 +292,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v26 - Bug 338038 - Change type of xml:lang to decimal and xml:base to short in two steps", Priority = 1)]
@@ -324,7 +324,7 @@ namespace System.Xml.Tests
             return;
         }
 
-        //[Variation(Desc = "v27 - Bug 338038 - Add new attributes to the already present xml namespace System.Xml.Tests", Priority = 1)]
+        //[Variation(Desc = "v27 - Bug 338038 - Add new attributes to the already present xml namespace System.Xml.XmlSchemaTests", Priority = 1)]
         [Fact]
         public void v27()
         {
@@ -348,7 +348,7 @@ namespace System.Xml.Tests
             return;
         }
 
-        //[Variation(Desc = "v28 - Bug 338038 - Add new attributes to the already present xml namespace System.Xml.Tests, remove default ns schema", Priority = 1)]
+        //[Variation(Desc = "v28 - Bug 338038 - Add new attributes to the already present xml namespace System.Xml.XmlSchemaTests, remove default ns schema", Priority = 1)]
         [Fact]
         public void v28()
         {
@@ -504,7 +504,7 @@ namespace System.Xml.Tests
             return;
         }
 
-        //[Variation(Desc = "v103 - Reference to a component from no namespace System.Xml.Tests an explicit import of no namespace System.Xml.Tests throw a validation warning", Priority = 1)]
+        //[Variation(Desc = "v103 - Reference to a component from no namespace System.Xml.XmlSchemaTests an explicit import of no namespace System.Xml.XmlSchemaTests throw a validation warning", Priority = 1)]
         [Fact]
         public void v105()
         {
@@ -531,7 +531,7 @@ namespace System.Xml.Tests
 #pragma warning disable 0618
             settings.ProhibitDtd = false;
 #pragma warning restore 0618
-            XmlReader r = XmlReader.Create(Path.Combine(TestData._Root, "XMLSchema.xsd"), settings);
+            using XmlReader r = XmlReader.Create(Path.Combine(TestData._Root, "XMLSchema.xsd"), settings);
             ss1.Add(null, r);
             ss1.Compile();
 
@@ -568,7 +568,7 @@ namespace System.Xml.Tests
             settings.Schemas.Add(schemaSet);
             settings.ValidationEventHandler += new ValidationEventHandler(ValidationCallback);
             settings.ValidationType = ValidationType.Schema;
-            XmlReader vr = XmlReader.Create(new StringReader(strXml), settings);
+            using XmlReader vr = XmlReader.Create(new StringReader(strXml), settings);
 
             while (vr.Read()) ;
 
@@ -742,7 +742,7 @@ namespace System.Xml.Tests
             XmlSchema mainSchema = set.Add(null, Path.Combine(TestData._Root, "bug382035a.xsd"));
             set.Compile();
 
-            XmlReader r = XmlReader.Create(Path.Combine(TestData._Root, "bug382035a1.xsd"));
+            using XmlReader r = XmlReader.Create(Path.Combine(TestData._Root, "bug382035a1.xsd"));
             XmlSchema reParsedInclude = XmlSchema.Read(r, new ValidationEventHandler(ValidationCallback));
 
             ((XmlSchemaExternal)mainSchema.Includes[0]).Schema = reParsedInclude;
@@ -766,7 +766,7 @@ namespace System.Xml.Tests
             settings.ValidationFlags |= XmlSchemaValidationFlags.ReportValidationWarnings | XmlSchemaValidationFlags.ProcessSchemaLocation;
             settings.ValidationEventHandler += new ValidationEventHandler(ValidationCallback);
             settings.ValidationType = ValidationType.Schema;
-            XmlReader vr = XmlReader.Create(new StringReader(strXml), settings);
+            using XmlReader vr = XmlReader.Create(new StringReader(strXml), settings);
 
             while (vr.Read()) ;
 
@@ -906,7 +906,7 @@ namespace System.Xml.Tests
                     }
                 }
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v120a.XmlDocument.Load non-validating reader.Expect IOE.")]
@@ -929,7 +929,7 @@ namespace System.Xml.Tests
                     return;
                 }
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "444196: XmlReader.MoveToNextAttribute returns incorrect results")]
@@ -989,20 +989,7 @@ namespace System.Xml.Tests
                 if (xmlReader.MoveToNextAttribute())
                     return;
             }
-            Assert.True(false);
-        }
-
-        //[Variation(Desc = "615444 XmlSchema.Write ((XmlWriter)null) throws InvalidOperationException instead of ArgumentNullException")]
-        [Fact]
-        public void v125()
-        {
-            XmlSchema xs = new XmlSchema();
-            try
-            {
-                xs.Write((XmlWriter)null);
-            }
-            catch (InvalidOperationException) { return; }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "Dev10_40561 Redefine Chameleon: Unexpected qualified name on local particle")]
@@ -1027,7 +1014,7 @@ namespace System.Xml.Tests
                 {
                     while (reader.Read()) ;
                     _output.WriteLine("XmlSchemaValidationException was not thrown");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
                 catch (XmlSchemaValidationException e) { _output.WriteLine(e.Message); }
             }
@@ -1036,10 +1023,12 @@ namespace System.Xml.Tests
             return;
         }
 
-        // Test failure on ILC: Test depends on Xml Serialization and requires reflection on a LOT of types under System.Xml.Schema namespace.
-        // Rd.xml with "<Namespace Name="System.Xml.Schema" Dynamic="Required Public" />" lets this test pass but we should probably be
-        // fixing up XmlSerializer's own rd.xml rather than the test here.
+#if !ReflectionOnly && !XMLSERIALIZERGENERATORTESTS
+        // Conditioned the same as XmlSerializer tests. This uses XmlSerializer to serialize the schema.
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBuiltWithAggressiveTrimming))]
+#else
         [Fact]
+#endif
         public void GetBuiltinSimpleTypeWorksAsEcpected()
         {
             Initialize();
@@ -1067,7 +1056,7 @@ namespace System.Xml.Tests
             string xsd = Path.Combine(TestData._Root, "bug511217.xsd");
             XmlSchemaSet s = new XmlSchemaSet();
             s.XmlResolver = new XmlUrlResolver();
-            XmlReader r = XmlReader.Create(xsd);
+            using XmlReader r = XmlReader.Create(xsd);
             s.Add(null, r);
             s.Compile();
             XmlReaderSettings rs = new XmlReaderSettings();

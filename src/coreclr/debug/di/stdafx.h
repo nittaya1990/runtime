@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <windows.h>
 #include <winnt.h>
+#include <algorithm>
+using std::min;
+using std::max;
 
 #include <dbgtargetcontext.h>
 
@@ -21,17 +24,6 @@
 //-----------------------------------------------------------------------------
 #if defined(_DEBUG)
     #define RSCONTRACTS
-#endif
-
-
-// In case of FEATURE_DBGIPC_TRANSPORT_DI we use pipe for debugger debugee communication
-// and event redirection is not needed. (won't work anyway)
-#ifndef FEATURE_DBGIPC_TRANSPORT_DI
-// Currently, we only can redirect exception events. Since real interop-debugging
-// neeeds all events, redirection can't work in real-interop.
-// However, whether we're interop-debugging is determined at runtime, so we always
-// enable at compile time and then we need a runtime check later.
-#define ENABLE_EVENT_REDIRECTION_PIPELINE
 #endif
 
 #include "ex.h"

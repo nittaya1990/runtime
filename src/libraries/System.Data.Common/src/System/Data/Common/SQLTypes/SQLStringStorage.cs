@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
+using System.Collections;
 using System.Data.SqlTypes;
 using System.Diagnostics;
-using System.IO;
-using System.Xml.Serialization;
-using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Xml;
+using System.Xml.Serialization;
 
 namespace System.Data.Common
 {
@@ -38,7 +38,7 @@ namespace System.Data.Common
                         }
                         if (min >= 0)
                         {
-                            for (i = i + 1; i < recordNos.Length; i++)
+                            for (i++; i < recordNos.Length; i++)
                             {
                                 if (IsNull(recordNos[i]))
                                     continue;
@@ -63,7 +63,7 @@ namespace System.Data.Common
                         }
                         if (max >= 0)
                         {
-                            for (i = i + 1; i < recordNos.Length; i++)
+                            for (i++; i < recordNos.Length; i++)
                             {
                                 if (Compare(max, recordNos[i]) < 0)
                                 {
@@ -153,19 +153,15 @@ namespace System.Data.Common
 
         public override void SetCapacity(int capacity)
         {
-            SqlString[] newValues = new SqlString[capacity];
-            if (null != _values)
-            {
-                Array.Copy(_values, newValues, Math.Min(capacity, _values.Length));
-            }
-            _values = newValues;
+            Array.Resize(ref _values, capacity);
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override object ConvertXmlToObject(string s)
         {
             SqlString newValue = default;
-            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragmet to reader
+            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragment to reader
             StringReader strReader = new StringReader(tempStr);
 
             IXmlSerializable tmp = newValue;
@@ -178,6 +174,7 @@ namespace System.Data.Common
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override string ConvertObjectToXml(object value)
         {
             Debug.Assert(!DataStorage.IsObjectNull(value), "we shouldn't have null here");

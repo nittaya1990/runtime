@@ -6,12 +6,12 @@
 #include <mono/component/event_pipe.h>
 #include <mono/utils/mono-publib.h>
 #include <mono/utils/mono-compiler.h>
+#include <mono/utils/mono-threads-api.h>
 #include <eventpipe/ep.h>
 #include <eventpipe/ep-event.h>
 #include <eventpipe/ep-event-instance.h>
 #include <eventpipe/ep-session.h>
 
-extern void ep_rt_mono_component_init (void);
 static bool _event_pipe_component_inited = false;
 
 struct _EventPipeProviderConfigurationNative {
@@ -84,6 +84,14 @@ event_pipe_thread_ctrl_activity_id(
 	uint8_t *activity_id,
 	uint32_t activity_id_len);
 
+static bool
+event_pipe_signal_session (EventPipeSessionID session_id);
+
+static bool
+event_pipe_wait_for_session_signal (
+	EventPipeSessionID session_id,
+	uint32_t timeout);
+
 static MonoComponentEventPipe fn_table = {
 	{ MONO_COMPONENT_ITF_VERSION, &event_pipe_available },
 	&ep_init,
@@ -104,16 +112,25 @@ static MonoComponentEventPipe fn_table = {
 	&ep_provider_add_event,
 	&event_pipe_get_session_info,
 	&event_pipe_thread_ctrl_activity_id,
-	&ep_rt_mono_write_event_ee_startup_start,
+	&ep_rt_write_event_ee_startup_start,
 	&ep_rt_write_event_threadpool_worker_thread_start,
 	&ep_rt_write_event_threadpool_worker_thread_stop,
 	&ep_rt_write_event_threadpool_worker_thread_wait,
+	&ep_rt_write_event_threadpool_min_max_threads,
 	&ep_rt_write_event_threadpool_worker_thread_adjustment_sample,
 	&ep_rt_write_event_threadpool_worker_thread_adjustment_adjustment,
 	&ep_rt_write_event_threadpool_worker_thread_adjustment_stats,
 	&ep_rt_write_event_threadpool_io_enqueue,
 	&ep_rt_write_event_threadpool_io_dequeue,
-	&ep_rt_write_event_threadpool_working_thread_count
+	&ep_rt_write_event_threadpool_working_thread_count,
+	&ep_rt_write_event_threadpool_io_pack,
+	&ep_rt_write_event_contention_lock_created,
+	&ep_rt_write_event_contention_start,
+	&ep_rt_write_event_contention_stop,
+	&ep_rt_write_event_wait_handle_wait_start,
+	&ep_rt_write_event_wait_handle_wait_stop,
+	&event_pipe_signal_session,
+	&event_pipe_wait_for_session_signal,
 };
 
 static bool
@@ -140,7 +157,7 @@ event_pipe_enable (
 	EventPipeProviderConfiguration *config_providers = g_new0 (EventPipeProviderConfiguration, providers_len);
 
 	if (config_providers) {
-		for (int i = 0; i < providers_len; ++i) {
+		for (guint32 i = 0; i < providers_len; ++i) {
 			ep_provider_config_init (
 				&config_providers[i],
 				providers[i].provider_name ? mono_utf16_to_utf8 (providers[i].provider_name, g_utf16_len (providers[i].provider_name), error) : NULL,
@@ -160,10 +177,10 @@ event_pipe_enable (
 		rundown_requested,
 		stream,
 		sync_callback,
-        NULL);
+		NULL);
 
 	if (config_providers) {
-		for (int i = 0; i < providers_len; ++i) {
+		for (guint32 i = 0; i < providers_len; ++i) {
 			ep_provider_config_fini (&config_providers[i]);
 			g_free ((ep_char8_t *)ep_provider_config_get_provider_name (&config_providers[i]));
 			g_free ((ep_char8_t *)ep_provider_config_get_filter_data (&config_providers[i]));
@@ -188,7 +205,7 @@ event_pipe_get_next_event (
 			data->provider_id = (intptr_t)ep_event_get_provider (ep_event);
 			data->event_id = ep_event_get_event_id (ep_event);
 		}
-		data->thread_id = ep_event_instance_get_thread_id (next_instance);
+		data->thread_id = GUINT64_TO_UINT32 (ep_event_instance_get_thread_id (next_instance));
 		data->timestamp = ep_event_instance_get_timestamp (next_instance);
 		memcpy (&data->activity_id, ep_event_instance_get_activity_id_cref (next_instance), EP_ACTIVITY_ID_SIZE);
 		memcpy (&data->related_activity_id, ep_event_instance_get_related_activity_id_cref (next_instance), EP_ACTIVITY_ID_SIZE);
@@ -282,6 +299,28 @@ event_pipe_thread_ctrl_activity_id (
 	}
 
 	return result;
+}
+
+static bool
+event_pipe_signal_session (EventPipeSessionID session_id)
+{
+	EventPipeSession *const session = ep_get_session (session_id);
+	if (!session)
+		return false;
+
+	return ep_rt_wait_event_set (ep_session_get_wait_event (session));
+}
+
+static bool
+event_pipe_wait_for_session_signal (
+	EventPipeSessionID session_id,
+	uint32_t timeout)
+{
+	EventPipeSession *const session = ep_get_session (session_id);
+	if (!session)
+		return false;
+
+	return !ep_rt_wait_event_wait (ep_session_get_wait_event (session), timeout, false) ? true : false;
 }
 
 MonoComponentEventPipe *

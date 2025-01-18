@@ -4,6 +4,9 @@
 // instance method
 
 using System;
+using Xunit;
+namespace Test_precise2_simple_cs
+{
 internal class measure
 {
     public static int a = 0xCC;
@@ -30,9 +33,11 @@ internal class test
     }
 }
 
-internal class Driver
+public class Driver
 {
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         try
         {
@@ -65,4 +70,5 @@ internal class Driver
         Console.WriteLine("PASSED");
         return 100;
     }
+}
 }

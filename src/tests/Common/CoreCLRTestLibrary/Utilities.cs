@@ -63,9 +63,11 @@ namespace TestLibrary
         public static bool IsX64 => (RuntimeInformation.ProcessArchitecture == Architecture.X64);
         public static bool IsArm => (RuntimeInformation.ProcessArchitecture == Architecture.Arm);
         public static bool IsArm64 => (RuntimeInformation.ProcessArchitecture == Architecture.Arm64);
+        public static bool IsXArch => IsX86 || IsX64;
 
         public static bool IsWindows => OperatingSystem.IsWindows();
         public static bool IsLinux => OperatingSystem.IsLinux();
+        public static bool IsFreeBSD => OperatingSystem.IsFreeBSD();
         public static bool IsMacOSX => OperatingSystem.IsMacOS();
         public static bool IsWindows7 => IsWindows && Environment.OSVersion.Version.Major == 6 && Environment.OSVersion.Version.Minor == 1;
         public static bool IsWindowsNanoServer => (!IsWindowsIoTCore && GetInstallationType().Equals("Nano Server", StringComparison.OrdinalIgnoreCase));
@@ -95,14 +97,19 @@ namespace TestLibrary
         public static bool IsMonoRuntime => Type.GetType("Mono.RuntimeStructs") != null;
         public static bool IsNotMonoRuntime => !IsMonoRuntime;
         public static bool IsNativeAot => IsNotMonoRuntime && !IsReflectionEmitSupported;
-#if NETCOREAPP
+        public static bool IsNotNativeAot => !IsNativeAot;
+
+        public static bool HasAssemblyFiles => !string.IsNullOrEmpty(typeof(Utilities).Assembly.Location);
+        public static bool IsSingleFile => !HasAssemblyFiles;
+
+#if NET
         public static bool IsReflectionEmitSupported => RuntimeFeature.IsDynamicCodeSupported;
         public static bool IsNotReflectionEmitSupported => !IsReflectionEmitSupported;
 #else
         public static bool IsReflectionEmitSupported => true;
 #endif
         public static bool SupportsExceptionInterop => IsWindows && IsNotMonoRuntime && !IsNativeAot; // matches definitions in clr.featuredefines.props
-        public static bool IsGCStress => (Environment.GetEnvironmentVariable("COMPlus_GCStress") != null) || (Environment.GetEnvironmentVariable("DOTNET_GCStress") != null);
+        public static bool IsGCStress => (Environment.GetEnvironmentVariable("DOTNET_GCStress") != null);
 
         public static string ByteArrayToString(byte[] bytes)
         {
@@ -157,8 +164,7 @@ namespace TestLibrary
             return returnString;
         }
 
-        // Given a character, display its unicode value in hex format. ProjectN doens't support
-        // unicode category as a Property on Char.
+        // Given a character, display its unicode value in hex format.
         public static string FormatHexStringFromUnicodeChar(char char1, bool includeUnicodeCategory)
         {
             if (includeUnicodeCategory)
@@ -335,7 +341,7 @@ namespace TestLibrary
             public const int PRODUCT_HOME_PREMIUM_N = 0x0000001A;
 
             /// <summary>
-            /// https://docs.microsoft.com/en-us/windows/desktop/api/sysinfoapi/nf-sysinfoapi-getproductinfo
+            /// https://learn.microsoft.com/windows/desktop/api/sysinfoapi/nf-sysinfoapi-getproductinfo
             /// </summary>
             [DllImport(nameof(Kernel32), SetLastError = false)]
             public static extern bool GetProductInfo(
@@ -435,6 +441,8 @@ namespace TestLibrary
 
             exitCode = ExecuteAndUnloadInternal(assemblyPath, args, unloadingCallback, out alcWeakRef);
 
+            // Run the GC and finalizer a few times to ensure that any complicated
+            // object trees and runtime data structures that may keep the ALC alive are freed.
             for (int i = 0; i < 8 && alcWeakRef.IsAlive; i++)
             {
                 GC.Collect();
@@ -452,6 +460,33 @@ namespace TestLibrary
             }
 
             return exitCode;
+        }
+
+        private static void ExecuteAndUnloadInternal(string assemblyPath, string typeName, string methodName, object[] args, out WeakReference alcWeakRef)
+        {
+            AssemblyLoadContext alc = new AssemblyLoadContext($"[{assemblyPath}]{typeName}.{methodName}", true);
+            alcWeakRef = new WeakReference(alc);
+
+            Assembly asm = alc.LoadFromAssemblyPath(assemblyPath);
+            Type testType = asm.GetType(typeName);
+            testType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static).Invoke(null, args);
+            alc.Unload();
+        }
+
+        public static void ExecuteAndUnload(string assemblyPath, string typeName, string methodName, params object[] args)
+        {
+            WeakReference alcWeakRef;
+            ExecuteAndUnloadInternal(assemblyPath, typeName, methodName, args, out alcWeakRef);
+
+            // Run the GC and finalizer a few times to ensure that any complicated
+            // object trees and runtime data structures that may keep the ALC alive are freed.
+            for (int i = 0; i < 8 && alcWeakRef.IsAlive; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.False(alcWeakRef.IsAlive);
         }
     }
 }

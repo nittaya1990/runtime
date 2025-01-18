@@ -1,23 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-**
-**
-**
-** Purpose: Create a Memorystream over an UnmanagedMemoryStream
-**
-===========================================================*/
-
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.IO
 {
-    // Needed for backwards compatibility with V1.x usages of the
-    // ResourceManager, where a MemoryStream is now returned as an
-    // UnmanagedMemoryStream from ResourceReader.
+    /// <summary>
+    /// Creates a <see cref="MemoryStream"/> over an <see cref="UnmanagedMemoryStream"/>.
+    /// </summary>
     internal sealed class UnmanagedMemoryStreamWrapper : MemoryStream
     {
         private readonly UnmanagedMemoryStream _unmanagedStream;
@@ -96,7 +87,7 @@ namespace System.IO
             return _unmanagedStream.Seek(offset, loc);
         }
 
-        public override unsafe byte[] ToArray()
+        public override byte[] ToArray()
         {
             byte[] buffer = new byte[_unmanagedStream.Length];
             _unmanagedStream.Read(buffer, 0, (int)_unmanagedStream.Length);
@@ -119,8 +110,10 @@ namespace System.IO
         }
 
         // Writes this MemoryStream to another stream.
-        public override unsafe void WriteTo(Stream stream!!)
+        public override void WriteTo(Stream stream)
         {
+            ArgumentNullException.ThrowIfNull(stream);
+
             byte[] buffer = ToArray();
 
             stream.Write(buffer, 0, buffer.Length);
@@ -130,15 +123,16 @@ namespace System.IO
         {
             // This was probably meant to call _unmanagedStream.SetLength(value), but it was forgotten in V.4.0.
             // Now this results in a call to the base which touches the underlying array which is never actually used.
-            // We cannot fix it due to compat now, but we should fix this at the next SxS release oportunity.
+            // We cannot fix it due to compat now, but we should fix this at the next SxS release opportunity.
             base.SetLength(value);
         }
 
 
-        public override Task CopyToAsync(Stream destination!!, int bufferSize, CancellationToken cancellationToken)
+        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
         {
-            if (bufferSize <= 0)
-                throw new ArgumentOutOfRangeException(nameof(bufferSize), SR.ArgumentOutOfRange_NeedPosNum);
+            ArgumentNullException.ThrowIfNull(destination);
+
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize);
 
             if (!CanRead && !CanWrite)
                 ThrowHelper.ThrowObjectDisposedException_StreamClosed(null);

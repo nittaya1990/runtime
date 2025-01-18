@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "common.h"
+#include "configuration.h"
 #include "gcheaputilities.h"
-#include "gcenv.ee.h"
 #include "appdomain.hpp"
+#include "hostinformation.h"
 
+#include "../gc/env/gcenv.ee.h"
+#include "../gc/env/gctoeeinterface.standalone.inl"
 
 // These globals are variables used within the GC and maintained
 // by the EE for use in write barriers. It is the responsibility
@@ -17,6 +20,9 @@ GPTR_IMPL_INIT(uint8_t,  g_highest_address, nullptr);
 GVAL_IMPL_INIT(GCHeapType, g_heap_type,     GC_HEAP_INVALID);
 uint8_t* g_ephemeral_low  = (uint8_t*)1;
 uint8_t* g_ephemeral_high = (uint8_t*)~0;
+uint8_t* g_region_to_generation_table = nullptr;
+uint8_t  g_region_shr = 0;
+bool g_region_use_bitwise_write_barrier = false;
 
 #ifdef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES
 uint32_t* g_card_bundle_table = nullptr;
@@ -35,7 +41,9 @@ bool g_sw_ww_enabled_for_gc_heap = false;
 
 #endif // FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
 
-GVAL_IMPL_INIT(gc_alloc_context, g_global_alloc_context, {});
+GVAL_IMPL_INIT(ee_alloc_context, g_global_alloc_context, {});
+
+thread_local ee_alloc_context::PerThreadRandom ee_alloc_context::t_random = PerThreadRandom();
 
 enum GC_LOAD_STATUS {
     GC_LOAD_STATUS_BEFORE_START,
@@ -49,7 +57,7 @@ enum GC_LOAD_STATUS {
 };
 
 // Load status of the GC. If GC loading fails, the value of this
-// global indicates where the failure occured.
+// global indicates where the failure occurred.
 GC_LOAD_STATUS g_gc_load_status = GC_LOAD_STATUS_BEFORE_START;
 
 // The version of the GC that we have loaded.
@@ -60,10 +68,10 @@ PTR_VOID g_gc_module_base;
 
 bool GCHeapUtilities::s_useThreadAllocationContexts;
 
-// GC entrypoints for the the linked-in GC. These symbols are invoked
+// GC entrypoints for the linked-in GC. These symbols are invoked
 // directly if we are not using a standalone GC.
-extern "C" void GC_VersionInfo(/* Out */ VersionInfo* info);
-extern "C" HRESULT GC_Initialize(
+extern "C" void LOCALGC_CALLCONV GC_VersionInfo(/* Out */ VersionInfo* info);
+extern "C" HRESULT LOCALGC_CALLCONV GC_Initialize(
     /* In  */ IGCToCLR* clrToGC,
     /* Out */ IGCHeap** gcHeap,
     /* Out */ IGCHandleManager** gcHandleManager,
@@ -80,7 +88,6 @@ PTR_VOID GCHeapUtilities::GetGCModuleBase()
 
 namespace
 {
-
 // This block of code contains all of the state necessary to handle incoming
 // EtwCallbacks before the GC has been initialized. This is a tricky problem
 // because EtwCallbacks can appear at any time, even when we are just about
@@ -156,17 +163,56 @@ void StashKeywordAndLevel(bool isPublicProvider, GCEventKeyword keywords, GCEven
 }
 
 #ifdef FEATURE_STANDALONE_GC
-HMODULE LoadStandaloneGc(LPCWSTR libFileName)
+HMODULE LoadStandaloneGc(LPCWSTR libFileName, LPCWSTR libFilePath)
 {
     LIMITED_METHOD_CONTRACT;
+    HMODULE result = nullptr;
 
-    // Look for the standalone GC module next to the clr binary
-    PathString libPath = GetInternalSystemDirectory();
-    libPath.Append(libFileName);
+    if (libFilePath)
+    {
+        return CLRLoadLibrary(libFilePath);
+    }
 
-    LPCWSTR libraryName = libPath.GetUnicode();
-    LOG((LF_GC, LL_INFO100, "Loading standalone GC from path %S\n", libraryName));
-    return CLRLoadLibrary(libraryName);
+    //
+    // This is not a security feature.
+    // The libFileName originates either from an environment variable or from the runtimeconfig.json
+    // These are trusted locations, and therefore even if it is a relative path, there is no security risk.
+    //
+    // However, users often don't know the absolute path to their coreclr module, especially on production.
+    // Therefore we allow referencing it from an arbitrary location through libFilePath instead. Users, however
+    // are warned that they should keep the file in a secure location such that it cannot be tampered.
+    //
+    if (!ValidateModuleName(libFileName))
+    {
+        LOG((LF_GC, LL_INFO100, "Invalid GC name found %s\n", libFileName));
+        return nullptr;
+    }
+
+    SString appBase;
+    if (HostInformation::GetProperty("APP_CONTEXT_BASE_DIRECTORY", appBase))
+    {
+        PathString libPath = appBase.GetUnicode();
+        libPath.Append(libFileName);
+
+        LOG((LF_GC, LL_INFO100, "Loading standalone GC from appBase %s\n", libPath.GetUTF8()));
+
+        LPCWSTR libraryName = libPath.GetUnicode();
+        result = CLRLoadLibrary(libraryName);
+    }
+
+    if (result == nullptr)
+    {
+        // Look for the standalone GC module next to the clr binary
+        PathString libPath = GetInternalSystemDirectory();
+        libPath.Append(libFileName);
+
+        LOG((LF_GC, LL_INFO100, "Loading standalone GC by coreclr %s\n", libPath.GetUTF8()));
+
+        LPCWSTR libraryName = libPath.GetUnicode();
+        result = CLRLoadLibrary(libraryName);
+    }
+
+    return result;
 }
 #endif // FEATURE_STANDALONE_GC
 
@@ -176,7 +222,7 @@ HMODULE LoadStandaloneGc(LPCWSTR libFileName)
 //
 // See Documentation/design-docs/standalone-gc-loading.md for details
 // on the loading protocol in use here.
-HRESULT LoadAndInitializeGC(LPWSTR standaloneGcLocation)
+HRESULT LoadAndInitializeGC(LPCWSTR standaloneGCName, LPCWSTR standaloneGCPath)
 {
     LIMITED_METHOD_CONTRACT;
 
@@ -184,11 +230,17 @@ HRESULT LoadAndInitializeGC(LPWSTR standaloneGcLocation)
     LOG((LF_GC, LL_FATALERROR, "EE not built with the ability to load standalone GCs"));
     return E_FAIL;
 #else
-    HMODULE hMod = LoadStandaloneGc(standaloneGcLocation);
+    HMODULE hMod = LoadStandaloneGc(standaloneGCName, standaloneGCPath);
     if (!hMod)
     {
         HRESULT err = GetLastError();
-        LOG((LF_GC, LL_FATALERROR, "Load of %S failed\n", standaloneGcLocation));
+#ifdef LOGGING
+        LPCWSTR standaloneGCNameLogging = standaloneGCName ? standaloneGCName : W("");
+        LPCWSTR standaloneGCPathLogging = standaloneGCPath ? standaloneGCPath : W("");
+        MAKE_UTF8PTR_FROMWIDE(standaloneGCNameUtf8, standaloneGCNameLogging);
+        MAKE_UTF8PTR_FROMWIDE(standaloneGCPathUtf8, standaloneGCPathLogging);
+        LOG((LF_GC, LL_FATALERROR, "Load of %s or %s failed\n", standaloneGCNameUtf8, standaloneGCPathUtf8));
+#endif // LOGGING
         return __HRESULT_FROM_WIN32(err);
     }
 
@@ -210,17 +262,21 @@ HRESULT LoadAndInitializeGC(LPWSTR standaloneGcLocation)
     }
 
     g_gc_load_status = GC_LOAD_STATUS_GET_VERSIONINFO;
+    g_gc_version_info.MajorVersion = EE_INTERFACE_MAJOR_VERSION;
+    g_gc_version_info.MinorVersion = 0;
+    g_gc_version_info.BuildVersion = 0;
     versionInfo(&g_gc_version_info);
     g_gc_load_status = GC_LOAD_STATUS_CALL_VERSIONINFO;
 
-    if (g_gc_version_info.MajorVersion != GC_INTERFACE_MAJOR_VERSION)
+    if (g_gc_version_info.MajorVersion < GC_INTERFACE_MAJOR_VERSION)
     {
-        LOG((LF_GC, LL_FATALERROR, "Loaded GC has incompatible major version number (expected %d, got %d)\n",
+        LOG((LF_GC, LL_FATALERROR, "Loaded GC has incompatible major version number (expected at least %d, got %d)\n",
             GC_INTERFACE_MAJOR_VERSION, g_gc_version_info.MajorVersion));
         return E_FAIL;
     }
 
-    if (g_gc_version_info.MinorVersion < GC_INTERFACE_MINOR_VERSION)
+    if ((g_gc_version_info.MajorVersion == GC_INTERFACE_MAJOR_VERSION) &&
+        (g_gc_version_info.MinorVersion < GC_INTERFACE_MINOR_VERSION))
     {
         LOG((LF_GC, LL_INFO100, "Loaded GC has lower minor version number (%d) than EE was compiled against (%d)\n",
             g_gc_version_info.MinorVersion, GC_INTERFACE_MINOR_VERSION));
@@ -331,15 +387,17 @@ HRESULT GCHeapUtilities::LoadAndInitialize()
     assert(g_gc_load_status == GC_LOAD_STATUS_BEFORE_START);
     g_gc_load_status = GC_LOAD_STATUS_START;
 
-    LPWSTR standaloneGcLocation = nullptr;
-    CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_GCName, &standaloneGcLocation);
-    if (!standaloneGcLocation)
+    LPCWSTR standaloneGCName = Configuration::GetKnobStringValue(W("System.GC.Name"), CLRConfig::EXTERNAL_GCName);
+    LPCWSTR standaloneGCPath = Configuration::GetKnobStringValue(W("System.GC.Path"), CLRConfig::EXTERNAL_GCPath);
+    g_gc_dac_vars.major_version_number = GC_INTERFACE_MAJOR_VERSION;
+    g_gc_dac_vars.minor_version_number = GC_INTERFACE_MINOR_VERSION;
+    if (!standaloneGCName && !standaloneGCPath)
     {
         return InitializeDefaultGC();
     }
     else
     {
-        return LoadAndInitializeGC(standaloneGcLocation);
+        return LoadAndInitializeGC(standaloneGCName, standaloneGCPath);
     }
 }
 

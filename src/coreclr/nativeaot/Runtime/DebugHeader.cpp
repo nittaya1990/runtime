@@ -17,6 +17,7 @@
 #include "thread.h"
 #include "threadstore.h"
 
+extern uint8_t g_CrashInfoBuffer[];
 GPTR_DECL(MethodTable, g_pFreeObjectEEType);
 
 struct DebugTypeEntry
@@ -35,12 +36,12 @@ struct GlobalValueEntry
 
 // This size should be one bigger than the number of entries since a null entry
 // signifies the end of the array.
-static constexpr size_t DebugTypeEntriesArraySize = 96;
+static constexpr size_t DebugTypeEntriesArraySize = 100;
 static DebugTypeEntry s_DebugEntries[DebugTypeEntriesArraySize];
 
 // This size should be one bigger than the number of entries since a null entry
 // signifies the end of the array.
-static constexpr size_t GlobalEntriesArraySize = 6;
+static constexpr size_t GlobalEntriesArraySize = 8;
 static GlobalValueEntry s_GlobalEntries[GlobalEntriesArraySize];
 
 // This structure is part of a in-memory serialization format that is used by diagnostic tools to
@@ -57,15 +58,15 @@ static GlobalValueEntry s_GlobalEntries[GlobalEntriesArraySize];
 //   - Removing a field from this structure
 //   - Reordering fields in the structure
 //   - Changing the data type of a field in this structure
-//   - Changing the data type of a field in another structure that is being refered to here with
+//   - Changing the data type of a field in another structure that is being referred to here with
 //       the offsetof() operator
 //   - Changing the data type of a global whose address is recorded in this structure
-//   - Changing the meaning of a field or global refered to in this structure so that it can no longer
+//   - Changing the meaning of a field or global referred to in this structure so that it can no longer
 //     be used in the manner the format specification describes.
 struct DotNetRuntimeDebugHeader
 {
     // The cookie serves as a sanity check against process corruption or being requested
-    // to treat some other non-.Net module as though it did contain the coreRT runtime.
+    // to treat some other non-.Net module as though it did contain the .Net runtime.
     // It can also be changed if we want to make a breaking change so drastic that
     // earlier debuggers should treat the module as if it had no .Net runtime at all.
     // If the cookie is valid a debugger is safe to assume the Major/Minor version fields
@@ -74,16 +75,21 @@ struct DotNetRuntimeDebugHeader
     const uint8_t Cookie[4] = { 0x44, 0x4E, 0x44, 0x48 };
 
     // This counter can be incremented to indicate breaking changes
-    // This field must be encoded little endian, regardless of the typical endianess of
+    // This field must be encoded little endian, regardless of the typical endianness of
     // the machine
-    const uint16_t MajorVersion = 1;
+    // Changes:
+    //  v1-v4 were never doc'ed but history is source control if you need it
+    //  v5 - Thread now has an m_eeAllocContext field and the previous m_rgbAllocContextBuffer
+    //       field is nested inside of it.
+    //          
+    const uint16_t MajorVersion = 5;
 
     // This counter can be incremented to indicate back-compatible changes
-    // This field must be encoded little endian, regardless of the typical endianess of
+    // This field must be encoded little endian, regardless of the typical endianness of
     // the machine
     const uint16_t MinorVersion = 0;
 
-    // These flags must be encoded little endian, regardless of the typical endianess of
+    // These flags must be encoded little endian, regardless of the typical endianness of
     // the machine. Ie Bit 0 is the least significant bit of the first byte.
     // Bit 0 - Set if the pointer size is 8 bytes, otherwise pointer size is 4 bytes
     // Bit 1 - Set if the machine is big endian
@@ -95,9 +101,9 @@ struct DotNetRuntimeDebugHeader
     // follow but future usage will be considered a back-compatible change.
     const uint32_t ReservedPadding1 = 0;
 
-    // Header pointers below here are encoded using the defined pointer size and endianess
+    // Header pointers below here are encoded using the defined pointer size and endianness
     // specified in the Flags field. The data within the contracts they point to also uses
-    // the same pointer size and endianess encoding unless otherwise specified.
+    // the same pointer size and endianness encoding unless otherwise specified.
 
     // A pointer to an array describing important types and their offsets
     DebugTypeEntry (* volatile DebugTypeEntries)[DebugTypeEntriesArraySize] = nullptr;
@@ -106,10 +112,11 @@ struct DotNetRuntimeDebugHeader
     GlobalValueEntry (* volatile GlobalEntries)[GlobalEntriesArraySize] = nullptr;
 };
 
-#ifdef TARGET_WINDOWS
-#pragma comment (linker, "/EXPORT:DotNetRuntimeDebugHeader,DATA")
-#endif
 extern "C" struct DotNetRuntimeDebugHeader DotNetRuntimeDebugHeader;
+
+#ifdef HOST_UNIX
+__attribute__ ((visibility ("default")))
+#endif
 struct DotNetRuntimeDebugHeader DotNetRuntimeDebugHeader = {};
 
 #define MAKE_DEBUG_ENTRY(TypeName, FieldName, Value)                             \
@@ -117,7 +124,7 @@ struct DotNetRuntimeDebugHeader DotNetRuntimeDebugHeader = {};
     {                                                                            \
         s_DebugEntries[currentDebugPos] = { #TypeName, #FieldName, Value, 0  };  \
         ++currentDebugPos;                                                       \
-        ASSERT(currentDebugPos <= DebugTypeEntriesArraySize);                    \
+        ASSERT(currentDebugPos < DebugTypeEntriesArraySize);                     \
     } while(0)
 
 #define MAKE_DEBUG_FIELD_ENTRY(TypeName, FieldName) MAKE_DEBUG_ENTRY(TypeName, FieldName, offsetof(TypeName, FieldName))
@@ -131,7 +138,7 @@ struct DotNetRuntimeDebugHeader DotNetRuntimeDebugHeader = {};
     {                                                                             \
         s_GlobalEntries[currentGlobalPos] = { #Name, Name };                      \
         ++currentGlobalPos;                                                       \
-        ASSERT(currentGlobalPos <= GlobalEntriesArraySize)                        \
+        ASSERT(currentGlobalPos < GlobalEntriesArraySize);                        \
     } while(0)                                                                    \
 
 extern "C" void PopulateDebugHeaders()
@@ -160,6 +167,9 @@ extern "C" void PopulateDebugHeaders()
     MAKE_DEBUG_FIELD_ENTRY(dac_gc_heap, ephemeral_heap_segment);
     MAKE_DEBUG_FIELD_ENTRY(dac_gc_heap, finalize_queue);
     MAKE_DEBUG_FIELD_ENTRY(dac_gc_heap, generation_table);
+
+    MAKE_SIZE_ENTRY(ee_alloc_context);
+    MAKE_DEBUG_FIELD_ENTRY(ee_alloc_context, m_rgbAllocContextBuffer);
 
     MAKE_SIZE_ENTRY(gc_alloc_context);
     MAKE_DEBUG_FIELD_ENTRY(gc_alloc_context, alloc_ptr);
@@ -190,22 +200,23 @@ extern "C" void PopulateDebugHeaders()
     MAKE_SIZE_ENTRY(ThreadStore);
     MAKE_DEBUG_FIELD_ENTRY(ThreadStore, m_ThreadList);
 
-    MAKE_SIZE_ENTRY(ThreadBuffer);
-    MAKE_DEBUG_FIELD_ENTRY(ThreadBuffer, m_pNext);
-    MAKE_DEBUG_FIELD_ENTRY(ThreadBuffer, m_rgbAllocContextBuffer);
-    MAKE_DEBUG_FIELD_ENTRY(ThreadBuffer, m_threadId);
-    MAKE_DEBUG_FIELD_ENTRY(ThreadBuffer, m_pThreadStressLog);
+    MAKE_SIZE_ENTRY(RuntimeThreadLocals);
+    MAKE_DEBUG_FIELD_ENTRY(RuntimeThreadLocals, m_pNext);
+    MAKE_DEBUG_FIELD_ENTRY(RuntimeThreadLocals, m_eeAllocContext);
+    MAKE_DEBUG_FIELD_ENTRY(RuntimeThreadLocals, m_threadId);
+    MAKE_DEBUG_FIELD_ENTRY(RuntimeThreadLocals, m_pThreadStressLog);
+    MAKE_DEBUG_FIELD_ENTRY(RuntimeThreadLocals, m_pExInfoStackHead);
+
+    MAKE_SIZE_ENTRY(ExInfo);
+    MAKE_DEBUG_FIELD_ENTRY(ExInfo, m_pPrevExInfo);
+    MAKE_DEBUG_FIELD_ENTRY(ExInfo, m_exception);
 
     MAKE_SIZE_ENTRY(MethodTable);
     MAKE_DEBUG_FIELD_ENTRY(MethodTable, m_uBaseSize);
     MAKE_DEBUG_FIELD_ENTRY(MethodTable, m_usComponentSize);
-    MAKE_DEBUG_FIELD_ENTRY(MethodTable, m_usFlags);
+    MAKE_DEBUG_FIELD_ENTRY(MethodTable, m_uFlags);
     MAKE_DEBUG_ENTRY(MethodTable, m_pBaseType, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_pBaseType));
-    MAKE_DEBUG_ENTRY(MethodTable, m_ppBaseTypeViaIAT, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_ppBaseTypeViaIAT));
-    MAKE_DEBUG_ENTRY(MethodTable, m_pCanonicalType, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_pCanonicalType));
-    MAKE_DEBUG_ENTRY(MethodTable, m_ppCanonicalTypeViaIAT, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_ppCanonicalTypeViaIAT));
     MAKE_DEBUG_ENTRY(MethodTable, m_pRelatedParameterType, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_pRelatedParameterType));
-    MAKE_DEBUG_ENTRY(MethodTable, m_ppRelatedParameterTypeViaIAT, offsetof(MethodTable, m_RelatedType) + offsetof(MethodTable::RelatedTypeUnion, m_ppRelatedParameterTypeViaIAT));
     MAKE_DEBUG_FIELD_ENTRY(MethodTable, m_VTable);
 
     MAKE_SIZE_ENTRY(StressLog);
@@ -243,13 +254,12 @@ extern "C" void PopulateDebugHeaders()
     MAKE_DEBUG_FIELD_ENTRY(StressLogChunk, dwSig2);
 
     MAKE_SIZE_ENTRY(StressMsg);
-    MAKE_DEBUG_FIELD_ENTRY(StressMsg, fmtOffsCArgs);
-    MAKE_DEBUG_FIELD_ENTRY(StressMsg, facility);
-    MAKE_DEBUG_FIELD_ENTRY(StressMsg, timeStamp);
     MAKE_DEBUG_FIELD_ENTRY(StressMsg, args);
 
     MAKE_SIZE_ENTRY(RuntimeInstance);
     MAKE_DEBUG_FIELD_ENTRY(RuntimeInstance, m_pThreadStore);
+
+    MAKE_GLOBAL_ENTRY(g_CrashInfoBuffer);
 
     RuntimeInstance *g_pTheRuntimeInstance = GetRuntimeInstance();
     MAKE_GLOBAL_ENTRY(g_pTheRuntimeInstance);
@@ -269,12 +279,16 @@ extern "C" void PopulateDebugHeaders()
     DotNetRuntimeDebugHeader.DebugTypeEntries = &s_DebugEntries;
     DotNetRuntimeDebugHeader.GlobalEntries = &s_GlobalEntries;
 
-    static_assert(MethodTable::Flags::EETypeKindMask         == 0x0003, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::RelatedTypeViaIATFlag  == 0x0004, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::HasFinalizerFlag       == 0x0010, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::HasPointersFlag        == 0x0020, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::GenericVarianceFlag    == 0x0080, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::IsGenericFlag          == 0x0400, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::ElementTypeMask        == 0xf800, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
-    static_assert(MethodTable::Flags::ElementTypeShift       == 11,     "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::EETypeKindMask         == 0x00030000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::HasFinalizerFlag       == 0x00100000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::HasPointersFlag        == 0x01000000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::GenericVarianceFlag    == 0x00800000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::IsGenericFlag          == 0x02000000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::ElementTypeMask        == 0x7C000000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::ElementTypeShift       == 26,         "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Flags::HasComponentSizeFlag   == 0x80000000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Flags. If you change this value you must bump major_version_number.");
+
+    static_assert(MethodTable::Kinds::CanonicalEEType        == 0x00000000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Kinds. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Kinds::ParameterizedEEType    == 0x00020000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Kinds. If you change this value you must bump major_version_number.");
+    static_assert(MethodTable::Kinds::GenericTypeDefEEType   == 0x00030000, "The debugging data contract has a hard coded dependency on this value of MethodTable::Kinds. If you change this value you must bump major_version_number.");
 }

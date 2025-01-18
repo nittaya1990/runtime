@@ -17,12 +17,11 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
     public class MatcherContext
     {
         private readonly DirectoryInfoBase _root;
-        private readonly List<IPatternContext> _includePatternContexts;
-        private readonly List<IPatternContext> _excludePatternContexts;
+        private readonly IPatternContext[] _includePatternContexts;
+        private readonly IPatternContext[] _excludePatternContexts;
         private readonly List<FilePatternMatch> _files;
 
         private readonly HashSet<string> _declaredLiteralFolderSegmentInString;
-        private readonly HashSet<LiteralPathSegment> _declaredLiteralFolderSegments = new HashSet<LiteralPathSegment>();
         private readonly HashSet<LiteralPathSegment> _declaredLiteralFileSegments = new HashSet<LiteralPathSegment>();
 
         private bool _declaredParentPathSegment;
@@ -40,8 +39,8 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
             _files = new List<FilePatternMatch>();
             _comparisonType = comparison;
 
-            _includePatternContexts = includePatterns.Select(pattern => pattern.CreatePatternContextForInclude()).ToList();
-            _excludePatternContexts = excludePatterns.Select(pattern => pattern.CreatePatternContextForExclude()).ToList();
+            _includePatternContexts = includePatterns.Select(pattern => pattern.CreatePatternContextForInclude()).ToArray();
+            _excludePatternContexts = excludePatterns.Select(pattern => pattern.CreatePatternContextForExclude()).ToArray();
 
             _declaredLiteralFolderSegmentInString = new HashSet<string>(StringComparisonHelper.GetStringComparer(comparison));
         }
@@ -62,16 +61,17 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
             Declare();
 
             var entities = new List<FileSystemInfoBase?>();
-            if (_declaredWildcardPathSegment || _declaredLiteralFileSegments.Any())
+            if (_declaredWildcardPathSegment || _declaredLiteralFileSegments.Count != 0)
             {
                 entities.AddRange(directory.EnumerateFileSystemInfos());
             }
             else
             {
-                IEnumerable<DirectoryInfoBase> candidates = directory.EnumerateFileSystemInfos().OfType<DirectoryInfoBase>();
-                foreach (DirectoryInfoBase candidate in candidates)
+                IEnumerable<FileSystemInfoBase> candidates = directory.EnumerateFileSystemInfos();
+                foreach (FileSystemInfoBase candidate in candidates)
                 {
-                    if (_declaredLiteralFolderSegmentInString.Contains(candidate.Name))
+                    if (candidate is DirectoryInfoBase &&
+                        _declaredLiteralFolderSegmentInString.Contains(candidate.Name))
                     {
                         entities.Add(candidate);
                     }
@@ -126,7 +126,6 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
         private void Declare()
         {
             _declaredLiteralFileSegments.Clear();
-            _declaredLiteralFolderSegments.Clear();
             _declaredParentPathSegment = false;
             _declaredWildcardPathSegment = false;
 
@@ -146,7 +145,6 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
                 }
                 else
                 {
-                    _declaredLiteralFolderSegments.Add(literalSegment);
                     _declaredLiteralFolderSegmentInString.Add(literalSegment.Value);
                 }
             }

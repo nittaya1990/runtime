@@ -88,7 +88,7 @@ namespace System.Speech.Recognition.SrgsGrammar
                     break;
 
                 default:
-                    System.Diagnostics.Debug.Assert(false, "Unknown Tag Format!!!");
+                    System.Diagnostics.Debug.Fail("Unknown Tag Format!!!");
                     break;
             }
 
@@ -232,7 +232,7 @@ namespace System.Speech.Recognition.SrgsGrammar
                 SrgsRule rule = Rules[script._name];
                 if (rule != null)
                 {
-                    rule.Script = rule.Script + script._value;
+                    rule.Script += script._value;
                 }
                 else
                 {

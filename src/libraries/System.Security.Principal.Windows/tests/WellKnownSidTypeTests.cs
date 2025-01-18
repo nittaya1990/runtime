@@ -140,7 +140,8 @@ public class WellKnownSidTypeTests
     [InlineData((WellKnownSidType)((int)WellKnownSidType.WinCapabilityRemovableStorageSid + 1))]
     public void CreatingSecurityIdentifierOutsideWellKnownSidTypeDefinedRangeThrowsException(WellKnownSidType sidType)
     {
-        var currentDomainSid = WindowsIdentity.GetCurrent().Owner.AccountDomainSid;
+        using WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
+        var currentDomainSid = currentIdentity.Owner.AccountDomainSid;
         AssertExtensions.Throws<ArgumentException>("sidType", () => new SecurityIdentifier(sidType, currentDomainSid));
     }
 
@@ -150,5 +151,16 @@ public class WellKnownSidTypeTests
 #pragma warning disable 0618
         Assert.Equal(WellKnownSidType.WinBuiltinTerminalServerLicenseServersSid, WellKnownSidType.MaxDefined);
 #pragma warning restore 0618
+    }
+
+    [ConditionalTheory(nameof(AccountIsDomainJoined))]
+    [InlineData(WellKnownSidType.WorldSid)]
+    public void CompareTo_Null(WellKnownSidType sidType)
+    {
+        using (var identity = WindowsIdentity.GetCurrent())
+        {
+            var si = new SecurityIdentifier(sidType, identity.Owner.AccountDomainSid);
+            Assert.Equal(1, si.CompareTo(null));
+        }
     }
 }

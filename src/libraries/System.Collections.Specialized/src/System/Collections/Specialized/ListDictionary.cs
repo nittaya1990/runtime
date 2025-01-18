@@ -5,13 +5,10 @@ using System.Diagnostics;
 
 namespace System.Collections.Specialized
 {
-    /// <devdoc>
-    ///  <para>
-    ///    This is a simple implementation of IDictionary using a singly linked list. This
-    ///    will be smaller and faster than a Hashtable if the number of elements is 10 or less.
-    ///    This should not be used if performance is important for large numbers of elements.
-    ///  </para>
-    /// </devdoc>
+    /// <summary>
+    /// Implements <see cref="IDictionary"/> using a singly linked list.
+    /// Recommended for collections that typically include fewer than 10 items.
+    /// </summary>
     [Serializable]
     [System.Runtime.CompilerServices.TypeForwardedFrom("System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ListDictionary : IDictionary
@@ -30,10 +27,12 @@ namespace System.Collections.Specialized
             this.comparer = comparer;
         }
 
-        public object? this[object key!!]
+        public object? this[object key]
         {
             get
             {
+                ArgumentNullException.ThrowIfNull(key);
+
                 DictionaryNode? node = head;
                 if (comparer == null)
                 {
@@ -63,6 +62,8 @@ namespace System.Collections.Specialized
             }
             set
             {
+                ArgumentNullException.ThrowIfNull(key);
+
                 version++;
                 DictionaryNode? last = null;
                 DictionaryNode? node;
@@ -147,8 +148,10 @@ namespace System.Collections.Specialized
             }
         }
 
-        public void Add(object key!!, object? value)
+        public void Add(object key, object? value)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             version++;
             DictionaryNode? last = null;
 
@@ -183,8 +186,10 @@ namespace System.Collections.Specialized
             version++;
         }
 
-        public bool Contains(object key!!)
+        public bool Contains(object key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             for (DictionaryNode? node = head; node != null; node = node.next)
             {
                 object oldKey = node.key;
@@ -196,10 +201,11 @@ namespace System.Collections.Specialized
             return false;
         }
 
-        public void CopyTo(Array array!!, int index)
+        public void CopyTo(Array array, int index)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), index, SR.ArgumentOutOfRange_NeedNonNegNum_Index);
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
 
             if (array.Length - index < count)
                 throw new ArgumentException(SR.Arg_InsufficientSpace);
@@ -221,8 +227,10 @@ namespace System.Collections.Specialized
             return new NodeEnumerator(this);
         }
 
-        public void Remove(object key!!)
+        public void Remove(object key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             version++;
             DictionaryNode? last = null;
             DictionaryNode? node;
@@ -351,10 +359,11 @@ namespace System.Collections.Specialized
                 _isKeys = isKeys;
             }
 
-            void ICollection.CopyTo(Array array!!, int index)
+            void ICollection.CopyTo(Array array, int index)
             {
-                if (index < 0)
-                    throw new ArgumentOutOfRangeException(nameof(index), index, SR.ArgumentOutOfRange_NeedNonNegNum_Index);
+                ArgumentNullException.ThrowIfNull(array);
+
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
 
                 for (DictionaryNode? node = _list.head; node != null; node = node.next)
                 {

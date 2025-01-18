@@ -8,6 +8,7 @@ using System.Linq;
 using Microsoft.DotNet.Cli.Build;
 using Microsoft.DotNet.Cli.Build.Framework;
 using Xunit;
+using static Microsoft.DotNet.CoreSetup.Test.Constants;
 
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 {
@@ -23,25 +24,19 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         }
 
         [Theory]
-        // MLL where global hive has a better match
-        [InlineData("5.0.0", "net5.0", true, "5.1.2")]
-        [InlineData("5.0.0", "net5.0", null, "5.1.2")] // MLL is on by default, so same as true
-        [InlineData("5.0.0", "net5.0", false, "5.2.0")] // No global hive allowed
         // MLL (where global hive has better match) with various TFMs
-        [InlineData("5.0.0", "netcoreapp3.0", true, "5.1.2")]
-        [InlineData("5.0.0", "netcoreapp3.0", null, "5.1.2")]
-        [InlineData("5.0.0", "netcoreapp3.0", false, "5.2.0")]
         [InlineData("5.0.0", "netcoreapp3.1", true, "5.1.2")]
-        [InlineData("5.0.0", "netcoreapp3.1", null, "5.1.2")]
-        [InlineData("5.0.0", "netcoreapp3.1", false, "5.2.0")]
+        [InlineData("5.0.0", "netcoreapp3.1", null, "5.1.2")] // MLL is on by default before 7.0, so same as true
+        [InlineData("5.0.0", "netcoreapp3.1", false, "5.2.0")] // No global hive allowed
         [InlineData("5.0.0", "net6.0", true, "5.1.2")]
         [InlineData("5.0.0", "net6.0", null, "5.1.2")]
         [InlineData("5.0.0", "net6.0", false, "5.2.0")]
-        [InlineData("7.0.0", "net7.0", true, "7.0.1")]
-        [InlineData("7.0.0", "net7.0", null, "7.0.1")]
+        // MLL is disabled for 7.0+
+        [InlineData("7.0.0", "net7.0", true, "7.1.2")] // MLL disabled for 7.0+ - setting it doesn't change anything
+        [InlineData("7.0.0", "net7.0", null, "7.1.2")]
         [InlineData("7.0.0", "net7.0", false, "7.1.2")]
-        [InlineData("7.0.0", "net8.0", true, "7.0.1")]
-        [InlineData("7.0.0", "net8.0", null, "7.0.1")]
+        [InlineData("7.0.0", "net8.0", true, "7.1.2")] // MLL disabled for 7.0+ - setting it doesn't change anything
+        [InlineData("7.0.0", "net8.0", null, "7.1.2")]
         [InlineData("7.0.0", "net8.0", false, "7.1.2")]
         // MLL where main hive has a better match
         [InlineData("6.0.0", "net6.0", true, "6.1.4")] // Global hive with better version (higher patch)
@@ -58,7 +53,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
                     .WithTfm(tfm)
                     .WithFramework(MicrosoftNETCoreApp, requestedVersion),
                 multiLevelLookup)
-                .ShouldHaveResolvedFramework(MicrosoftNETCoreApp, resolvedVersion);
+                .ShouldHaveResolvedFramework(MicrosoftNETCoreApp, resolvedVersion)
+                .And.HaveStdErrContaining($"Ignoring FX version [{requestedVersion}] without .deps.json");
         }
 
         [Fact]
@@ -67,7 +63,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         {
             RunTest(new TestSettings()
                     .WithRuntimeConfigCustomizer(runtimeConfig => runtimeConfig
-                        .WithTfm(Constants.Tfm.Net5)
+                        .WithTfm("net6.0")
                         .WithFramework(MicrosoftNETCoreApp, "5.0.0"))
                     .WithWorkingDirectory(SharedState.DotNetCurrentHive.BinPath),
                 multiLevelLookup: true)
@@ -82,7 +78,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData("6.1.4", "net6.0", true, "6.1.4", true)]
         [InlineData("6.1.4", "net6.0", null, "6.1.4", true)]
         [InlineData("6.1.4", "net6.0", false, ResolvedFramework.NotFound, false)]
-        [InlineData("6.1.4", "net7.0", true, "6.1.4", true)]
+        [InlineData("6.1.4", "net7.0", true, ResolvedFramework.NotFound, false)]  // MLL disabled for 7.0+
         [InlineData("7.1.2", "net6.0", true, "7.1.2", false)]  // 7.1.2 is in both main and global hives - the main should always win with exact match
         [InlineData("7.1.2", "net6.0", null, "7.1.2", false)]
         [InlineData("7.1.2", "net6.0", false, "7.1.2", false)]
@@ -154,7 +150,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 
             string expectedOutput = string.Join(
                 string.Empty,
-                GetExpectedFrameworks(multiLevelLookup)
+                GetExpectedFrameworks(false) // MLL Is always disabled for dotnet --list-runtimes
                     .Select(t => $"{MicrosoftNETCoreApp} {t.Version} [{Path.Combine(t.Path, "shared", MicrosoftNETCoreApp)}]{Environment.NewLine}"));
 
             // !!IMPORTANT!!: This test verifies the exact match of the entire output of the command (not a substring!)
@@ -163,7 +159,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
                 new TestSettings().WithCommandLine("--list-runtimes"),
                 multiLevelLookup,
                 testApp: null)
-                .Should().HaveStdOut(expectedOutput);
+                .Should().HaveStdOut(expectedOutput)
+                .And.HaveStdErrContaining("Ignoring FX version [9999.9.9] without .deps.json");
         }
 
         [Theory]
@@ -179,24 +176,26 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
             string expectedOutput =
                 $".NET runtimes installed:{Environment.NewLine}" +
                 string.Join(string.Empty,
-                    GetExpectedFrameworks(multiLevelLookup)
+                    GetExpectedFrameworks(false) // MLL is always disabled for dotnet --info
                         .Select(t => $"  {MicrosoftNETCoreApp} {t.Version} [{Path.Combine(t.Path, "shared", MicrosoftNETCoreApp)}]{Environment.NewLine}"));
 
             RunTest(
                 new TestSettings().WithCommandLine("--info"),
                 multiLevelLookup,
                 testApp: null)
-                .Should().HaveStdOutContaining(expectedOutput);
+                .Should().HaveStdOutContaining(expectedOutput)
+                .And.HaveStdErrContaining("Ignoring FX version [9999.9.9] without .deps.json");
         }
 
         [Theory]
-        [InlineData("net5.0", true)]
-        [InlineData("net5.0", null)]
-        [InlineData("net5.0", false)]
-        [InlineData("net7.0", true)]
-        [InlineData("net7.0", null)]
-        [InlineData("net7.0", false)]
-        public void FrameworkResolutionError(string tfm, bool? multiLevelLookup)
+        [InlineData("net6.0", true, true)]
+        [InlineData("net6.0", null, true)]
+        [InlineData("net6.0", false, false)]
+        // MLL is disabled for 7.0+
+        [InlineData("net7.0", true, false)]
+        [InlineData("net7.0", null, false)]
+        [InlineData("net7.0", false, false)]
+        public void FrameworkResolutionError(string tfm, bool? multiLevelLookup, bool effectiveMultiLevelLookup)
         {
             // Multi-level lookup is only supported on Windows.
             if (!OperatingSystem.IsWindows() && multiLevelLookup != false)
@@ -205,8 +204,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
             string expectedOutput =
                 $"The following frameworks were found:{Environment.NewLine}" +
                 string.Join(string.Empty,
-                    GetExpectedFrameworks(multiLevelLookup)
-                        .Select(t => $"      {t.Version} at [{Path.Combine(t.Path, "shared", MicrosoftNETCoreApp)}]{Environment.NewLine}"));
+                    GetExpectedFrameworks(effectiveMultiLevelLookup)
+                        .Select(t => $"  {t.Version} at [{Path.Combine(t.Path, "shared", MicrosoftNETCoreApp)}]{Environment.NewLine}"));
 
             RunTest(
                 runtimeConfig => runtimeConfig
@@ -214,7 +213,53 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
                     .WithFramework(MicrosoftNETCoreApp, "9999.9.9"),
                 multiLevelLookup)
                 .Should().Fail()
-                .And.HaveStdErrContaining(expectedOutput);
+                .And.HaveStdErrContaining(expectedOutput)
+                .And.HaveStdErrContaining("https://aka.ms/dotnet/app-launch-failed")
+                .And.HaveStdErrContaining("Ignoring FX version [9999.9.9] without .deps.json");
+        }
+
+        [Fact]
+        public void FrameworkResolutionError_ListOtherArchitectures()
+        {
+            using (var registeredInstallLocationOverride = new RegisteredInstallLocationOverride(SharedState.DotNetMainHive.GreatestVersionHostFxrFilePath))
+            using (var otherArchArtifact = TestArtifact.Create("otherArch"))
+            {
+                string requestedVersion = "9999.9.9";
+                string[] otherArchs = ["arm64", "x64", "x86"];
+                var installLocations = new (string, string)[otherArchs.Length];
+                for (int i = 0; i < otherArchs.Length; i++)
+                {
+                    string arch = otherArchs[i];
+
+                    // Create a .NET install with Microsoft.NETCoreApp at the registered location
+                    var dotnet = new DotNetBuilder(otherArchArtifact.Location, TestContext.BuiltDotNet.BinPath, arch)
+                        .AddMicrosoftNETCoreAppFrameworkMockHostPolicy(requestedVersion)
+                        .Build();
+                    installLocations[i] = (arch, dotnet.BinPath);
+                }
+
+                registeredInstallLocationOverride.SetInstallLocation(installLocations);
+
+                CommandResult result = RunTest(
+                    new TestSettings()
+                        .WithRuntimeConfigCustomizer(c => c.WithFramework(MicrosoftNETCoreApp, requestedVersion))
+                        .WithEnvironment(TestOnlyEnvironmentVariables.RegisteredConfigLocation, registeredInstallLocationOverride.PathValueOverride),
+                    multiLevelLookup: null);
+
+                result.ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion)
+                    .And.HaveStdErrContaining("The following frameworks for other architectures were found:");
+
+                // Error message should list framework found for other architectures
+                foreach ((string arch, string path) in installLocations)
+                {
+                    if (arch == TestContext.BuildArchitecture)
+                        continue;
+
+                    string expectedPath = System.Text.RegularExpressions.Regex.Escape(Path.Combine(path, "shared", MicrosoftNETCoreApp));
+                    result.Should()
+                        .HaveStdErrMatching($@"{arch}\s*{requestedVersion} at \[{expectedPath}\]", System.Text.RegularExpressions.RegexOptions.Multiline);
+                }
+            }
         }
 
         private CommandResult RunTest(Func<RuntimeConfig, RuntimeConfig> runtimeConfig, bool? multiLevelLookup = true)
@@ -257,6 +302,14 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
                     .AddMicrosoftNETCoreAppFrameworkMockHostPolicy("6.1.3")
                     .AddMicrosoftNETCoreAppFrameworkMockHostPolicy("7.1.2")
                     .Build();
+
+                // Empty Microsoft.NETCore.App directory - should not be recognized as a valid framework
+                // Version is the best match for some test cases, but they should be ignored
+                string netCoreAppDir = Path.Combine(DotNetMainHive.BinPath, "shared", Constants.MicrosoftNETCoreApp);
+                Directory.CreateDirectory(Path.Combine(netCoreAppDir, "5.0.0"));
+                Directory.CreateDirectory(Path.Combine(netCoreAppDir, "6.0.0"));
+                Directory.CreateDirectory(Path.Combine(netCoreAppDir, "7.0.0"));
+                Directory.CreateDirectory(Path.Combine(netCoreAppDir, "9999.9.9"));
 
                 DotNetGlobalHive = DotNet("GlobalHive")
                     .AddMicrosoftNETCoreAppFrameworkMockHostPolicy("5.1.2")

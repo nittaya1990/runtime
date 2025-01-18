@@ -73,7 +73,7 @@
 #else
 #include <mono/utils/mono-mmap.h>
 #endif
-#include <mono/utils/mono-membar.h>
+#include <mono/utils/mono-memory-model.h>
 #include <mono/utils/hazard-pointer.h>
 #include <mono/utils/lock-free-queue.h>
 
@@ -138,13 +138,15 @@ alloc_sb (Descriptor *desc)
 	if (pagesize == -1)
 		pagesize = mono_pagesize ();
 
+	// NOTE: Allocated memory is not guaranteed to be zeroed
 	sb_header = desc->block_size == pagesize ?
-		mono_valloc (NULL, desc->block_size, prot_flags_for_activate (TRUE), desc->heap->account_type) :
-		mono_valloc_aligned (desc->block_size, desc->block_size, prot_flags_for_activate (TRUE), desc->heap->account_type);
+		mono_valloc (NULL, desc->block_size, prot_flags_for_activate (TRUE) | MONO_MMAP_NOZERO, desc->heap->account_type) :
+		mono_valloc_aligned (desc->block_size, desc->block_size, prot_flags_for_activate (TRUE) | MONO_MMAP_NOZERO, desc->heap->account_type);
 
 	g_assertf (sb_header, "Failed to allocate memory for the lock free allocator");
 	g_assert (sb_header == sb_header_for_addr (sb_header, desc->block_size));
 
+	// Initializes the header fully
 	*(Descriptor**)sb_header = desc;
 	//g_print ("sb %p for %p\n", sb_header, desc);
 
@@ -466,7 +468,7 @@ mono_lock_free_free (gpointer ptr, size_t block_size)
 	do {
 		new_anchor.value = old_anchor.value = ((volatile Anchor*)&desc->anchor)->value;
 		*(unsigned int*)ptr = old_anchor.data.avail;
-		new_anchor.data.avail = ((char*)ptr - (char*)sb) / desc->slot_size;
+		new_anchor.data.avail = GPTRDIFF_TO_UINT (((char*)ptr - (char*)sb) / desc->slot_size);
 		g_assert (new_anchor.data.avail < LOCK_FREE_ALLOC_SB_USABLE_SIZE (block_size) / desc->slot_size);
 
 		if (old_anchor.data.state == STATE_FULL)
@@ -526,11 +528,11 @@ mono_lock_free_free (gpointer ptr, size_t block_size)
 static void
 descriptor_check_consistency (Descriptor *desc, gboolean print)
 {
-	int count = desc->anchor.data.count;
-	int max_count = LOCK_FREE_ALLOC_SB_USABLE_SIZE (desc->block_size) / desc->slot_size;
+	guint32 count = desc->anchor.data.count;
+	guint32 max_count = LOCK_FREE_ALLOC_SB_USABLE_SIZE (desc->block_size) / desc->slot_size;
 	gboolean* linked = g_newa (gboolean, max_count);
-	int i, last;
-	unsigned int index;
+	int last;
+	guint32 index;
 
 #ifndef DESC_AVAIL_DUMMY
 	Descriptor *avail;
@@ -564,12 +566,12 @@ descriptor_check_consistency (Descriptor *desc, gboolean print)
 		g_assert_OR_PRINT (FALSE, "invalid state\n");
 	}
 
-	for (i = 0; i < max_count; ++i)
+	for (guint32 i = 0; i < max_count; ++i)
 		linked [i] = FALSE;
 
 	index = desc->anchor.data.avail;
 	last = -1;
-	for (i = 0; i < count; ++i) {
+	for (guint32 i = 0; i < count; ++i) {
 		gpointer addr = (char*)desc->sb + index * desc->slot_size;
 		g_assert_OR_PRINT (index >= 0 && index < max_count,
 				"index %d for %dth available slot, linked from %d, not in range [0 .. %d)\n",

@@ -3,6 +3,9 @@
 //
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.DataTypes.@char;
 
 public struct VT
 {
@@ -25,7 +28,9 @@ public class charMDArrTest
     static char[][,] ja1 = new char[2][,];
     static char[][, ,] ja2 = new char[2][, ,];
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
 
         bool pass = true;

@@ -215,6 +215,35 @@ public:
     static BYTE* SetupOrSimulateInstructionForPatchSkip(T_CONTEXT * context, SharedPatchBypassBuffer * m_pSharedPatchBypassBuffer, const BYTE *address, PRD_TYPE opcode);
 
 };
+#elif defined (TARGET_LOONGARCH64)
+#include "controller.h"
+class NativeWalker : public Walker
+{
+public:
+    void Init(const BYTE *ip, REGDISPLAY *pregisters)
+    {
+        Walker::Init(ip, pregisters);
+    }
+    void Decode();
+    static void DecodeInstructionForPatchSkip(const BYTE *address, InstructionAttribute * pInstrAttrib)
+    {
+        pInstrAttrib->Reset();
+    }
+    static BOOL  DecodePCRelativeBranchInst(PT_CONTEXT context,const PRD_TYPE opcode, PCODE& offset, WALK_TYPE& walk);
+    static BOOL  DecodeJumpInst(const PRD_TYPE opcode, int& RegNum, PCODE& offset, WALK_TYPE& walk);
+};
+#elif defined (TARGET_RISCV64)
+#include "controller.h"
+class NativeWalker : public Walker
+{
+public:
+    void Init(const BYTE *ip, REGDISPLAY *pregisters)
+    {
+        Walker::Init(ip, pregisters);
+    }
+    void Decode();
+    uint64_t GetReg(uint64_t reg);
+};
 #else
 PORTABILITY_WARNING("NativeWalker not implemented on this platform");
 class NativeWalker : public Walker

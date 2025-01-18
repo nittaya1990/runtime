@@ -74,7 +74,7 @@ PCODE Precode::GetTarget()
     LIMITED_METHOD_CONTRACT;
     SUPPORTS_DAC;
 
-    PCODE target = NULL;
+    PCODE target = 0;
 
     PrecodeType precodeType = GetType();
     switch (precodeType)
@@ -108,7 +108,7 @@ MethodDesc* Precode::GetMethodDesc(BOOL fSpeculative /*= FALSE*/)
         SUPPORTS_DAC;
     } CONTRACTL_END;
 
-    TADDR pMD = NULL;
+    TADDR pMD = (TADDR)NULL;
 
     PrecodeType precodeType = GetType();
     switch (precodeType)
@@ -136,7 +136,7 @@ MethodDesc* Precode::GetMethodDesc(BOOL fSpeculative /*= FALSE*/)
         break;
     }
 
-    if (pMD == NULL)
+    if (pMD == (TADDR)NULL)
     {
         if (fSpeculative)
             return NULL;
@@ -147,29 +147,7 @@ MethodDesc* Precode::GetMethodDesc(BOOL fSpeculative /*= FALSE*/)
     // GetMethodDesc() on platform specific precode types returns TADDR. It should return
     // PTR_MethodDesc instead. It is a workaround to resolve cyclic dependency between headers.
     // Once we headers factoring of headers cleaned up, we should be able to get rid of it.
-
-    // For speculative calls, pMD can be garbage that causes IBC logging to crash
-    if (!fSpeculative)
-        g_IBCLogger.LogMethodPrecodeAccess((PTR_MethodDesc)pMD);
-
     return (PTR_MethodDesc)pMD;
-}
-
-BOOL Precode::IsCorrectMethodDesc(MethodDesc *  pMD)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-    MethodDesc * pMDfromPrecode = GetMethodDesc(TRUE);
-
-    if (pMDfromPrecode == pMD)
-        return TRUE;
-
-    return FALSE;
 }
 
 BOOL Precode::IsPointingToPrestub(PCODE target)
@@ -201,35 +179,7 @@ PCODE Precode::TryToSkipFixupPrecode(PCODE addr)
         GC_NOTRIGGER;
     } CONTRACTL_END;
 
-    PCODE pTarget = NULL;
-
-    return pTarget;
-}
-
-Precode* Precode::GetPrecodeForTemporaryEntryPoint(TADDR temporaryEntryPoints, int index)
-{
-    WRAPPER_NO_CONTRACT;
-    PrecodeType t = PTR_Precode(temporaryEntryPoints)->GetType();
-    SIZE_T oneSize = SizeOfTemporaryEntryPoint(t);
-    return PTR_Precode(temporaryEntryPoints + index * oneSize);
-}
-
-SIZE_T Precode::SizeOfTemporaryEntryPoints(PrecodeType t, int count)
-{
-    WRAPPER_NO_CONTRACT;
-    SUPPORTS_DAC;
-
-    SIZE_T oneSize = SizeOfTemporaryEntryPoint(t);
-    return count * oneSize;
-}
-
-SIZE_T Precode::SizeOfTemporaryEntryPoints(TADDR temporaryEntryPoints, int count)
-{
-    WRAPPER_NO_CONTRACT;
-    SUPPORTS_DAC;
-
-    PrecodeType precodeType = PTR_Precode(temporaryEntryPoints)->GetType();
-    return SizeOfTemporaryEntryPoints(precodeType, count);
+    return 0;
 }
 
 #ifndef DACCESS_COMPILE
@@ -339,8 +289,6 @@ BOOL Precode::SetTargetInterlocked(PCODE target, BOOL fOnlyRedirectFromPrestub)
     if (fOnlyRedirectFromPrestub && !IsPointingToPrestub(expected))
         return FALSE;
 
-    g_IBCLogger.LogMethodPrecodeWriteAccess(GetMethodDesc());
-
     PrecodeType precodeType = GetType();
     switch (precodeType)
     {
@@ -357,6 +305,7 @@ BOOL Precode::SetTargetInterlocked(PCODE target, BOOL fOnlyRedirectFromPrestub)
 #ifdef HAS_THISPTR_RETBUF_PRECODE
     case PRECODE_THISPTR_RETBUF:
         ret = AsThisPtrRetBufPrecode()->SetTargetInterlocked(target, expected);
+        ClrFlushInstructionCache(this, sizeof(ThisPtrRetBufPrecode), /* hasCodeExecutedBefore */ true);
         break;
 #endif // HAS_THISPTR_RETBUF_PRECODE
 
@@ -388,138 +337,8 @@ void Precode::Reset()
     {
         ExecutableWriterHolder<Precode> precodeWriterHolder(this, size);
         precodeWriterHolder.GetRW()->Init(this, t, pMD, pMD->GetLoaderAllocator());
-        ClrFlushInstructionCache(this, SizeOf());
+        ClrFlushInstructionCache(this, SizeOf(), /* hasCodeExecutedBefore */ true);
     }
-}
-
-/* static */
-TADDR Precode::AllocateTemporaryEntryPoints(MethodDescChunk *  pChunk,
-                                            LoaderAllocator *  pLoaderAllocator,
-                                            AllocMemTracker *  pamTracker)
-{
-    WRAPPER_NO_CONTRACT;
-
-    MethodDesc* pFirstMD = pChunk->GetFirstMethodDesc();
-
-    int count = pChunk->GetCount();
-
-    // Determine eligibility for tiered compilation
-#ifdef HAS_COMPACT_ENTRYPOINTS
-    bool hasMethodDescVersionableWithPrecode = false;
-#endif
-    {
-        MethodDesc *pMD = pChunk->GetFirstMethodDesc();
-        for (int i = 0; i < count; ++i)
-        {
-            if (pMD->DetermineAndSetIsEligibleForTieredCompilation())
-            {
-                _ASSERTE(pMD->IsEligibleForTieredCompilation());
-                _ASSERTE(!pMD->IsVersionableWithPrecode() || pMD->RequiresStableEntryPoint());
-            }
-
-#ifdef HAS_COMPACT_ENTRYPOINTS
-            if (pMD->IsVersionableWithPrecode())
-            {
-                _ASSERTE(pMD->RequiresStableEntryPoint());
-                hasMethodDescVersionableWithPrecode = true;
-            }
-#endif
-
-            pMD = (MethodDesc *)(dac_cast<TADDR>(pMD) + pMD->SizeOf());
-        }
-    }
-
-    PrecodeType t = PRECODE_STUB;
-    bool preallocateJumpStubs = false;
-
-#ifdef HAS_FIXUP_PRECODE
-    // Default to faster fixup precode if possible
-    if (!pFirstMD->RequiresMethodDescCallingConvention(count > 1))
-    {
-        t = PRECODE_FIXUP;
-
-    }
-    else
-    {
-        _ASSERTE(!pFirstMD->IsLCGMethod());
-    }
-#endif // HAS_FIXUP_PRECODE
-
-    SIZE_T totalSize = SizeOfTemporaryEntryPoints(t, count);
-
-#ifdef HAS_COMPACT_ENTRYPOINTS
-    // Note that these are just best guesses to save memory. If we guessed wrong,
-    // we will allocate a new exact type of precode in GetOrCreatePrecode.
-    BOOL fForcedPrecode = hasMethodDescVersionableWithPrecode || pFirstMD->RequiresStableEntryPoint(count > 1);
-
-#ifdef TARGET_ARM
-    if (pFirstMD->RequiresMethodDescCallingConvention(count > 1)
-        || count >= MethodDescChunk::GetCompactEntryPointMaxCount ())
-    {
-        // We do not pass method desc on scratch register
-        fForcedPrecode = TRUE;
-    }
-#endif // TARGET_ARM
-
-    if (!fForcedPrecode && (totalSize > MethodDescChunk::SizeOfCompactEntryPoints(count)))
-        return NULL;
-#endif
-
-    TADDR temporaryEntryPoints;
-    SIZE_T oneSize = SizeOfTemporaryEntryPoint(t);
-    MethodDesc * pMD = pChunk->GetFirstMethodDesc();
-    
-    if (t == PRECODE_FIXUP || t == PRECODE_STUB)
-    {
-        LoaderHeap *pStubHeap;
-        if (t == PRECODE_FIXUP)
-        {
-            pStubHeap = pLoaderAllocator->GetFixupPrecodeHeap();
-        }
-        else
-        {
-            pStubHeap = pLoaderAllocator->GetNewStubPrecodeHeap();
-        }
-
-        temporaryEntryPoints = (TADDR)pamTracker->Track(pStubHeap->AllocAlignedMem(totalSize, 1));
-        TADDR entryPoint = temporaryEntryPoints;
-        for (int i = 0; i < count; i++)
-        {
-            ((Precode *)entryPoint)->Init((Precode *)entryPoint, t, pMD, pLoaderAllocator);
-
-            _ASSERTE((Precode *)entryPoint == GetPrecodeForTemporaryEntryPoint(temporaryEntryPoints, i));
-            entryPoint += oneSize;
-
-            pMD = (MethodDesc *)(dac_cast<TADDR>(pMD) + pMD->SizeOf());
-        }
-    }
-    else
-    {
-        _ASSERTE(FALSE);
-        temporaryEntryPoints = (TADDR)pamTracker->Track(pLoaderAllocator->GetPrecodeHeap()->AllocAlignedMem(totalSize, AlignOf(t)));
-        ExecutableWriterHolder<void> entryPointsWriterHolder((void*)temporaryEntryPoints, totalSize);
-
-        TADDR entryPoint = temporaryEntryPoints;
-        TADDR entryPointRW = (TADDR)entryPointsWriterHolder.GetRW();
-        for (int i = 0; i < count; i++)
-        {
-            ((Precode *)entryPointRW)->Init((Precode *)entryPoint, t, pMD, pLoaderAllocator);
-
-            _ASSERTE((Precode *)entryPoint == GetPrecodeForTemporaryEntryPoint(temporaryEntryPoints, i));
-            entryPoint += oneSize;
-            entryPointRW += oneSize;
-
-            pMD = (MethodDesc *)(dac_cast<TADDR>(pMD) + pMD->SizeOf());
-        }
-    }
-
-#ifdef FEATURE_PERFMAP
-    PerfMap::LogStubs(__FUNCTION__, "PRECODE_STUB", (PCODE)temporaryEntryPoints, count * oneSize);
-#endif
-
-    ClrFlushInstructionCache((LPVOID)temporaryEntryPoints, count * oneSize);
-
-    return temporaryEntryPoints;
 }
 
 #endif // !DACCESS_COMPILE
@@ -560,7 +379,7 @@ void StubPrecode::Init(StubPrecode* pPrecodeRX, MethodDesc* pMD, LoaderAllocator
     {
         // Use pMD == NULL in all precode initialization methods to allocate the initial jump stub in non-dynamic heap
         // that has the same lifetime like as the precode itself
-        if (target == NULL)
+        if (target == (TADDR)NULL)
             target = GetPreStubEntryPoint();
         pStubData->Target = target;
     }
@@ -600,10 +419,10 @@ void StubPrecode::StaticInitialize()
         case size: \
             StubPrecodeCode = StubPrecodeCode##size; \
             StubPrecodeCode_End = StubPrecodeCode##size##_End; \
-            _ASSERTE(((BYTE*)StubPrecodeCode##size##_End - (BYTE*)StubPrecodeCode##size) <= StubPrecode::CodeSize); \
+            _ASSERTE((SIZE_T)((BYTE*)StubPrecodeCode##size##_End - (BYTE*)StubPrecodeCode##size) <= StubPrecode::CodeSize); \
             break;
 
-    int pageSize = GetOsPageSize();
+    int pageSize = GetStubCodePageSize();
     switch (pageSize)
     {
         ENUM_PAGE_SIZES
@@ -612,15 +431,20 @@ void StubPrecode::StaticInitialize()
     }
     #undef ENUM_PAGE_SIZE
 #else
-    _ASSERTE(((BYTE*)StubPrecodeCode_End - (BYTE*)StubPrecodeCode) <= StubPrecode::CodeSize);
+    _ASSERTE((SIZE_T)((BYTE*)StubPrecodeCode_End - (BYTE*)StubPrecodeCode) <= StubPrecode::CodeSize);
 #endif
+#ifdef TARGET_LOONGARCH64
+    _ASSERTE(((*((short*)PCODEToPINSTR((PCODE)StubPrecodeCode) + OFFSETOF_PRECODE_TYPE)) >> 5) == StubPrecode::Type);
+#elif TARGET_RISCV64
     _ASSERTE((*((BYTE*)PCODEToPINSTR((PCODE)StubPrecodeCode) + OFFSETOF_PRECODE_TYPE)) == StubPrecode::Type);
+#else
+    _ASSERTE((*((BYTE*)PCODEToPINSTR((PCODE)StubPrecodeCode) + OFFSETOF_PRECODE_TYPE)) == StubPrecode::Type);
+#endif
+
 }
 
-void StubPrecode::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX)
+void StubPrecode::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX, SIZE_T pageSize)
 {
-    int pageSize = GetOsPageSize();
-
 #ifdef TARGET_X86
     int totalCodeSize = (pageSize / StubPrecode::CodeSize) * StubPrecode::CodeSize;
     for (int i = 0; i < totalCodeSize; i += StubPrecode::CodeSize)
@@ -643,11 +467,19 @@ BOOL StubPrecode::IsStubPrecodeByASM(PCODE addr)
     BYTE *pInstr = (BYTE*)PCODEToPINSTR(addr);
 #ifdef TARGET_X86
     return *pInstr == *(BYTE*)(StubPrecodeCode) &&
-            *(DWORD*)(pInstr + SYMBOL_VALUE(StubPrecodeCode_MethodDesc_Offset)) == (DWORD)(pInstr + GetOsPageSize() + offsetof(StubPrecodeData, MethodDesc)) &&
+            *(DWORD*)(pInstr + SYMBOL_VALUE(StubPrecodeCode_MethodDesc_Offset)) == (DWORD)(pInstr + GetStubCodePageSize() + offsetof(StubPrecodeData, MethodDesc)) &&
             *(WORD*)(pInstr + 5) == *(WORD*)((BYTE*)StubPrecodeCode + 5) &&
-            *(DWORD*)(pInstr + SYMBOL_VALUE(StubPrecodeCode_Target_Offset)) == (DWORD)(pInstr + GetOsPageSize() + offsetof(StubPrecodeData, Target));
+            *(DWORD*)(pInstr + SYMBOL_VALUE(StubPrecodeCode_Target_Offset)) == (DWORD)(pInstr + GetStubCodePageSize() + offsetof(StubPrecodeData, Target));
 #else // TARGET_X86
-    return memcmp(pInstr, (void*)PCODEToPINSTR((PCODE)StubPrecodeCode), (BYTE*)StubPrecodeCode_End - (BYTE*)StubPrecodeCode) == 0;
+    BYTE *pTemplateInstr = (BYTE*)PCODEToPINSTR((PCODE)StubPrecodeCode);
+    BYTE *pTemplateInstrEnd = (BYTE*)PCODEToPINSTR((PCODE)StubPrecodeCode_End);
+    while ((pTemplateInstr < pTemplateInstrEnd) && (*pInstr == *pTemplateInstr))
+    {
+        pInstr++;
+        pTemplateInstr++;
+    }
+
+    return pTemplateInstr == pTemplateInstrEnd;
 #endif // TARGET_X86
 }
 
@@ -706,10 +538,10 @@ void FixupPrecode::StaticInitialize()
         case size: \
             FixupPrecodeCode = FixupPrecodeCode##size; \
             FixupPrecodeCode_End = FixupPrecodeCode##size##_End; \
-            _ASSERTE(((BYTE*)FixupPrecodeCode##size##_End - (BYTE*)FixupPrecodeCode##size) <= FixupPrecode::CodeSize); \
+            _ASSERTE((SIZE_T)((BYTE*)FixupPrecodeCode##size##_End - (BYTE*)FixupPrecodeCode##size) <= FixupPrecode::CodeSize); \
             break;
 
-    int pageSize = GetOsPageSize();
+    int pageSize = GetStubCodePageSize();
 
     switch (pageSize)
     {
@@ -719,15 +551,19 @@ void FixupPrecode::StaticInitialize()
     }
     #undef ENUM_PAGE_SIZE
 #else
-    _ASSERTE((BYTE*)FixupPrecodeCode_End - (BYTE*)FixupPrecodeCode <= FixupPrecode::CodeSize);
+    _ASSERTE((SIZE_T)((BYTE*)FixupPrecodeCode_End - (BYTE*)FixupPrecodeCode) <= FixupPrecode::CodeSize);
 #endif
+#ifdef TARGET_LOONGARCH64
+    _ASSERTE(((*((short*)PCODEToPINSTR((PCODE)StubPrecodeCode) + OFFSETOF_PRECODE_TYPE)) >> 5) == StubPrecode::Type);
+#elif TARGET_RISCV64
+    _ASSERTE((*((BYTE*)PCODEToPINSTR((PCODE)FixupPrecodeCode) + OFFSETOF_PRECODE_TYPE)) == FixupPrecode::Type);
+#else
     _ASSERTE(*((BYTE*)PCODEToPINSTR((PCODE)FixupPrecodeCode) + OFFSETOF_PRECODE_TYPE) == FixupPrecode::Type);
+#endif
 }
 
-void FixupPrecode::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX)
+void FixupPrecode::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX, SIZE_T pageSize)
 {
-    int pageSize = GetOsPageSize();
-
 #ifdef TARGET_X86
     int totalCodeSize = (pageSize / FixupPrecode::CodeSize) * FixupPrecode::CodeSize;
 
@@ -754,13 +590,21 @@ BOOL FixupPrecode::IsFixupPrecodeByASM(PCODE addr)
 #ifdef TARGET_X86
     return
         *(WORD*)(pInstr) == *(WORD*)(FixupPrecodeCode) &&
-        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_Target_Offset)) == (DWORD)(pInstr + GetOsPageSize() + offsetof(FixupPrecodeData, Target)) &&
+        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_Target_Offset)) == (DWORD)(pInstr + GetStubCodePageSize() + offsetof(FixupPrecodeData, Target)) &&
         *(pInstr + 6) == *((BYTE*)FixupPrecodeCode + 6) &&
-        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_MethodDesc_Offset)) == (DWORD)(pInstr + GetOsPageSize() + offsetof(FixupPrecodeData, MethodDesc)) &&
+        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_MethodDesc_Offset)) == (DWORD)(pInstr + GetStubCodePageSize() + offsetof(FixupPrecodeData, MethodDesc)) &&
         *(WORD*)(pInstr + 11) == *(WORD*)((BYTE*)FixupPrecodeCode + 11) &&
-        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_PrecodeFixupThunk_Offset)) == (DWORD)(pInstr + GetOsPageSize() + offsetof(FixupPrecodeData, PrecodeFixupThunk));
+        *(DWORD*)(pInstr + SYMBOL_VALUE(FixupPrecodeCode_PrecodeFixupThunk_Offset)) == (DWORD)(pInstr + GetStubCodePageSize() + offsetof(FixupPrecodeData, PrecodeFixupThunk));
 #else // TARGET_X86
-    return memcmp(pInstr, (void*)PCODEToPINSTR((PCODE)FixupPrecodeCode), (BYTE*)FixupPrecodeCode_End - (BYTE*)FixupPrecodeCode) == 0;
+    BYTE *pTemplateInstr = (BYTE*)PCODEToPINSTR((PCODE)FixupPrecodeCode);
+    BYTE *pTemplateInstrEnd = (BYTE*)PCODEToPINSTR((PCODE)FixupPrecodeCode_End);
+    while ((pTemplateInstr < pTemplateInstrEnd) && (*pInstr == *pTemplateInstr))
+    {
+        pInstr++;
+        pTemplateInstr++;
+    }
+
+    return pTemplateInstr == pTemplateInstrEnd;
 #endif // TARGET_X86
 }
 
@@ -775,13 +619,6 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
     } CONTRACTL_END;
 
     TADDR pInstr = dac_cast<TADDR>(PCODEToPINSTR(pCode));
-
-#ifdef HAS_COMPACT_ENTRYPOINTS
-    if (MethodDescChunk::GetMethodDescFromCompactEntryPoint(pCode, TRUE) != NULL)
-    {
-        return TRUE;
-    }
-#endif
 
     if (!IS_ALIGNED(pInstr, PRECODE_ALIGNMENT))
     {
@@ -808,4 +645,37 @@ BOOL DoesSlotCallPrestub(PCODE pCode)
     return FALSE;
 }
 
+void PrecodeMachineDescriptor::Init(PrecodeMachineDescriptor *dest)
+{
+    dest->OffsetOfPrecodeType = OFFSETOF_PRECODE_TYPE;
+    // cDAC will do (where N = 8*ReadWidthOfPrecodeType):
+    //   uintN_t PrecodeType = *(uintN_t*)(pPrecode + OffsetOfPrecodeType);
+    //   PrecodeType >>= ShiftOfPrecodeType;
+    //   return (byte)PrecodeType;
+#ifdef TARGET_LOONGARCH64
+    dest->ReadWidthOfPrecodeType = 2;
+#else
+    dest->ReadWidthOfPrecodeType = 1;
+#endif
+#if defined(SHIFTOF_PRECODE_TYPE)
+    dest->ShiftOfPrecodeType = SHIFTOF_PRECODE_TYPE;
+#else
+    dest->ShiftOfPrecodeType = 0;
+#endif
+
+    dest->InvalidPrecodeType = InvalidPrecode::Type;
+    dest->StubPrecodeType = StubPrecode::Type;
+#ifdef HAS_NDIRECT_IMPORT_PRECODE
+    dest->PInvokeImportPrecodeType = NDirectImportPrecode::Type;
+#endif // HAS_NDIRECT_IMPORT_PRECODE
+#ifdef HAS_FIXUP_PRECODE
+    dest->FixupPrecodeType = FixupPrecode::Type;
+#endif
+#ifdef HAS_THISPTR_RETBUF_PRECODE
+    dest->ThisPointerRetBufPrecodeType = ThisPtrRetBufPrecode::Type;
+#endif
+    dest->StubCodePageSize = GetStubCodePageSize();
+}
+
 #endif // !DACCESS_COMPILE
+

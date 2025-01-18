@@ -45,9 +45,9 @@
 
 using System;
 using System.Collections.Generic;   // For Dictionary<string, string>
-using System.Text;                  // For StringBuilder
 using System.Diagnostics;           // For Debug.Assert
 using System.Diagnostics.CodeAnalysis;
+using System.Text;                  // For StringBuilder
 
 namespace System.IO.Packaging
 {
@@ -70,8 +70,13 @@ namespace System.IO.Packaging
         /// <exception cref="ArgumentException">If the contentType string has leading or
         /// trailing Linear White Spaces(LWS) characters</exception>
         /// <exception cref="ArgumentException">If the contentType string invalid CR-LF characters</exception>
-        internal ContentType(string contentType!!)
+        internal ContentType(string contentType)
         {
+            if (contentType is null)
+            {
+                throw new ArgumentNullException(nameof(contentType));
+            }
+
             if (contentType.Length == 0)
             {
                 _contentType = string.Empty;
@@ -139,7 +144,7 @@ namespace System.IO.Packaging
         /// This will return an enumerator over a dictionary of the parameter/value pairs.
         /// </summary>
         internal Dictionary<string, string>.Enumerator ParameterValuePairs =>
-            (_parameterDictionary ??= new()).GetEnumerator();
+            (_parameterDictionary ??= new Dictionary<string, string>()).GetEnumerator();
         #endregion Internal Properties
 
         #region Internal Methods
@@ -330,7 +335,7 @@ namespace System.IO.Packaging
                 //Get length of the parameter value
                 int parameterValueLength = GetLengthOfParameterValue(parameterAndValue, parameterStartIndex);
 
-                (_parameterDictionary ??= new()).Add(
+                (_parameterDictionary ??= new Dictionary<string, string>()).Add(
                     ValidateToken(parameterAndValue.Slice(0, equalSignIndex).ToString()),
                     ValidateQuotedStringOrToken(parameterAndValue.Slice(parameterStartIndex, parameterValueLength).ToString()));
 
@@ -346,8 +351,6 @@ namespace System.IO.Packaging
         /// <returns></returns>
         private static int GetLengthOfParameterValue(ReadOnlySpan<char> s, int startIndex)
         {
-            Debug.Assert(s != null);
-
             int length;
 
             //if the parameter value does not start with a '"' then,

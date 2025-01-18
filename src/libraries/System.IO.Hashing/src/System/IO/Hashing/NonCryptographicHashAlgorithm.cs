@@ -4,6 +4,8 @@
 using System.Buffers;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -80,8 +82,13 @@ namespace System.IO.Hashing
         /// <exception cref="ArgumentNullException">
         ///   <paramref name="source"/> is <see langword="null"/>.
         /// </exception>
-        public void Append(byte[] source!!)
+        public void Append(byte[] source)
         {
+            if (source is null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+
             Append(new ReadOnlySpan<byte>(source));
         }
 
@@ -94,23 +101,14 @@ namespace System.IO.Hashing
         ///   <paramref name="stream"/> is <see langword="null"/>.
         /// </exception>
         /// <seealso cref="AppendAsync(Stream, CancellationToken)"/>
-        public void Append(Stream stream!!)
+        public void Append(Stream stream)
         {
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(4096);
-
-            while (true)
+            if (stream is null)
             {
-                int read = stream.Read(buffer, 0, buffer.Length);
-
-                if (read == 0)
-                {
-                    break;
-                }
-
-                Append(new ReadOnlySpan<byte>(buffer, 0, read));
+                throw new ArgumentNullException(nameof(stream));
             }
 
-            ArrayPool<byte>.Shared.Return(buffer);
+            stream.CopyTo(new CopyToDestinationStream(this));
         }
 
         /// <summary>
@@ -123,40 +121,33 @@ namespace System.IO.Hashing
         ///   The token to monitor for cancellation requests.
         ///   The default value is <see cref="CancellationToken.None"/>.
         /// </param>
+        /// <returns>
+        ///   A task that represents the asynchronous append operation.
+        /// </returns>
         /// <exception cref="ArgumentNullException">
         ///   <paramref name="stream"/> is <see langword="null"/>.
         /// </exception>
-        public Task AppendAsync(Stream stream!!, CancellationToken cancellationToken = default)
+        public Task AppendAsync(Stream stream, CancellationToken cancellationToken = default)
         {
-            return AppendAsyncCore(stream, cancellationToken);
-        }
-
-        private async Task AppendAsyncCore(Stream stream, CancellationToken cancellationToken)
-        {
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(4096);
-
-            while (true)
+            if (stream is null)
             {
-#if NETCOREAPP
-                int read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-#else
-                int read = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-#endif
-
-                if (read == 0)
-                {
-                    break;
-                }
-
-                Append(new ReadOnlySpan<byte>(buffer, 0, read));
+                throw new ArgumentNullException(nameof(stream));
             }
 
-            ArrayPool<byte>.Shared.Return(buffer);
+            return stream.CopyToAsync(
+                new CopyToDestinationStream(this),
+#if !NET
+                81_920, // default size used by Stream.CopyTo{Async}
+#endif
+                cancellationToken);
         }
 
         /// <summary>
         ///   Gets the current computed hash value without modifying accumulated state.
         /// </summary>
+        /// <returns>
+        ///   The hash value for the data already provided.
+        /// </returns>
         public byte[] GetCurrentHash()
         {
             byte[] ret = new byte[HashLengthInBytes];
@@ -205,7 +196,7 @@ namespace System.IO.Hashing
         {
             if (destination.Length < HashLengthInBytes)
             {
-                throw new ArgumentException(SR.Argument_DestinationTooShort, nameof(destination));
+                ThrowDestinationTooShort();
             }
 
             GetCurrentHashCore(destination.Slice(0, HashLengthInBytes));
@@ -215,6 +206,9 @@ namespace System.IO.Hashing
         /// <summary>
         ///   Gets the current computed hash value and clears the accumulated state.
         /// </summary>
+        /// <returns>
+        ///   The hash value for the data already provided.
+        /// </returns>
         public byte[] GetHashAndReset()
         {
             byte[] ret = new byte[HashLengthInBytes];
@@ -264,7 +258,7 @@ namespace System.IO.Hashing
         {
             if (destination.Length < HashLengthInBytes)
             {
-                throw new ArgumentException(SR.Argument_DestinationTooShort, nameof(destination));
+                ThrowDestinationTooShort();
             }
 
             GetHashAndResetCore(destination.Slice(0, HashLengthInBytes));
@@ -316,6 +310,67 @@ namespace System.IO.Hashing
 #pragma warning restore CS0809 // Obsolete member overrides non-obsolete member
         {
             throw new NotSupportedException(SR.NotSupported_GetHashCode);
+        }
+
+        [DoesNotReturn]
+        private protected static void ThrowDestinationTooShort() =>
+            throw new ArgumentException(SR.Argument_DestinationTooShort, "destination");
+
+        /// <summary>Stream-derived type used to support copying from a source stream to this instance via CopyTo{Async}.</summary>
+        private sealed class CopyToDestinationStream(NonCryptographicHashAlgorithm hash) : Stream
+        {
+            public override bool CanWrite => true;
+
+            public override void Write(byte[] buffer, int offset, int count) => hash.Append(buffer.AsSpan(offset, count));
+
+            public override void WriteByte(byte value) =>
+                hash.Append(
+#if NET
+                    new ReadOnlySpan<byte>(in value)
+#else
+                    [value]
+#endif
+                    );
+
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                hash.Append(buffer.AsSpan(offset, count));
+                return Task.CompletedTask;
+            }
+
+#if NET
+            public override void Write(ReadOnlySpan<byte> buffer) => hash.Append(buffer);
+
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                hash.Append(buffer.Span);
+                return default;
+            }
+
+            public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state) =>
+                TaskToAsyncResult.Begin(WriteAsync(buffer, offset, count), callback, state);
+
+            public override void EndWrite(IAsyncResult asyncResult) =>
+                TaskToAsyncResult.End(asyncResult);
+#endif
+
+            public override void Flush() { }
+
+            public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+            public override bool CanRead => false;
+
+            public override bool CanSeek => false;
+
+            public override long Length => throw new NotSupportedException();
+
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+            public override void SetLength(long value) => throw new NotSupportedException();
         }
     }
 }

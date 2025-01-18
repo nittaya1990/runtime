@@ -22,30 +22,81 @@
 
 JitHost* g_ourJitHost;
 
-// RecordVariable: return `true` if the given COMPlus variable `key` should be recorded
+// RecordVariable: return `true` if the given DOTNET variable `key` should be recorded
 // in the method context.
-bool RecordVariable(const WCHAR* key)
+bool RecordVariable(const char* key)
 {
-    // Special-case: we don't want to store some COMPlus variables during
-    // collections that we don't want to see on replay:
-    //   COMPlus_JitName -- used to get the VM to load the SuperPMI collection shim
-    //                      without requiring the shim to overwrite the original JIT.
-    //                      This JIT doesn't care about this on SuperPMI replay, but
-    //                      we don't need to waste the space in the MC file storing it.
-    //   COMPlus_AltJitName -- if collecting with an altjit, this is set. The JIT doesn't
-    //                      use this on replay, but it doesn't need to be stored.
-    //   COMPlus_EnableExtraSuperPmiQueries -- used to force the JIT to ask additional
-    //                      questions during SuperPMI collection. We don't want to store
-    //                      this variable because we don't want to replay using it.
+    // Special cases: we don't want to store some DOTNET variables during
+    // collections, typically when they refer to file paths or simply because
+    // it does not make sense to replay with it.
 
-    if ((_wcsicmp(key, W("JitName")) == 0) ||
-        (_wcsicmp(key, W("AltJitName")) == 0) ||
-        (_wcsicmp(key, W("EnableExtraSuperPmiQueries")) == 0))
+    static const char* s_ignoredVars[] = {
+        "EnableExtraSuperPmiQueries",
+        "JitDisasm",
+        "JitDump",
+        "JitDisasmWithAlignmentBoundaries",
+        "JitDumpASCII",
+        "JitHashBreak",
+        "JitHashDump",
+        "JitHashHalt",
+        "JitOrder",
+        "JitPrintInlinedMethods",
+        "JitPrintDevirtualizedMethods",
+        "JitBreak",
+        "JitDebugBreak",
+        "JitDisasmAssemblies",
+        "JitDisasmWithGC",
+        "JitDisasmWithDebugInfo",
+        "JitDisasmSpilled",
+        "JitDumpTier0",
+        "JitDumpAtOSROffset",
+        "JitDumpInlinePhases",
+        "JitEHDump",
+        "JitExclude",
+        "JitGCDump",
+        "JitDebugDump",
+        "JitHalt",
+        "JitImportBreak",
+        "JitInclude",
+        "JitLateDisasm",
+        "JitUnwindDump",
+        "JitDumpFg",
+        "JitDumpFgDir",
+        "JitDumpFgPhase",
+        "JitDumpFgPrePhase",
+        "JitDumpFgDot",
+        "JitDumpFgEH",
+        "JitDumpFgLoops",
+        "JitDumpFgConstrained",
+        "JitDumpFgBlockID",
+        "JitDumpFgBlockFlags",
+        "JitDumpFgLoopFlags",
+        "JitDumpFgBlockOrder",
+        "JITLateDisasmTo",
+        "JitDisasmSummary",
+        "JitStdOutFile",
+        "WriteRichDebugInfoFile",
+        "JitFuncInfoLogFile",
+        "JitTimeLogCsv",
+        "JitMeasureNowayAssertFile",
+        "JitInlineDumpData",
+        "JitInlineDumpXml",
+        "JitInlineDumpXmlFile",
+        "JitInlinePolicyDumpXml",
+        "JitInlineReplayFile",
+        "JitFunctionFile"
+        "JitRawHexCode",
+        "JitRawHexCodeFile"
+    };
+
+    for (const char* ignoredVar : s_ignoredVars)
     {
-        return false;
+        if (_stricmp(key, ignoredVar) == 0)
+        {
+            return false;
+        }
     }
 
-    // By default, we record everything.
     return true;
 }
 
@@ -63,13 +114,13 @@ void JitHost::freeMemory(void* block)
     return wrappedHost->freeMemory(block);
 }
 
-int JitHost::getIntConfigValue(const WCHAR* key, int defaultValue)
+int JitHost::getIntConfigValue(const char* key, int defaultValue)
 {
     // Special-case handling: don't collect this pseudo-variable, and don't
     // even record that it was called (since it would get recorded into the
     // global state). (See the superpmi.exe tool implementation of JitHost::getIntConfigValue()
     // for the special-case implementation of this.)
-    if (wcscmp(key, W("SuperPMIMethodContextNumber")) == 0)
+    if (strcmp(key, "SuperPMIMethodContextNumber") == 0)
     {
         return defaultValue;
     }
@@ -87,10 +138,10 @@ int JitHost::getIntConfigValue(const WCHAR* key, int defaultValue)
     return result;
 }
 
-const WCHAR* JitHost::getStringConfigValue(const WCHAR* key)
+const char* JitHost::getStringConfigValue(const char* key)
 {
     mc->cr->AddCall("getStringConfigValue");
-    const WCHAR* result = wrappedHost->getStringConfigValue(key);
+    const char* result = wrappedHost->getStringConfigValue(key);
 
     // Don't store null returns, which is the default
     if (RecordVariable(key) && (result != nullptr))
@@ -100,7 +151,7 @@ const WCHAR* JitHost::getStringConfigValue(const WCHAR* key)
     return result;
 }
 
-void JitHost::freeStringConfigValue(const WCHAR* value)
+void JitHost::freeStringConfigValue(const char* value)
 {
     mc->cr->AddCall("freeStringConfigValue");
     wrappedHost->freeStringConfigValue(value);

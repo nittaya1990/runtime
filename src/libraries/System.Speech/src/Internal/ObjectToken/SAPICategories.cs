@@ -16,17 +16,11 @@ namespace System.Speech.Internal.ObjectTokens
         {
             Helpers.ThrowIfEmptyOrNull(category, nameof(category));
 
-            ObjectToken token = null;
             // Try first to get the preferred token for the current user
-            token = DefaultToken(@"HKEY_CURRENT_USER\SOFTWARE\Microsoft\Speech\" + category, _defaultTokenIdValueName);
-
-            // IF failed try to get it for the local machine
-            if (token == null)
-            {
-                token = DefaultToken(SpeechRegistryKey + category, _defaultTokenIdValueName);
-            }
-
-            return token;
+            // If failed try to get it for the local machine
+            return
+                DefaultToken(@"HKEY_CURRENT_USER\SOFTWARE\Microsoft\Speech\" + category, _defaultTokenIdValueName) ??
+                DefaultToken(SpeechRegistryKey + category, _defaultTokenIdValueName);
         }
 
         /// <summary>
@@ -65,6 +59,7 @@ namespace System.Speech.Internal.ObjectTokens
         #endregion
 
         private const string SpeechRegistryKey = @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\";
+        private const string SpeechOneCoreRegistryKey = @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech_OneCore\";
 
         internal const string CurrentUserVoices = @"HKEY_CURRENT_USER\SOFTWARE\Microsoft\Speech\Voices";
 
@@ -72,6 +67,7 @@ namespace System.Speech.Internal.ObjectTokens
 
         internal const string Recognizers = SpeechRegistryKey + "Recognizers";
         internal const string Voices = SpeechRegistryKey + "Voices";
+        internal const string Voices_OneCore = SpeechOneCoreRegistryKey + "Voices";
 
         internal const string AudioIn = SpeechRegistryKey + "AudioInput";
 

@@ -10,6 +10,7 @@
 //
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Runtime.Versioning;
@@ -56,7 +57,7 @@ namespace System.Threading
         /// <param name="message">A string that describes the exception.</param>
         /// <param name="innerException">The exception that is the cause of the current exception.</param>
         public BarrierPostPhaseException(string? message, Exception? innerException)
-            : base(message == null ? SR.BarrierPostPhaseException : message, innerException)
+            : base(message is null ? SR.BarrierPostPhaseException : message, innerException)
         {
         }
 
@@ -65,6 +66,8 @@ namespace System.Threading
         /// </summary>
         /// <param name="info">The object that holds the serialized object data.</param>
         /// <param name="context">The contextual information about the source or destination.</param>
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected BarrierPostPhaseException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
@@ -88,7 +91,7 @@ namespace System.Threading
     /// completed.
     /// </para>
     /// </remarks>
-    [DebuggerDisplay("Participant Count={ParticipantCount},Participants Remaining={ParticipantsRemaining}")]
+    [DebuggerDisplay("ParticipantCount = {ParticipantCount}, ParticipantsRemaining = {ParticipantsRemaining}")]
     public class Barrier : IDisposable
     {
         //This variable holds the basic barrier variables:
@@ -215,11 +218,8 @@ namespace System.Threading
         /// </remarks>
         public Barrier(int participantCount, Action<Barrier>? postPhaseAction)
         {
-            // the count must be non negative value
-            if (participantCount < 0 || participantCount > MAX_PARTICIPANTS)
-            {
-                throw new ArgumentOutOfRangeException(nameof(participantCount), participantCount, SR.Barrier_ctor_ArgumentOutOfRange);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(participantCount);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(participantCount, MAX_PARTICIPANTS);
             _currentTotalCount = (int)participantCount;
             _postPhaseAction = postPhaseAction;
 
@@ -228,7 +228,7 @@ namespace System.Threading
             _evenEvent = new ManualResetEventSlim(false);
 
             // Capture the context if the post phase action is not null
-            if (postPhaseAction != null)
+            if (postPhaseAction is not null)
             {
                 _ownerThreadContext = ExecutionContext.Capture();
             }
@@ -243,7 +243,7 @@ namespace System.Threading
         /// <param name="current">The current participant count</param>
         /// <param name="total">The total participants count</param>
         /// <param name="sense">The sense flag</param>
-        private void GetCurrentTotal(int currentTotal, out int current, out int total, out bool sense)
+        private static void GetCurrentTotal(int currentTotal, out int current, out int total, out bool sense)
         {
             total = (int)(currentTotal & TOTAL_MASK);
             current = (int)((currentTotal & CURRENT_MASK) >> 16);
@@ -284,7 +284,9 @@ namespace System.Threading
         /// </exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public long AddParticipant()
         {
             try
@@ -313,22 +315,15 @@ namespace System.Threading
         /// </exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public long AddParticipants(int participantCount)
         {
-            // check dispose
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-            if (participantCount < 1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(participantCount), participantCount,
-                    SR.Barrier_AddParticipants_NonPositive_ArgumentOutOfRange);
-            }
-            else if (participantCount > MAX_PARTICIPANTS) //overflow
-            {
-                throw new ArgumentOutOfRangeException(nameof(participantCount),
-                        SR.Barrier_AddParticipants_Overflow_ArgumentOutOfRange);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(participantCount);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(participantCount, MAX_PARTICIPANTS);
 
             // in case of this is called from the PHA
             if (_actionCallerID != 0 && Environment.CurrentManagedThreadId == _actionCallerID)
@@ -421,15 +416,9 @@ namespace System.Threading
         /// disposed.</exception>
         public void RemoveParticipants(int participantCount)
         {
-            // check dispose
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-            // Validate input
-            if (participantCount < 1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(participantCount), participantCount,
-                    SR.Barrier_RemoveParticipants_NonPositive_ArgumentOutOfRange);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(participantCount);
 
             // in case of this is called from the PHA
             if (_actionCallerID != 0 && Environment.CurrentManagedThreadId == _actionCallerID)
@@ -486,7 +475,9 @@ namespace System.Threading
         /// </exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public void SignalAndWait()
         {
             SignalAndWait(CancellationToken.None);
@@ -507,7 +498,9 @@ namespace System.Threading
         /// canceled.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public void SignalAndWait(CancellationToken cancellationToken)
         {
 #if DEBUG
@@ -537,7 +530,9 @@ namespace System.Threading
         /// </exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public bool SignalAndWait(TimeSpan timeout)
         {
             return SignalAndWait(timeout, CancellationToken.None);
@@ -565,7 +560,9 @@ namespace System.Threading
         /// canceled.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public bool SignalAndWait(TimeSpan timeout, CancellationToken cancellationToken)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
@@ -593,7 +590,9 @@ namespace System.Threading
         /// </exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public bool SignalAndWait(int millisecondsTimeout)
         {
             return SignalAndWait(millisecondsTimeout, CancellationToken.None);
@@ -620,10 +619,12 @@ namespace System.Threading
         /// canceled.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         public bool SignalAndWait(int millisecondsTimeout, CancellationToken cancellationToken)
         {
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
 
             if (millisecondsTimeout < -1)
@@ -750,7 +751,7 @@ namespace System.Threading
                 }
             }
 
-            if (_exception != null)
+            if (_exception is not null)
                 throw new BarrierPostPhaseException(_exception);
 
             return true;
@@ -764,19 +765,15 @@ namespace System.Threading
         private void FinishPhase(bool observedSense)
         {
             // Execute the PHA in try/finally block to reset the variables back in case of it threw an exception
-            if (_postPhaseAction != null)
+            if (_postPhaseAction is not null)
             {
                 try
                 {
                     // Capture the caller thread ID to check if the Add/RemoveParticipant(s) is called from the PHA
                     _actionCallerID = Environment.CurrentManagedThreadId;
-                    if (_ownerThreadContext != null)
+                    if (_ownerThreadContext is not null)
                     {
-                        ContextCallback? handler = s_invokePostPhaseAction;
-                        if (handler == null)
-                        {
-                            s_invokePostPhaseAction = handler = InvokePostPhaseAction;
-                        }
+                        ContextCallback? handler = s_invokePostPhaseAction ??= InvokePostPhaseAction;
                         ExecutionContext.Run(_ownerThreadContext, handler, this);
                     }
                     else
@@ -794,7 +791,7 @@ namespace System.Threading
                 {
                     _actionCallerID = 0;
                     SetResetEvents(observedSense);
-                    if (_exception != null)
+                    if (_exception is not null)
                         throw new BarrierPostPhaseException(_exception);
                 }
             }
@@ -821,7 +818,7 @@ namespace System.Threading
         private void SetResetEvents(bool observedSense)
         {
             // Increment the phase count using Volatile class because m_currentPhase is 64 bit long type, that could cause torn write on 32 bit machines
-            CurrentPhaseNumber = CurrentPhaseNumber + 1;
+            CurrentPhaseNumber++;
             if (observedSense)
             {
                 _oddEvent.Reset();
@@ -864,7 +861,9 @@ namespace System.Threading
         /// <param name="token">cancellation token passed to SignalAndWait</param>
         /// <param name="observedPhase">The current phase number for this thread</param>
         /// <returns>True if the event is set or the phase number changed, false if the timeout expired</returns>
+#if !FEATURE_WASM_MANAGED_THREADS
         [UnsupportedOSPlatform("browser")]
+#endif
         private bool DiscontinuousWait(ManualResetEventSlim currentPhaseEvent, int totalTimeout, CancellationToken token, long observedPhase)
         {
             int maxWait = 100; // 100 ms
@@ -937,17 +936,6 @@ namespace System.Threading
                     _evenEvent.Dispose();
                 }
                 _disposed = true;
-            }
-        }
-
-        /// <summary>
-        /// Throw ObjectDisposedException if the barrier is disposed
-        /// </summary>
-        private void ThrowIfDisposed()
-        {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(Barrier), SR.Barrier_Dispose);
             }
         }
     }

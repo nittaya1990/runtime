@@ -9,38 +9,38 @@ using System.Collections.Generic;
 using System.Runtime;
 using System.Runtime.CompilerServices;
 
+using Internal.Runtime;
 using Internal.Runtime.Augments;
 
 namespace Internal.IntrinsicSupport
 {
     internal static class ComparerHelpers
     {
-        private static bool ImplementsIComparable(RuntimeTypeHandle t)
+        private static unsafe bool ImplementsIComparable(RuntimeTypeHandle t)
         {
-            EETypePtr objectType = t.ToEETypePtr();
-            EETypePtr icomparableType = typeof(IComparable<>).TypeHandle.ToEETypePtr();
-            int interfaceCount = objectType.Interfaces.Count;
+            MethodTable* objectType = t.ToMethodTable();
+            MethodTable* icomparableType = typeof(IComparable<>).TypeHandle.ToMethodTable();
+            int interfaceCount = objectType->NumInterfaces;
             for (int i = 0; i < interfaceCount; i++)
             {
-                EETypePtr interfaceType = objectType.Interfaces[i];
+                MethodTable* interfaceType = objectType->InterfaceMap[i];
 
-                if (!interfaceType.IsGeneric)
+                if (!interfaceType->IsGeneric)
                     continue;
 
-                if (interfaceType.GenericDefinition == icomparableType)
+                if (interfaceType->GenericDefinition == icomparableType)
                 {
-                    var instantiation = interfaceType.Instantiation;
-                    if (instantiation.Length != 1)
+                    if (interfaceType->GenericArity != 1)
                         continue;
 
-                    if (objectType.IsValueType)
+                    if (objectType->IsValueType)
                     {
-                        if (instantiation[0] == objectType)
+                        if (interfaceType->GenericArguments[0] == objectType)
                         {
                             return true;
                         }
                     }
-                    else if (RuntimeImports.AreTypesAssignable(objectType, instantiation[0]))
+                    else if (RuntimeImports.AreTypesAssignable(objectType, interfaceType->GenericArguments[0]))
                     {
                         return true;
                     }
@@ -59,11 +59,8 @@ namespace Internal.IntrinsicSupport
             if (RuntimeAugments.IsNullable(t))
             {
                 RuntimeTypeHandle nullableType = RuntimeAugments.GetNullableType(t);
-                if (ImplementsIComparable(nullableType))
-                {
-                    openComparerType = typeof(NullableComparer<>).TypeHandle;
-                    comparerTypeArgument = nullableType;
-                }
+                openComparerType = typeof(NullableComparer<>).TypeHandle;
+                comparerTypeArgument = nullableType;
             }
             if (EqualityComparerHelpers.IsEnum(t))
             {
@@ -91,10 +88,10 @@ namespace Internal.IntrinsicSupport
                 Environment.FailFast("Unable to create comparer");
             }
 
-            return RuntimeAugments.NewObject(comparerType);
+            return RuntimeAugments.RawNewObject(comparerType);
         }
 
-        // This one is an intrinsic that is used to make enum comparisions more efficient.
+        // This one is an intrinsic that is used to make enum comparisons more efficient.
         [Intrinsic]
         internal static int EnumOnlyCompare<T>(T x, T y) where T : struct, Enum
         {

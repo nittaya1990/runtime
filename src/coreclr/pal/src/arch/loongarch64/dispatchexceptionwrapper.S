@@ -1,10 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-// ==++==
-//
-
-// ==--==
 //
 // Implementation of the PAL_DispatchExceptionWrapper that is
 // interposed between a function that caused a hardware fault
@@ -38,7 +34,7 @@ C_FUNC(PAL_DispatchExceptionReturnOffset):
 
 NESTED_ENTRY PAL_DispatchExceptionWrapper, _TEXT, NoHandler
     //                           $fp,$ra
-    PROLOG_SAVE_REG_PAIR_INDEXED 22, 1, -16
+    PROLOG_SAVE_REG_PAIR_INDEXED 22, 1, 16
     // Should never actually run
     EMIT_BREAKPOINT
     bl      EXTERNAL_C_FUNC(PAL_DispatchException)

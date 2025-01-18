@@ -24,10 +24,10 @@ Unicode2UTF(
     LPUTF8  szDst,  // Buffer for the output UTF8 string.
     int     cbDst)  // Size of the buffer for UTF8 string.
 {
-    int cchSrc = (int)wcslen(wszSrc);
+    int cchSrc = (int)u16_strlen(wszSrc);
     int cchRet;
 
-    cchRet = WszWideCharToMultiByte(
+    cchRet = WideCharToMultiByte(
         CP_UTF8,
         0,
         wszSrc,
@@ -229,8 +229,8 @@ HRESULT HENUMInternal::EnumWithCount(
         return S_FALSE;
     }
 
-    // we can only fill the minimun of what caller asked for or what we have left
-    cTokens = min ( (pEnum->u.m_ulEnd - pEnum->u.m_ulCur), cMax);
+    // we can only fill the minimum of what caller asked for or what we have left
+    cTokens = min ( (ULONG)(pEnum->u.m_ulEnd - pEnum->u.m_ulCur), cMax);
 
     if (pEnum->m_EnumType == MDSimpleEnum)
     {
@@ -295,8 +295,8 @@ HRESULT HENUMInternal::EnumWithCount(
     // Number of tokens must always be a multiple of 2.
     _ASSERTE(! ((pEnum->u.m_ulEnd - pEnum->u.m_ulCur) % 2) );
 
-    // we can only fill the minimun of what caller asked for or what we have left
-    cTokens = min ( (pEnum->u.m_ulEnd - pEnum->u.m_ulCur), cMax * 2);
+    // we can only fill the minimum of what caller asked for or what we have left
+    cTokens = min ( (ULONG)(pEnum->u.m_ulEnd - pEnum->u.m_ulCur), cMax * 2);
 
     // get the embedded dynamic array
     TOKENLIST       *pdalist = (TOKENLIST *)&(pEnum->m_cursor);

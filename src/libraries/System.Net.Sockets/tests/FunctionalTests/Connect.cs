@@ -4,9 +4,11 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
+using System.Linq;
 
 namespace System.Net.Sockets.Tests
 {
@@ -15,7 +17,7 @@ namespace System.Net.Sockets.Tests
         public Connect(ITestOutputHelper output) : base(output) {}
 
         [OuterLoop]
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         [MemberData(nameof(Loopbacks))]
         public async Task Connect_Success(IPAddress listenAt)
         {
@@ -43,7 +45,7 @@ namespace System.Net.Sockets.Tests
             Assert.True(client.Connected);
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         [MemberData(nameof(Loopbacks))]
         public async Task Connect_Dns_Success(IPAddress listenAt)
         {
@@ -66,7 +68,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop]
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         [MemberData(nameof(Loopbacks))]
         public async Task Connect_MultipleIPAddresses_Success(IPAddress listenAt)
         {
@@ -83,7 +85,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         public async Task Connect_OnConnectedSocket_Fails()
         {
             int port;
@@ -100,7 +102,7 @@ namespace System.Net.Sockets.Tests
 
         [PlatformSpecific(TestPlatforms.Windows)] // Unix currently does not support Disconnect
         [OuterLoop]
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         public async Task Connect_AfterDisconnect_Fails()
         {
             int port;
@@ -123,14 +125,31 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop("Connects to external server")]
-        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD, "Not supported on BSD like OSes.")]
+        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.MacCatalyst | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.FreeBSD, "Not supported on BSD like OSes.")]
         [Theory]
-        [InlineData("1.1.1.1", false)]
-        [InlineData("1.1.1.1", true)]
-        [InlineData("[::ffff:1.1.1.1]", false)]
-        [InlineData("[::ffff:1.1.1.1]", true)]
-        public async Task ConnectGetsCanceledByDispose(string addressString, bool useDns)
+        [InlineData("1.1.1.1", false, true)]
+        [InlineData("1.1.1.1", true, true)]
+        [InlineData("[::ffff:1.1.1.1]", false, true)]
+        [InlineData("[::ffff:1.1.1.1]", true, true)]
+        [InlineData("1.1.1.1", false, false)]
+        [InlineData("1.1.1.1", true, false)]
+        [InlineData("[::ffff:1.1.1.1]", false, false)]
+        [InlineData("[::ffff:1.1.1.1]", true, false)]
+        public async Task ConnectGetsCanceledByDispose(string addressString, bool useDns, bool owning)
         {
+            // Skip test on Linux kernels that may have a regression that was fixed in 6.6.
+            // See TcpReceiveSendGetsCanceledByDispose test for additional information.
+            if (UsesSync && PlatformDetection.IsLinux && Environment.OSVersion.Version < new Version(6, 6))
+            {
+                return;
+            }
+
+            // Aborting sync operations for non-owning handles is not supported on Unix.
+            if (!owning && UsesSync && !PlatformDetection.IsWindows)
+            {
+                return;
+            }
+
             IPAddress address = IPAddress.Parse(addressString);
 
             // We try this a couple of times to deal with a timing race: if the Dispose happens
@@ -139,6 +158,8 @@ namespace System.Net.Sockets.Tests
             await RetryHelper.ExecuteAsync(async () =>
             {
                 var client = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                using SafeSocketHandle? owner = ReplaceWithNonOwning(ref client, owning);
+
                 if (address.IsIPv4MappedToIPv6) client.DualMode = true;
 
                 Task connectTask = ConnectAsync(client, useDns ?
@@ -171,12 +192,7 @@ namespace System.Net.Sockets.Tests
                     disposedException = true;
                 }
 
-                if (UsesApm)
-                {
-                    Assert.Null(localSocketError);
-                    Assert.True(disposedException);
-                }
-                else if (UsesSync)
+                if (UsesSync)
                 {
                     Assert.True(disposedException || localSocketError == SocketError.NotSocket, $"{disposedException} {localSocketError}");
                 }
@@ -186,18 +202,60 @@ namespace System.Net.Sockets.Tests
                 }
             }, maxAttempts: 10, retryWhen: e => e is XunitException);
         }
+
+        [OuterLoop("Connection failure takes long on Windows.")]
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support PortBlocker")]
+        public async Task Connect_WithoutListener_ThrowSocketExceptionWithAppropriateInfo()
+        {
+            using PortBlocker portBlocker = new PortBlocker(() =>
+            {
+                Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                socket.BindToAnonymousPort(IPAddress.Loopback);
+                return socket;
+            });
+            Socket a = portBlocker.MainSocket;
+            using Socket b = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            SocketException ex = await Assert.ThrowsAsync<SocketException>(() => ConnectAsync(b, a.LocalEndPoint));
+            Assert.Contains(Marshal.GetPInvokeErrorMessage(ex.NativeErrorCode), ex.Message);
+
+            if (UsesSync)
+            {
+                Assert.Contains(a.LocalEndPoint.ToString(), ex.Message);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(LoopbacksAndAny))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
+        public async Task Connect_DatagramSockets_DontThrowConnectedException_OnSecondAttempt(IPAddress listenAt, IPAddress secondConnection)
+        {
+            using Socket listener = new Socket(listenAt.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            using Socket s = new Socket(listenAt.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            listener.Bind(new IPEndPoint(listenAt, 0));
+
+            await ConnectAsync(s, new IPEndPoint(listenAt, ((IPEndPoint)listener.LocalEndPoint).Port));
+            Assert.True(s.Connected);
+            // According to the OSX man page, it's enough connecting to an invalid address to dissolve the connection. (0 port connection returns error on OSX)
+            await ConnectAsync(s, new IPEndPoint(secondConnection, PlatformDetection.IsApplePlatform ? 1 : 0));
+            Assert.True(s.Connected);
+        }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class ConnectSync : Connect<SocketHelperArraySync>
     {
         public ConnectSync(ITestOutputHelper output) : base(output) {}
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class ConnectSyncForceNonBlocking : Connect<SocketHelperSyncForceNonBlocking>
     {
         public ConnectSyncForceNonBlocking(ITestOutputHelper output) : base(output) {}
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class ConnectApm : Connect<SocketHelperApm>
     {
         public ConnectApm(ITestOutputHelper output) : base(output) {}
@@ -211,6 +269,57 @@ namespace System.Net.Sockets.Tests
     public sealed class ConnectEap : Connect<SocketHelperEap>
     {
         public ConnectEap(ITestOutputHelper output) : base(output) {}
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task ConnectAsync_WithData_DataReceived(bool useArrayApi)
+        {
+            using Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+            IPEndPoint serverEp = (IPEndPoint)listener.LocalEndPoint!;
+            listener.Listen();
+
+            var serverTask = Task.Run(async () =>
+            {
+                using Socket handler = await listener.AcceptAsync();
+                using var cts = new CancellationTokenSource(TestSettings.PassingTestTimeout);
+                byte[] recvBuffer = new byte[6];
+                int received = await handler.ReceiveAsync(recvBuffer, SocketFlags.None, cts.Token);
+                Assert.True(received == 4);
+
+                recvBuffer.AsSpan(0, 4).SequenceEqual(new byte[] { 2, 3, 4, 5 });
+            });
+
+            using var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            byte[] buffer = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7 };
+            
+            var mre = new ManualResetEventSlim(false);
+            var saea = new SocketAsyncEventArgs();
+            saea.RemoteEndPoint = serverEp;
+
+            // Slice the buffer to test the offset management:
+            if (useArrayApi)
+            {
+                saea.SetBuffer(buffer, 2, 4);
+            }
+            else
+            {
+                saea.SetBuffer(buffer.AsMemory(2, 4));
+            }
+            
+            saea.Completed += (_, __) => mre.Set();
+
+            if (client.ConnectAsync(saea))
+            {
+                Assert.True(mre.Wait(TestSettings.PassingTestTimeout), "Timed out while waiting for connection");
+            }
+
+            Assert.Equal(SocketError.Success, saea.SocketError);
+
+            await serverTask;
+        }
     }
 
     public sealed class ConnectCancellableTask : Connect<SocketHelperCancellableTask>
@@ -341,8 +450,10 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
-        public async Task FailedConnect_ConnectedReturnsFalse()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task FailedConnect_ConnectedReturnsFalse(bool useTimeSpan)
         {
             using Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -354,7 +465,14 @@ namespace System.Net.Sockets.Tests
                 Assert.Equal(SocketError.WouldBlock, se.SocketErrorCode);
 
                 // Give the non-blocking connect some time to complete.
-                socket.Poll(5_000_000 /* microSeconds */, SelectMode.SelectWrite);
+                if (useTimeSpan)
+                {
+                    socket.Poll(TimeSpan.FromMilliseconds(5000), SelectMode.SelectWrite);
+                }
+                else
+                {
+                    socket.Poll(5_000_000 /* microSeconds */, SelectMode.SelectWrite);
+                }
             }
 
             Assert.False(socket.Connected);
@@ -371,7 +489,7 @@ namespace System.Net.Sockets.Tests
         {
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         public async Task Connect_DualMode_MultiAddressFamilyConnect_RetrievedEndPoints_Success()
         {
             if (!SupportsMultiConnect)
@@ -390,7 +508,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))] // async SocketTestServer requires threads
         public async Task Connect_DualMode_DnsConnect_RetrievedEndPoints_Success()
         {
             var localhostAddresses = Dns.GetHostAddresses("localhost");
@@ -426,11 +544,13 @@ namespace System.Net.Sockets.Tests
         public ConnectSync_NonParallel(ITestOutputHelper output) : base(output) { }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class ConnectSyncForceNonBlocking_NonParallel : Connect_NonParallel<SocketHelperSyncForceNonBlocking>
     {
         public ConnectSyncForceNonBlocking_NonParallel(ITestOutputHelper output) : base(output) { }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class ConnectApm_NonParallel : Connect_NonParallel<SocketHelperApm>
     {
         public ConnectApm_NonParallel(ITestOutputHelper output) : base(output) { }

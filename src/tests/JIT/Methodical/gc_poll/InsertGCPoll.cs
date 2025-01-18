@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
 static class GCPollNative
 {
@@ -19,7 +20,7 @@ static class GCPollNative
     public static extern ulong NextUInt64(ulong n);
 }
 
-class InsertGCPoll
+public class InsertGCPoll
 {
     private static int PropNextInt32 => (int)GCPollNative.NextUInt32(0);
     private static long PropNextInt64 => (long)GCPollNative.NextUInt64(0);
@@ -84,8 +85,18 @@ class InsertGCPoll
             i += GCPollNative.NextUInt64(1);
         }
     }
+
+    public static readonly bool IsMonoJitArm64 = 
+        TestLibrary.PlatformDetection.IsArm64Process
+        && TestLibrary.PlatformDetection.IsMonoRuntime
+        && !TestLibrary.PlatformDetection.IsMonoInterpreter
+        && !TestLibrary.PlatformDetection.IsMonoFULLAOT
+        && !TestLibrary.PlatformDetection.IsMonoLLVMAOT;
     
-    public static int Main()
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/82859", typeof(InsertGCPoll), nameof(IsMonoJitArm64))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+    public static int TestEntryPoint()
     {
         try
         {

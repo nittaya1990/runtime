@@ -1,26 +1,22 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-**
-**
-** Purpose: implementation of the FormattableString
-** class.
-**
-===========================================================*/
+using System.Diagnostics.CodeAnalysis;
 
 namespace System
 {
     /// <summary>
-    /// A composite format string along with the arguments to be formatted. An instance of this
-    /// type may result from the use of the C# or VB language primitive "interpolated string".
+    /// Represents a composite format string, along with the arguments to be formatted.
     /// </summary>
+    /// <remarks>
+    /// An instance of this type may result from the use of the C# or VB language primitive "interpolated string".
+    /// </remarks>
     public abstract class FormattableString : IFormattable
     {
         /// <summary>
         /// The composite format string.
         /// </summary>
+        [StringSyntax(StringSyntaxAttribute.CompositeFormat)]
         public abstract string Format { get; }
 
         /// <summary>
@@ -60,8 +56,11 @@ namespace System
         /// Invariant($"{{ lat = {latitude}; lon = {longitude} }}")
         /// </code>
         /// </summary>
-        public static string Invariant(FormattableString formattable!!) =>
-            formattable.ToString(Globalization.CultureInfo.InvariantCulture);
+        public static string Invariant(FormattableString formattable)
+        {
+            ArgumentNullException.ThrowIfNull(formattable);
+            return formattable.ToString(Globalization.CultureInfo.InvariantCulture);
+        }
 
         /// <summary>
         /// Format the given object in the current culture. This static method may be
@@ -76,8 +75,11 @@ namespace System
         /// CurrentCulture($"{{ lat = {latitude}; lon = {longitude} }}")
         /// </code>
         /// </summary>
-        public static string CurrentCulture(FormattableString formattable!!) =>
-            formattable.ToString(Globalization.CultureInfo.CurrentCulture);
+        public static string CurrentCulture(FormattableString formattable)
+        {
+            ArgumentNullException.ThrowIfNull(formattable);
+            return formattable.ToString(Globalization.CultureInfo.CurrentCulture);
+        }
 
         public override string ToString() =>
             ToString(Globalization.CultureInfo.CurrentCulture);

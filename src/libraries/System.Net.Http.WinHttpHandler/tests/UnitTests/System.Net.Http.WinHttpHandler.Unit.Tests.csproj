@@ -2,11 +2,9 @@
   <PropertyGroup>
     <NoWarn>$(NoWarn);0436</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <StringResourcesPath>../../src/Resources/Strings.resx</StringResourcesPath>
+    <StringResourcesPath>..\..\src\Resources\Strings.resx</StringResourcesPath>
     <TargetFramework>$(NetCoreAppCurrent)-windows</TargetFramework>
-    <DefineConstants>UNITTEST</DefineConstants>
-    <EnableLibraryImportGenerator>true</EnableLibraryImportGenerator>
-    <Nullable>annotations</Nullable>
+    <DefineConstants>$(DefineConstants);UNITTEST</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <DefaultReferenceExclusion Include="System.Net.Http.WinHttpHandler" />
@@ -28,8 +26,8 @@
              Link="Common\Interop\Windows\WinHttp\Interop.winhttp_types.cs" />
     <Compile Include="$(CommonPath)System\CharArrayHelpers.cs"
              Link="Common\System\CharArrayHelpers.cs" />
-    <Compile Include="$(CommonPath)System\StringExtensions.cs"
-             Link="Common\System\StringExtensions.cs" />
+    <Compile Include="$(CommonPath)System\Obsoletions.cs"
+             Link="Common\System\Obsoletions.cs" />
     <Compile Include="$(CommonPath)System\IO\StreamHelpers.CopyValidation.cs"
              Link="Common\System\IO\StreamHelpers.CopyValidation.cs" />
     <Compile Include="$(CommonPath)System\Net\HttpKnownHeaderNames.cs"
@@ -58,8 +56,6 @@
              Link="Common\System\Text\SimpleRegex.cs" />
     <Compile Include="$(CommonPath)System\Threading\Tasks\RendezvousAwaitable.cs"
              Link="Common\System\Threading\Tasks\RendezvousAwaitable.cs" />
-    <Compile Include="$(CommonPath)System\Threading\Tasks\TaskToApm.cs"
-             Link="Common\System\Threading\Tasks\TaskToApm.cs" />
     <Compile Include="..\..\src\System\Net\Http\NoWriteNoSeekStreamContent.cs"
              Link="ProductionCode\NoWriteNoSeekStreamContent.cs" />
     <Compile Include="..\..\src\System\Net\Http\WinHttpAuthHelper.cs"
@@ -100,6 +96,8 @@
              Link="ProductionCode\IMultiWebProxy.cs" />
     <Compile Include="..\..\..\System.Net.Http\src\System\Net\Http\SocketsHttpHandler\MultiProxy.cs"
              Link="ProductionCode\MultiProxy.cs" />
+    <Compile Include="$(CommonPath)\Interop\Windows\Advapi32\Interop.RegNotifyChangeKeyValue.cs"
+             Link="Common\Interop\Windows\Advapi32\Interop.RegNotifyChangeKeyValue.cs" />
     <Compile Include="APICallHistory.cs" />
     <Compile Include="ClientCertificateHelper.cs" />
     <Compile Include="ClientCertificateScenarioTest.cs" />
@@ -117,6 +115,6 @@
     <Compile Include="WinHttpRequestStreamTest.cs" />
     <Compile Include="WinHttpResponseHeaderReaderTest.cs" />
     <Compile Include="WinHttpResponseStreamTest.cs" />
-    <Compile Include="XunitTestAssemblyAtrributes.cs" />
+    <Compile Include="XunitTestAssemblyAttributes.cs" />
   </ItemGroup>
 </Project>

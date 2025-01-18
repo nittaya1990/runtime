@@ -13,9 +13,17 @@
 #include "UnixHandle.h"
 #include <pthread.h>
 #include "gcenv.h"
+#include "gcenv.ee.h"
+#include "gcconfig.h"
 #include "holder.h"
+#include "UnixSignals.h"
+#include "UnixContext.h"
 #include "HardwareExceptions.h"
+#include "PalCreateDump.h"
 #include "cgroupcpu.h"
+#include "threadstore.h"
+#include "thread.h"
+#include "threadstore.inl"
 
 #define _T(s) s
 #include "RhConfig.h"
@@ -24,7 +32,6 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include <sys/types.h>
-#include <sys/syscall.h>
 #include <dlfcn.h>
 #include <dirent.h>
 #include <string.h>
@@ -34,6 +41,11 @@
 #include <sys/time.h>
 #include <cstdarg>
 #include <signal.h>
+#include <minipal/thread.h>
+
+#ifdef TARGET_LINUX
+#include <sys/syscall.h>
+#endif
 
 #if HAVE_PTHREAD_GETTHREADID_NP
 #include <pthread_np.h>
@@ -43,28 +55,16 @@
 #include <lwp.h>
 #endif
 
-#if HAVE_SYS_VMPARAM_H
-#include <sys/vmparam.h>
-#endif  // HAVE_SYS_VMPARAM_H
-
-#if HAVE_MACH_VM_TYPES_H
-#include <mach/vm_types.h>
-#endif // HAVE_MACH_VM_TYPES_H
-
-#if HAVE_MACH_VM_PARAM_H
-#include <mach/vm_param.h>
-#endif  // HAVE_MACH_VM_PARAM_H
-
-#ifdef __APPLE__
-#include <mach/vm_statistics.h>
-#include <mach/mach_types.h>
-#include <mach/mach_init.h>
-#include <mach/mach_host.h>
-#include <mach/mach_port.h>
-#endif // __APPLE__
-
 #if HAVE_CLOCK_GETTIME_NSEC_NP
 #include <time.h>
+#endif
+
+#ifdef TARGET_APPLE
+#include <mach/mach.h>
+#endif
+
+#ifdef TARGET_HAIKU
+#include <OS.h>
 #endif
 
 using std::nullptr_t;
@@ -77,10 +77,6 @@ using std::nullptr_t;
 #define PAGE_READWRITE          0x04
 #define PAGE_EXECUTE_READ       0x20
 #define PAGE_EXECUTE_READWRITE  0x40
-#define MEM_COMMIT              0x1000
-#define MEM_RESERVE             0x2000
-#define MEM_DECOMMIT            0x4000
-#define MEM_RELEASE             0x8000
 
 #define WAIT_OBJECT_0           0
 #define WAIT_TIMEOUT            258
@@ -95,8 +91,21 @@ static const int tccMicroSecondsToNanoSeconds = 1000;
 
 extern "C" void RaiseFailFastException(PEXCEPTION_RECORD arg1, PCONTEXT arg2, uint32_t arg3)
 {
-    // Abort aborts the process and causes creation of a crash dump
+    // Causes creation of a crash dump if enabled
+    PalCreateCrashDumpIfEnabled();
+
+    // Aborts the process
     abort();
+}
+
+static void UnmaskActivationSignal()
+{
+    sigset_t signal_set;
+    sigemptyset(&signal_set);
+    sigaddset(&signal_set, INJECT_ACTIVATION_SIGNAL);
+
+    int sigmaskRet = pthread_sigmask(SIG_UNBLOCK, &signal_set, NULL);
+    _ASSERTE(sigmaskRet == 0);
 }
 
 static void TimeSpecAdd(timespec* time, uint32_t milliseconds)
@@ -271,8 +280,6 @@ public:
 #else // HAVE_CLOCK_GETTIME_NSEC_NP
                 st = pthread_cond_timedwait(&m_condition, &m_mutex, &endTime);
 #endif // HAVE_CLOCK_GETTIME_NSEC_NP
-                // Verify that if the wait timed out, the event was not set
-                ASSERT((st != ETIMEDOUT) || !m_state);
             }
 
             if (st != 0)
@@ -312,10 +319,9 @@ public:
     {
         pthread_mutex_lock(&m_mutex);
         m_state = true;
-        pthread_mutex_unlock(&m_mutex);
-
         // Unblock all threads waiting for the condition variable
         pthread_cond_broadcast(&m_condition);
+        pthread_mutex_unlock(&m_mutex);
     }
 
     void Reset()
@@ -342,11 +348,6 @@ public:
 
 typedef UnixHandle<UnixHandleType::Thread, pthread_t> ThreadUnixHandle;
 
-#if !HAVE_THREAD_LOCAL
-extern "C" int __cxa_thread_atexit(void (*)(void*), void*, void *);
-extern "C" void *__dso_handle;
-#endif
-
 // This functions configures behavior of the signals that are not
 // related to hardware exception handling.
 void ConfigureSignals()
@@ -360,8 +361,6 @@ void ConfigureSignals()
     signal(SIGPIPE, SIG_IGN);
 }
 
-extern bool GetCpuLimit(uint32_t* val);
-
 void InitializeCurrentProcessCpuCount()
 {
     uint32_t count;
@@ -370,9 +369,9 @@ void InitializeCurrentProcessCpuCount()
     // process affinity and CPU quota limit.
 
     const unsigned int MAX_PROCESSOR_COUNT = 0xffff;
-    uint32_t configValue;
+    uint64_t configValue;
 
-    if (g_pRhConfig->ReadConfigValue(_T("PROCESSOR_COUNT"), &configValue, true /* decimal */) &&
+    if (g_pRhConfig->ReadConfigValue("PROCESSOR_COUNT", &configValue, true /* decimal */) &&
         0 < configValue && configValue <= MAX_PROCESSOR_COUNT)
     {
         count = configValue;
@@ -402,6 +401,28 @@ void InitializeCurrentProcessCpuCount()
     g_RhNumberOfProcessors = count;
 }
 
+static uint32_t g_RhPageSize;
+
+void InitializeOsPageSize()
+{
+    g_RhPageSize = (uint32_t)sysconf(_SC_PAGE_SIZE);
+
+#if defined(HOST_AMD64)
+    ASSERT(g_RhPageSize == 0x1000);
+#elif defined(HOST_APPLE)
+    ASSERT(g_RhPageSize == 0x4000);
+#endif
+}
+
+REDHAWK_PALEXPORT uint32_t REDHAWK_PALAPI PalGetOsPageSize()
+{
+    return g_RhPageSize;
+}
+
+#if defined(TARGET_LINUX) || defined(TARGET_ANDROID)
+static pthread_key_t key;
+#endif
+
 // The Redhawk PAL must be initialized before any of its exports can be called. Returns true for a successful
 // initialization and false on failure.
 REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalInit()
@@ -415,6 +436,13 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalInit()
 
     ConfigureSignals();
 
+    if (!PalCreateDumpInitialize())
+    {
+        return false;
+    }
+
+    GCConfig::Initialize();
+
     if (!GCToOSInterface::Initialize())
     {
         return false;
@@ -424,11 +452,19 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalInit()
 
     InitializeCurrentProcessCpuCount();
 
+    InitializeOsPageSize();
+
+#if defined(TARGET_LINUX) || defined(TARGET_ANDROID)
+    if (pthread_key_create(&key, RuntimeThreadShutdown) != 0)
+    {
+        return false;
+    }
+#endif
+
     return true;
 }
 
-#if HAVE_THREAD_LOCAL
-
+#if !defined(TARGET_LINUX) && !defined(TARGET_ANDROID)
 struct TlsDestructionMonitor
 {
     void* m_thread = nullptr;
@@ -450,8 +486,7 @@ struct TlsDestructionMonitor
 // This thread local object is used to detect thread shutdown. Its destructor
 // is called when a thread is being shut down.
 thread_local TlsDestructionMonitor tls_destructionMonitor;
-
-#endif // HAVE_THREAD_LOCAL
+#endif
 
 // This thread local variable is used for delegate marshalling
 DECLSPEC_THREAD intptr_t tls_thunkData;
@@ -461,29 +496,34 @@ EXTERN_C intptr_t* RhpGetThunkData()
 {
     return &tls_thunkData;
 }
+#endif //FEATURE_EMULATED_TLS
 
-EXTERN_C intptr_t RhGetCurrentThunkContext()
+FCIMPL0(intptr_t, RhGetCurrentThunkContext)
 {
     return tls_thunkData;
 }
-#endif //FEATURE_EMULATED_TLS
+FCIMPLEND
 
-// Attach thread to PAL.
-// It can be called multiple times for the same thread.
+// Register the thread with OS to be notified when thread is about to be destroyed
 // It fails fast if a different thread was already registered.
 // Parameters:
 //  thread        - thread to attach
 extern "C" void PalAttachThread(void* thread)
 {
-#if HAVE_THREAD_LOCAL
-    tls_destructionMonitor.SetThread(thread);
+#if defined(TARGET_LINUX) || defined(TARGET_ANDROID)
+    if (pthread_setspecific(key, thread) != 0)
+    {
+        _ASSERTE(!"pthread_setspecific failed");
+        RhFailFast();
+    }
 #else
-    __cxa_thread_atexit(RuntimeThreadShutdown, thread, &__dso_handle);
+    tls_destructionMonitor.SetThread(thread);
 #endif
+
+    UnmaskActivationSignal();
 }
 
-// Detach thread from PAL.
-// It fails fast if some other thread value was attached to PAL.
+// Detach thread from OS notifications.
 // Parameters:
 //  thread        - thread to detach
 // Return:
@@ -491,22 +531,69 @@ extern "C" void PalAttachThread(void* thread)
 extern "C" bool PalDetachThread(void* thread)
 {
     UNREFERENCED_PARAMETER(thread);
-    if (g_threadExitCallback != nullptr)
-    {
-        g_threadExitCallback();
-    }
     return true;
 }
 
 #if !defined(USE_PORTABLE_HELPERS) && !defined(FEATURE_RX_THUNKS)
+
 REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalAllocateThunksFromTemplate(HANDLE hTemplateModule, uint32_t templateRva, size_t templateSize, void** newThunksOut)
 {
+#ifdef TARGET_APPLE
+    vm_address_t addr, taddr;
+    vm_prot_t prot, max_prot;
+    kern_return_t ret;
+
+    // Allocate two contiguous ranges of memory: the first range will contain the trampolines
+    // and the second range will contain their data.
+    do
+    {
+        ret = vm_allocate(mach_task_self(), &addr, templateSize * 2, VM_FLAGS_ANYWHERE);
+    } while (ret == KERN_ABORTED);
+
+    if (ret != KERN_SUCCESS)
+    {
+        return UInt32_FALSE;
+    }
+
+    do
+    {
+        ret = vm_remap(
+            mach_task_self(), &addr, templateSize, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+            mach_task_self(), ((vm_address_t)hTemplateModule + templateRva), FALSE, &prot, &max_prot, VM_INHERIT_SHARE);
+    } while (ret == KERN_ABORTED);
+
+    if (ret != KERN_SUCCESS)
+    {
+        do
+        {
+            ret = vm_deallocate(mach_task_self(), addr, templateSize * 2);
+        } while (ret == KERN_ABORTED);
+
+        return UInt32_FALSE;
+    }
+
+    *newThunksOut = (void*)addr;
+
+    return UInt32_TRUE;
+#else
     PORTABILITY_ASSERT("UNIXTODO: Implement this function");
+#endif
 }
 
-REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalFreeThunksFromTemplate(void *pBaseAddress)
+REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalFreeThunksFromTemplate(void *pBaseAddress, size_t templateSize)
 {
+#ifdef TARGET_APPLE
+    kern_return_t ret;
+
+    do
+    {
+        ret = vm_deallocate(mach_task_self(), (vm_address_t)pBaseAddress, templateSize * 2);
+    } while (ret == KERN_ABORTED);
+
+    return ret == KERN_SUCCESS ? UInt32_TRUE : UInt32_FALSE;
+#else
     PORTABILITY_ASSERT("UNIXTODO: Implement this function");
+#endif
 }
 #endif // !USE_PORTABLE_HELPERS && !FEATURE_RX_THUNKS
 
@@ -517,7 +604,11 @@ REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalMarkThunksAsValidCallTargets(
     int thunkBlockSize,
     int thunkBlocksPerMapping)
 {
-    return UInt32_TRUE;
+    int ret = mprotect(
+        (void*)((uintptr_t)virtualAddress + (thunkBlocksPerMapping * OS_PAGE_SIZE)),
+        thunkBlocksPerMapping * OS_PAGE_SIZE,
+        PROT_READ | PROT_WRITE);
+    return ret == 0 ? UInt32_TRUE : UInt32_FALSE;
 }
 
 REDHAWK_PALEXPORT void REDHAWK_PALAPI PalSleep(uint32_t milliseconds)
@@ -544,9 +635,18 @@ REDHAWK_PALEXPORT void REDHAWK_PALAPI PalSleep(uint32_t milliseconds)
 
 REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI __stdcall PalSwitchToThread()
 {
-    // sched_yield yields to another thread in the current process. This implementation
-    // won't work well for cross-process synchronization.
-    return sched_yield() == 0;
+    // sched_yield yields to another thread in the current process.
+    sched_yield();
+
+    // The return value of sched_yield indicates the success of the call and does not tell whether a context switch happened.
+    // On Linux sched_yield is documented as never failing.
+    // Since we do not know if there was a context switch, we will just return `false`.
+    return false;
+}
+
+REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalAreShadowStacksEnabled()
+{
+    return false;
 }
 
 extern "C" UInt32_BOOL CloseHandle(HANDLE handle)
@@ -565,7 +665,7 @@ extern "C" UInt32_BOOL CloseHandle(HANDLE handle)
     return success ? UInt32_TRUE : UInt32_FALSE;
 }
 
-REDHAWK_PALEXPORT HANDLE REDHAWK_PALAPI PalCreateEventW(_In_opt_ LPSECURITY_ATTRIBUTES pEventAttributes, UInt32_BOOL manualReset, UInt32_BOOL initialState, _In_opt_z_ const wchar_t* pName)
+REDHAWK_PALEXPORT HANDLE REDHAWK_PALAPI PalCreateEventW(_In_opt_ LPSECURITY_ATTRIBUTES pEventAttributes, UInt32_BOOL manualReset, UInt32_BOOL initialState, _In_opt_z_ const WCHAR* pName)
 {
     UnixEvent event = UnixEvent(manualReset, initialState);
     if (!event.Initialize())
@@ -624,6 +724,19 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartBackgroundWork(_In_ BackgroundCall
     return st == 0;
 }
 
+REDHAWK_PALIMPORT bool REDHAWK_PALAPI PalSetCurrentThreadName(const char* name)
+{
+    // Ignore requests to set the main thread name because
+    // it causes the value returned by Process.ProcessName to change.
+    if ((pid_t)PalGetCurrentOSThreadId() != getpid())
+    {
+        int setNameResult = minipal_set_thread_name(pthread_self(), name);
+        (void)setNameResult; // used
+        assert(setNameResult == 0);
+    }
+    return true;
+}
+
 REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartBackgroundGCThread(_In_ BackgroundCallback callback, _In_opt_ void* pCallbackContext)
 {
     return PalStartBackgroundWork(callback, pCallbackContext, UInt32_FALSE);
@@ -631,12 +744,12 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartBackgroundGCThread(_In_ Background
 
 REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartFinalizerThread(_In_ BackgroundCallback callback, _In_opt_ void* pCallbackContext)
 {
-#ifdef HOST_WASM
-    // WASMTODO: No threads so we can't start the finalizer thread
-    return true;
-#else // HOST_WASM
     return PalStartBackgroundWork(callback, pCallbackContext, UInt32_TRUE);
-#endif // HOST_WASM
+}
+
+REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartEventPipeHelperThread(_In_ BackgroundCallback callback, _In_opt_ void* pCallbackContext)
+{
+    return PalStartBackgroundWork(callback, pCallbackContext, UInt32_FALSE);
 }
 
 // Returns a 64-bit tick count with a millisecond resolution. It tries its best
@@ -645,45 +758,7 @@ REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalStartFinalizerThread(_In_ BackgroundCal
 // time).
 REDHAWK_PALEXPORT uint64_t REDHAWK_PALAPI PalGetTickCount64()
 {
-    uint64_t retval = 0;
-
-#if HAVE_CLOCK_GETTIME_NSEC_NP
-    {
-        retval = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / tccMilliSecondsToNanoSeconds;
-    }
-#elif HAVE_CLOCK_MONOTONIC
-    {
-        clockid_t clockType =
-#if HAVE_CLOCK_MONOTONIC_COARSE
-            CLOCK_MONOTONIC_COARSE; // good enough resolution, fastest speed
-#else
-            CLOCK_MONOTONIC;
-#endif
-        struct timespec ts;
-        if (clock_gettime(clockType, &ts) == 0)
-        {
-            retval = (ts.tv_sec * tccSecondsToMilliSeconds) + (ts.tv_nsec / tccMilliSecondsToNanoSeconds);
-        }
-        else
-        {
-            ASSERT_UNCONDITIONALLY("clock_gettime(CLOCK_MONOTONIC) failed\n");
-        }
-    }
-#else
-    {
-        struct timeval tv;
-        if (gettimeofday(&tv, NULL) == 0)
-        {
-            retval = (tv.tv_sec * tccSecondsToMilliSeconds) + (tv.tv_usec / tccMilliSecondsToMicroSeconds);
-        }
-        else
-        {
-            ASSERT_UNCONDITIONALLY("gettimeofday() failed\n");
-        }
-    }
-#endif
-
-    return retval;
+    return GCToOSInterface::GetLowPrecisionTimeStamp();
 }
 
 REDHAWK_PALEXPORT HANDLE REDHAWK_PALAPI PalGetModuleHandleFromPointer(_In_ void* pointer)
@@ -704,16 +779,30 @@ REDHAWK_PALEXPORT HANDLE REDHAWK_PALAPI PalGetModuleHandleFromPointer(_In_ void*
     return moduleHandle;
 }
 
-REDHAWK_PALEXPORT bool REDHAWK_PALAPI PalIsAvxEnabled()
-{
-    return true;
-}
-
 REDHAWK_PALEXPORT void PalPrintFatalError(const char* message)
 {
     // Write the message using lowest-level OS API available. This is used to print the stack overflow
     // message, so there is not much that can be done here.
-    write(STDERR_FILENO, message, strlen(message));
+    // write() has __attribute__((warn_unused_result)) in glibc, for which gcc 11+ issue `-Wunused-result` even with `(void)write(..)`,
+    // so we use additional NOT(!) operator to force unused-result suppression.
+    (void)!write(STDERR_FILENO, message, strlen(message));
+}
+
+REDHAWK_PALEXPORT char* PalCopyTCharAsChar(const TCHAR* toCopy)
+{
+    NewArrayHolder<char> copy {new (nothrow) char[strlen(toCopy) + 1]};
+    strcpy(copy, toCopy);
+    return copy.Extract();
+}
+
+REDHAWK_PALEXPORT HANDLE PalLoadLibrary(const char* moduleName)
+{
+    return dlopen(moduleName, RTLD_LAZY);
+}
+
+REDHAWK_PALEXPORT void* PalGetProcAddress(HANDLE module, const char* functionName)
+{
+    return dlsym(module, functionName);
 }
 
 static int W32toUnixAccessControl(uint32_t flProtect)
@@ -734,6 +823,9 @@ static int W32toUnixAccessControl(uint32_t flProtect)
     case PAGE_EXECUTE_READWRITE:
         prot = PROT_READ | PROT_WRITE | PROT_EXEC;
         break;
+    case PAGE_READONLY:
+        prot = PROT_READ;
+        break;
     default:
         ASSERT(false);
         break;
@@ -741,84 +833,68 @@ static int W32toUnixAccessControl(uint32_t flProtect)
     return prot;
 }
 
-REDHAWK_PALEXPORT _Ret_maybenull_ _Post_writable_byte_size_(size) void* REDHAWK_PALAPI PalVirtualAlloc(_In_opt_ void* pAddress, size_t size, uint32_t allocationType, uint32_t protect)
+REDHAWK_PALEXPORT _Ret_maybenull_ _Post_writable_byte_size_(size) void* REDHAWK_PALAPI PalVirtualAlloc(size_t size, uint32_t protect)
 {
-    // TODO: thread safety!
-
-    if ((allocationType & ~(MEM_RESERVE | MEM_COMMIT)) != 0)
-    {
-        // TODO: Implement
-        return NULL;
-    }
-
-    ASSERT(((size_t)pAddress & (OS_PAGE_SIZE - 1)) == 0);
-
-    // Align size to whole pages
-    size = (size + (OS_PAGE_SIZE - 1)) & ~(OS_PAGE_SIZE - 1);
     int unixProtect = W32toUnixAccessControl(protect);
 
-    if (allocationType & (MEM_RESERVE | MEM_COMMIT))
+    int flags = MAP_ANON | MAP_PRIVATE;
+
+#if defined(HOST_APPLE) && defined(HOST_ARM64)
+    if (unixProtect & PROT_EXEC)
     {
-        // For Windows compatibility, let the PalVirtualAlloc reserve memory with 64k alignment.
-        static const size_t Alignment = 64 * 1024;
-
-        size_t alignedSize = size + (Alignment - OS_PAGE_SIZE);
-
-        void * pRetVal = mmap(pAddress, alignedSize, unixProtect, MAP_ANON | MAP_PRIVATE, -1, 0);
-
-        if (pRetVal != NULL)
-        {
-            void * pAlignedRetVal = (void *)(((size_t)pRetVal + (Alignment - 1)) & ~(Alignment - 1));
-            size_t startPadding = (size_t)pAlignedRetVal - (size_t)pRetVal;
-            if (startPadding != 0)
-            {
-                int ret = munmap(pRetVal, startPadding);
-                ASSERT(ret == 0);
-            }
-
-            size_t endPadding = alignedSize - (startPadding + size);
-            if (endPadding != 0)
-            {
-                int ret = munmap((void *)((size_t)pAlignedRetVal + size), endPadding);
-                ASSERT(ret == 0);
-            }
-
-            pRetVal = pAlignedRetVal;
-        }
-
-        return pRetVal;
+        flags |= MAP_JIT;
     }
+#endif
 
-    if (allocationType & MEM_COMMIT)
-    {
-        int ret = mprotect(pAddress, size, unixProtect);
-        return (ret == 0) ? pAddress : NULL;
-    }
-
-    return NULL;
+    return mmap(NULL, size, unixProtect, flags, -1, 0);
 }
 
-REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalVirtualFree(_In_ void* pAddress, size_t size, uint32_t freeType)
+REDHAWK_PALEXPORT void REDHAWK_PALAPI PalVirtualFree(_In_ void* pAddress, size_t size)
 {
-    ASSERT(((freeType & MEM_RELEASE) != MEM_RELEASE) || size == 0);
-    ASSERT((freeType & (MEM_RELEASE | MEM_DECOMMIT)) != (MEM_RELEASE | MEM_DECOMMIT));
-    ASSERT(freeType != 0);
-
-    // UNIXTODO: Implement this function
-    return UInt32_TRUE;
+    munmap(pAddress, size);
 }
 
 REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalVirtualProtect(_In_ void* pAddress, size_t size, uint32_t protect)
 {
     int unixProtect = W32toUnixAccessControl(protect);
 
-    return mprotect(pAddress, size, unixProtect) == 0;
+    // mprotect expects the address to be page-aligned
+    uint8_t* pPageStart = ALIGN_DOWN((uint8_t*)pAddress, OS_PAGE_SIZE);
+    size_t memSize = ALIGN_UP((uint8_t*)pAddress + size, OS_PAGE_SIZE) - pPageStart;
+
+    return mprotect(pPageStart, memSize, unixProtect) == 0;
 }
 
-REDHAWK_PALEXPORT _Ret_maybenull_ void* REDHAWK_PALAPI PalSetWerDataBuffer(_In_ void* pNewBuffer)
+#if (defined(HOST_MACCATALYST) || defined(HOST_IOS) || defined(HOST_TVOS)) && defined(HOST_ARM64)
+extern "C" void sys_icache_invalidate(const void* start, size_t len);
+#endif
+
+REDHAWK_PALEXPORT void PalFlushInstructionCache(_In_ void* pAddress, size_t size)
 {
-    static void* pBuffer;
-    return PalInterlockedExchangePointer(&pBuffer, pNewBuffer);
+#if defined(__linux__) && defined(HOST_ARM)
+    // On Linux/arm (at least on 3.10) we found that there is a problem with __do_cache_op (arch/arm/kernel/traps.c)
+    // implementing cacheflush syscall. cacheflush flushes only the first page in range [pAddress, pAddress + size)
+    // and leaves other pages in undefined state which causes random tests failures (often due to SIGSEGV) with no particular pattern.
+    //
+    // As a workaround, we call __builtin___clear_cache on each page separately.
+
+    uint8_t* begin = (uint8_t*)pAddress;
+    uint8_t* end = begin + size;
+
+    while (begin < end)
+    {
+        uint8_t* endOrNextPageBegin = ALIGN_UP(begin + 1, OS_PAGE_SIZE);
+        if (endOrNextPageBegin > end)
+            endOrNextPageBegin = end;
+
+        __builtin___clear_cache((char *)begin, (char *)endOrNextPageBegin);
+        begin = endOrNextPageBegin;
+    }
+#elif (defined(HOST_MACCATALYST) || defined(HOST_IOS) || defined(HOST_TVOS)) && defined(HOST_ARM64)
+    sys_icache_invalidate (pAddress, size);
+#else
+    __builtin___clear_cache((char *)pAddress, (char *)pAddress + size);
+#endif
 }
 
 extern "C" HANDLE GetCurrentProcess()
@@ -856,7 +932,22 @@ extern "C" UInt32_BOOL DuplicateHandle(
 
 extern "C" UInt32_BOOL InitializeCriticalSection(CRITICAL_SECTION * lpCriticalSection)
 {
-    return pthread_mutex_init(&lpCriticalSection->mutex, NULL) == 0;
+    pthread_mutexattr_t mutexAttributes;
+    int st = pthread_mutexattr_init(&mutexAttributes);
+    if (st != 0)
+    {
+        return false;
+    }
+
+    st = pthread_mutexattr_settype(&mutexAttributes, PTHREAD_MUTEX_RECURSIVE);
+    if (st == 0)
+    {
+        st = pthread_mutex_init(&lpCriticalSection->mutex, &mutexAttributes);
+    }
+
+    pthread_mutexattr_destroy(&mutexAttributes);
+
+    return (st == 0);
 }
 
 extern "C" UInt32_BOOL InitializeCriticalSectionEx(CRITICAL_SECTION * lpCriticalSection, uint32_t arg2, uint32_t arg3)
@@ -880,17 +971,6 @@ extern "C" void LeaveCriticalSection(CRITICAL_SECTION * lpCriticalSection)
     pthread_mutex_unlock(&lpCriticalSection->mutex);
 }
 
-extern "C" UInt32_BOOL IsDebuggerPresent()
-{
-#ifdef HOST_WASM
-    // For now always true since the browser will handle it in case of WASM.
-    return UInt32_TRUE;
-#else
-    // UNIXTODO: Implement this function
-    return UInt32_FALSE;
-#endif
-}
-
 extern "C" UInt32_BOOL SetEvent(HANDLE event)
 {
     EventUnixHandle* unixHandle = (EventUnixHandle*)event;
@@ -909,16 +989,13 @@ extern "C" UInt32_BOOL ResetEvent(HANDLE event)
 
 extern "C" uint32_t GetEnvironmentVariableA(const char * name, char * buffer, uint32_t size)
 {
-    // Using std::getenv instead of getenv since it is guaranteed to be thread safe w.r.t. other
-    // std::getenv calls in C++11
-    const char* value = std::getenv(name);
+    const char* value = getenv(name);
     if (value == NULL)
     {
         return 0;
     }
 
     size_t valueLen = strlen(value);
-
     if (valueLen < size)
     {
         strcpy(buffer, value);
@@ -935,13 +1012,120 @@ extern "C" uint16_t RtlCaptureStackBackTrace(uint32_t arg1, uint32_t arg2, void*
     return 0;
 }
 
-typedef uint32_t (__stdcall *HijackCallback)(HANDLE hThread, _In_ PAL_LIMITED_CONTEXT* pThreadContext, _In_opt_ void* pCallbackContext);
+#ifdef FEATURE_HIJACK
+static PalHijackCallback g_pHijackCallback;
+static struct sigaction g_previousActivationHandler;
 
-REDHAWK_PALEXPORT uint32_t REDHAWK_PALAPI PalHijack(HANDLE hThread, _In_ HijackCallback callback, _In_opt_ void* pCallbackContext)
+static void ActivationHandler(int code, siginfo_t* siginfo, void* context)
 {
-    // UNIXTODO: Implement PalHijack
-    return E_FAIL;
+    // Only accept activations from the current process
+    if (g_pHijackCallback != NULL && (siginfo->si_pid == getpid()
+#ifdef HOST_APPLE
+        // On Apple platforms si_pid is sometimes 0. It was confirmed by Apple to be expected, as the si_pid is tracked at the process level. So when multiple
+        // signals are in flight in the same process at the same time, it may be overwritten / zeroed.
+        || siginfo->si_pid == 0
+#endif
+        ))
+    {
+        // Make sure that errno is not modified
+        int savedErrNo = errno;
+        g_pHijackCallback((NATIVE_CONTEXT*)context, NULL);
+        errno = savedErrNo;
+    }
+
+    Thread* pThread = ThreadStore::GetCurrentThreadIfAvailable();
+    if (pThread)
+    {
+        pThread->SetActivationPending(false);
+    }
+
+    // Call the original handler when it is not ignored or default (terminate).
+    if (g_previousActivationHandler.sa_flags & SA_SIGINFO)
+    {
+        _ASSERTE(g_previousActivationHandler.sa_sigaction != NULL);
+        g_previousActivationHandler.sa_sigaction(code, siginfo, context);
+    }
+    else
+    {
+        if (g_previousActivationHandler.sa_handler != SIG_IGN &&
+            g_previousActivationHandler.sa_handler != SIG_DFL)
+        {
+            _ASSERTE(g_previousActivationHandler.sa_handler != NULL);
+            g_previousActivationHandler.sa_handler(code);
+        }
+    }
 }
+
+REDHAWK_PALEXPORT UInt32_BOOL REDHAWK_PALAPI PalRegisterHijackCallback(_In_ PalHijackCallback callback)
+{
+    ASSERT(g_pHijackCallback == NULL);
+    g_pHijackCallback = callback;
+
+#ifdef __APPLE__
+    void *libSystem = dlopen("/usr/lib/libSystem.dylib", RTLD_LAZY);
+    if (libSystem != NULL)
+    {
+        int (*dispatch_allow_send_signals_ptr)(int) = (int (*)(int))dlsym(libSystem, "dispatch_allow_send_signals");
+        if (dispatch_allow_send_signals_ptr != NULL)
+        {
+            int status = dispatch_allow_send_signals_ptr(INJECT_ACTIVATION_SIGNAL);
+            _ASSERTE(status == 0);
+        }
+    }
+
+    // TODO: Once our CI tools can get upgraded to xcode >= 15.3, replace the code above by this:
+    // if (__builtin_available(macOS 14.4, iOS 17.4, tvOS 17.4, *))
+    // {
+    //    // Allow sending the activation signal to dispatch queue threads
+    //    int status = dispatch_allow_send_signals(INJECT_ACTIVATION_SIGNAL);
+    //    _ASSERTE(status == 0);
+    // }
+#endif // __APPLE__
+
+    return AddSignalHandler(INJECT_ACTIVATION_SIGNAL, ActivationHandler, &g_previousActivationHandler);
+}
+
+REDHAWK_PALIMPORT HijackFunc* REDHAWK_PALAPI PalGetHijackTarget(HijackFunc* defaultHijackTarget)
+{
+    return defaultHijackTarget;
+}
+
+REDHAWK_PALEXPORT void REDHAWK_PALAPI PalHijack(HANDLE hThread, _In_opt_ void* pThreadToHijack)
+{
+    ThreadUnixHandle* threadHandle = (ThreadUnixHandle*)hThread;
+    Thread* pThread = (Thread*)pThreadToHijack;
+    pThread->SetActivationPending(true);
+
+    int status = pthread_kill(*threadHandle->GetObject(), INJECT_ACTIVATION_SIGNAL);
+
+    // We can get EAGAIN when printing stack overflow stack trace and when other threads hit
+    // stack overflow too. Those are held in the sigsegv_handler with blocked signals until
+    // the process exits.
+    // ESRCH may happen on some OSes when the thread is exiting.
+    if ((status == EAGAIN)
+     || (status == ESRCH)
+#ifdef __APPLE__
+        // On Apple, pthread_kill is not allowed to be sent to dispatch queue threads on macOS older than 14.4 or iOS/tvOS older than 17.4
+     || (status == ENOTSUP)
+#endif
+       )
+    {
+        pThread->SetActivationPending(false);
+        return;
+    }
+
+    if (status != 0)
+    {
+        // Causes creation of a crash dump if enabled
+        PalCreateCrashDumpIfEnabled();
+
+        // Failure to send the signal is fatal. There are only two cases when sending
+        // the signal can fail. First, if the signal ID is invalid and second,
+        // if the thread doesn't exist anymore.
+        abort();
+    }
+}
+#endif // FEATURE_HIJACK
 
 extern "C" uint32_t WaitForSingleObjectEx(HANDLE handle, uint32_t milliseconds, UInt32_BOOL alertable)
 {
@@ -962,9 +1146,10 @@ REDHAWK_PALEXPORT uint32_t REDHAWK_PALAPI PalCompatibleWaitAny(UInt32_BOOL alert
     return WaitForSingleObjectEx(pHandles[0], timeout, alertable);
 }
 
-#ifndef __has_builtin
-#define __has_builtin(x) 0
-#endif
+REDHAWK_PALEXPORT HANDLE PalCreateLowMemoryResourceNotification()
+{
+    return NULL;
+}
 
 #if !__has_builtin(_mm_pause)
 extern "C" void _mm_pause()
@@ -979,6 +1164,14 @@ extern "C" void _mm_pause()
 extern "C" int32_t _stricmp(const char *string1, const char *string2)
 {
     return strcasecmp(string1, string2);
+}
+
+REDHAWK_PALIMPORT void REDHAWK_PALAPI PopulateControlSegmentRegisters(CONTEXT* pContext)
+{
+#if defined(TARGET_X86) || defined(TARGET_AMD64)
+    // Currently the CONTEXT is only used on Windows for RaiseFailFastException.
+    // So we punt on filling in SegCs and SegSs for now.
+#endif
 }
 
 uint32_t g_RhNumberOfProcessors;
@@ -1083,243 +1276,17 @@ extern "C" void GetSystemTimeAsFileTime(FILETIME *lpSystemTimeAsFileTime)
     lpSystemTimeAsFileTime->dwHighDateTime = (uint32_t)(result >> 32);
 }
 
-extern "C" UInt32_BOOL QueryPerformanceCounter(LARGE_INTEGER *lpPerformanceCount)
+extern "C" uint64_t PalQueryPerformanceCounter()
 {
-    // TODO: More efficient, platform-specific implementation
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL) == -1)
-    {
-        ASSERT_UNCONDITIONALLY("gettimeofday() failed");
-        return UInt32_FALSE;
-    }
-    lpPerformanceCount->QuadPart =
-        (int64_t) tv.tv_sec * (int64_t) tccSecondsToMicroSeconds + (int64_t) tv.tv_usec;
-    return UInt32_TRUE;
+    return GCToOSInterface::QueryPerformanceCounter();
 }
 
-extern "C" UInt32_BOOL QueryPerformanceFrequency(LARGE_INTEGER *lpFrequency)
+extern "C" uint64_t PalQueryPerformanceFrequency()
 {
-    lpFrequency->QuadPart = (int64_t) tccSecondsToMicroSeconds;
-    return UInt32_TRUE;
+    return GCToOSInterface::QueryPerformanceFrequency();
 }
 
-extern "C" uint64_t PalGetCurrentThreadIdForLogging()
+extern "C" uint64_t PalGetCurrentOSThreadId()
 {
-#if defined(__linux__)
-    return (uint64_t)syscall(SYS_gettid);
-#elif defined(__APPLE__)
-    uint64_t tid;
-    pthread_threadid_np(pthread_self(), &tid);
-    return (uint64_t)tid;
-#elif HAVE_PTHREAD_GETTHREADID_NP
-    return (uint64_t)pthread_getthreadid_np();
-#elif HAVE_LWP_SELF
-    return (uint64_t)_lwp_self();
-#else
-    // Fallback in case we don't know how to get integer thread id on the current platform
-    return (uint64_t)pthread_self();
-#endif
+    return (uint64_t)minipal_get_current_thread_id();
 }
-
-#if defined(HOST_X86) || defined(HOST_AMD64)
-
-REDHAWK_PALEXPORT void __cpuid(int cpuInfo[4], int function_id)
-{
-    // Based on the Clang implementation provided in cpuid.h:
-    // https://github.com/llvm/llvm-project/blob/master/clang/lib/Headers/cpuid.h
-
-    __asm("  cpuid\n" \
-        : "=a"(cpuInfo[0]), "=b"(cpuInfo[1]), "=c"(cpuInfo[2]), "=d"(cpuInfo[3]) \
-        : "0"(function_id)
-        );
-}
-
-REDHAWK_PALEXPORT void __cpuidex(int cpuInfo[4], int function_id, int subFunction_id)
-{
-    // Based on the Clang implementation provided in cpuid.h:
-    // https://github.com/llvm/llvm-project/blob/master/clang/lib/Headers/cpuid.h
-
-    __asm("  cpuid\n" \
-        : "=a"(cpuInfo[0]), "=b"(cpuInfo[1]), "=c"(cpuInfo[2]), "=d"(cpuInfo[3]) \
-        : "0"(function_id), "2"(subFunction_id)
-        );
-}
-
-REDHAWK_PALEXPORT uint32_t REDHAWK_PALAPI xmmYmmStateSupport()
-{
-    DWORD eax;
-    __asm("  xgetbv\n" \
-        : "=a"(eax) /*output in eax*/\
-        : "c"(0) /*inputs - 0 in ecx*/\
-        : "edx" /* registers that are clobbered*/
-      );
-    // check OS has enabled both XMM and YMM state support
-    return ((eax & 0x06) == 0x06) ? 1 : 0;
-}
-#endif // defined(HOST_X86) || defined(HOST_AMD64)
-
-#if defined (HOST_ARM64)
-
-#if HAVE_AUXV_HWCAP_H
-#include <sys/auxv.h>
-#include <asm/hwcap.h>
-#endif
-
-// Based on PAL_GetJitCpuCapabilityFlags from CoreCLR (jitsupport.cpp)
-REDHAWK_PALEXPORT void REDHAWK_PALAPI PAL_GetCpuCapabilityFlags(int* flags)
-{
-    *flags = 0;
-
-#if HAVE_AUXV_HWCAP_H
-    unsigned long hwCap = getauxval(AT_HWCAP);
-
-    // HWCAP_* flags are introduced by ARM into the Linux kernel as new extensions are published.
-    // For a given kernel, some of these flags may not be present yet.
-    // Use ifdef for each to allow for compilation with any vintage kernel.
-    // From a single binary distribution perspective, compiling with latest kernel asm/hwcap.h should
-    // include all published flags.  Given flags are merged to kernel and published before silicon is
-    // available, using the latest kernel for release should be sufficient.
-    *flags |= ARM64IntrinsicConstants_ArmBase;
-    *flags |= ARM64IntrinsicConstants_ArmBase_Arm64;
-
-#ifdef HWCAP_AES
-    if (hwCap & HWCAP_AES)
-        *flags |= ARM64IntrinsicConstants_Aes;
-#endif
-#ifdef HWCAP_ATOMICS
-    if (hwCap & HWCAP_ATOMICS)
-        *flags |= ARM64IntrinsicConstants_Atomics;
-#endif
-#ifdef HWCAP_CRC32
-    if (hwCap & HWCAP_CRC32)
-        *flags |= ARM64IntrinsicConstants_Crc32;
-#endif
-#ifdef HWCAP_DCPOP
-//    if (hwCap & HWCAP_DCPOP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_ASIMDDP
-//    if (hwCap & HWCAP_ASIMDDP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_FCMA
-//    if (hwCap & HWCAP_FCMA)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_FP
-//    if (hwCap & HWCAP_FP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_FPHP
-//    if (hwCap & HWCAP_FPHP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_JSCVT
-//    if (hwCap & HWCAP_JSCVT)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_LRCPC
-//    if (hwCap & HWCAP_LRCPC)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_PMULL
-//    if (hwCap & HWCAP_PMULL)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_SHA1
-    if (hwCap & HWCAP_SHA1)
-        *flags |= ARM64IntrinsicConstants_Sha1;
-#endif
-#ifdef HWCAP_SHA2
-    if (hwCap & HWCAP_SHA2)
-        *flags |= ARM64IntrinsicConstants_Sha256;
-#endif
-#ifdef HWCAP_SHA512
-//    if (hwCap & HWCAP_SHA512)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_SHA3
-//    if (hwCap & HWCAP_SHA3)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_ASIMD
-    if (hwCap & HWCAP_ASIMD)
-    {
-        *flags |= ARM64IntrinsicConstants_AdvSimd;
-        *flags |= ARM64IntrinsicConstants_AdvSimd_Arm64;
-    }
-#endif
-#ifdef HWCAP_ASIMDRDM
-//    if (hwCap & HWCAP_ASIMDRDM)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_ASIMDHP
-//    if (hwCap & HWCAP_ASIMDHP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_SM3
-//    if (hwCap & HWCAP_SM3)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_SM4
-//    if (hwCap & HWCAP_SM4)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP_SVE
-//    if (hwCap & HWCAP_SVE)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-
-#ifdef AT_HWCAP2
-    unsigned long hwCap2 = getauxval(AT_HWCAP2);
-
-#ifdef HWCAP2_DCPODP
-//    if (hwCap2 & HWCAP2_DCPODP)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVE2
-//    if (hwCap2 & HWCAP2_SVE2)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVEAES
-//    if (hwCap2 & HWCAP2_SVEAES)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVEPMULL
-//    if (hwCap2 & HWCAP2_SVEPMULL)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVEBITPERM
-//    if (hwCap2 & HWCAP2_SVEBITPERM)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVESHA3
-//    if (hwCap2 & HWCAP2_SVESHA3)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_SVESM4
-//    if (hwCap2 & HWCAP2_SVESM4)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_FLAGM2
-//    if (hwCap2 & HWCAP2_FLAGM2)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-#ifdef HWCAP2_FRINT
-//    if (hwCap2 & HWCAP2_FRINT)
-//        *flags |= ARM64IntrinsicConstants_???;
-#endif
-
-#endif // AT_HWCAP2
-
-#else // !HAVE_AUXV_HWCAP_H
-    // Every ARM64 CPU should support SIMD and FP
-    // If the OS have no function to query for CPU capabilities we set just these
-
-    *flags |= ARM64IntrinsicConstants_ArmBase;
-    *flags |= ARM64IntrinsicConstants_ArmBase_Arm64;
-    *flags |= ARM64IntrinsicConstants_AdvSimd;
-    *flags |= ARM64IntrinsicConstants_AdvSimd_Arm64;
-#endif // HAVE_AUXV_HWCAP_H
-}
-#endif

@@ -57,7 +57,7 @@ public class WindowAndCursorProps
         }
         else
         {
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("width", () => Console.WindowWidth = value);
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("WindowWidth", () => Console.WindowWidth = value);
         }
     }
 
@@ -71,14 +71,14 @@ public class WindowAndCursorProps
     }
 
     [Fact]
-    [PlatformSpecific(TestPlatforms.AnyUnix & ~TestPlatforms.Browser)]  // Expected behavior specific to Unix
+    [PlatformSpecific(TestPlatforms.AnyUnix)]
     public static void WindowWidth_SetUnix_ThrowsPlatformNotSupportedException()
     {
         Assert.Throws<PlatformNotSupportedException>(() => Console.WindowWidth = 100);
     }
 
     [Theory]
-    [PlatformSpecific(TestPlatforms.Windows)]  // Expected behavior specific to Windows
+    [PlatformSpecific(TestPlatforms.Windows)]
     [InlineData(0)]
     [InlineData(-1)]
     public static void WindowHeight_SetInvalid_ThrowsArgumentOutOfRangeException(int value)
@@ -89,7 +89,7 @@ public class WindowAndCursorProps
         }
         else
         {
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("height", () => Console.WindowHeight = value);
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("WindowHeight", () => Console.WindowHeight = value);
         }
     }
 
@@ -103,18 +103,18 @@ public class WindowAndCursorProps
     }
 
     [Fact]
-    [PlatformSpecific(TestPlatforms.AnyUnix)]  // Expected behavior specific to Unix
-    public static void WindowHeight_SetUnix_ThrowsPlatformNotSupportedException()
-    {
-        Assert.Throws<PlatformNotSupportedException>(() => Console.WindowHeight = 100);
-    }
-
-    [Fact]
     [PlatformSpecific(TestPlatforms.AnyUnix & ~TestPlatforms.Browser & ~TestPlatforms.iOS & ~TestPlatforms.MacCatalyst & ~TestPlatforms.tvOS)]  // Expected behavior specific to Unix
     public static void LargestWindowWidth_UnixGet_ReturnsExpected()
     {
         Helpers.RunInNonRedirectedOutput((data) => Assert.Equal(Console.WindowWidth, Console.LargestWindowWidth));
         Helpers.RunInRedirectedOutput((data) => Assert.Equal(Console.WindowWidth, Console.LargestWindowWidth));
+    }
+
+    [Fact]
+    [PlatformSpecific(TestPlatforms.AnyUnix)]
+    public static void WindowHeight_SetUnix_ThrowsPlatformNotSupportedException()
+    {
+        Assert.Throws<PlatformNotSupportedException>(() => Console.WindowHeight = 100);
     }
 
     [Fact]
@@ -258,15 +258,7 @@ public class WindowAndCursorProps
             string newTitle = new string('a', int.Parse(lengthOfTitleString));
             Console.Title = newTitle;
 
-            if (newTitle.Length >= 511 && !PlatformDetection.IsNetCore && PlatformDetection.IsWindows10Version1703OrGreater && !PlatformDetection.IsWindows10Version1709OrGreater)
-            {
-                // RS2 has a bug when getting the window title when the title length is longer than 513 character
-                Assert.Throws<IOException>(() => Console.Title);
-            }
-            else
-            {
-                Assert.Equal(newTitle, Console.Title);
-            }
+            Assert.Equal(newTitle, Console.Title);
         }, lengthOfTitle.ToString()).Dispose();
     }
 
@@ -285,7 +277,7 @@ public class WindowAndCursorProps
     }
 
     [Fact]
-    [OuterLoop] // makes noise, not very inner-loop friendly
+    [OuterLoop("makes noise, not very inner-loop friendly", ~TestPlatforms.Browser)]
     [PlatformSpecific(TestPlatforms.Windows)]
     public static void BeepWithFrequency_Invoke_Success()
     {

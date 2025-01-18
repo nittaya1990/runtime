@@ -22,28 +22,28 @@ namespace System.Text.RegularExpressions.Symbolic
         /// Convert the set into an equivalent array of ranges.
         /// The ranges are nonoverlapping and ordered.
         /// </summary>
-        public static (uint, uint)[] ToRanges(BDD set, int maxBit)
+        public static (uint, uint)[] ToRanges(BDD set)
         {
-            Debug.Assert(0 <= maxBit && maxBit <= 31, "maxBit must be between 0 and 31");
+            const int MaxBit = 15; // most significant bit of a 16-bit char
 
             if (set.IsEmpty)
-                return Array.Empty<(uint, uint)>();
+                return [];
 
             if (set.IsFull)
-                return new[] { (0u, ((uint)1 << maxBit << 1) - 1) }; //note: maxBit could be 31
+                return [(0u, ((uint)1 << MaxBit << 1) - 1)];
 
             var rc = new BDDRangeConverter();
-            return rc.LiftRanges(maxBit + 1, maxBit - set.Ordinal, rc.ToRangesFromOrdinal(set));
+            return LiftRanges(MaxBit + 1, MaxBit - set.Ordinal, rc.ToRangesFromOrdinal(set));
         }
 
         /// <summary>
         /// Extends a set of ranges to include more significant bits. The new bits are allowed to be anything and all
         /// combinations of the new bits are included.
         /// e.g. if toBits = 6 and newBits = 2 and ranges = (in binary form) {[0000 1010, 0000 1110]} i.e. [x0A,x0E]
-        /// then res = {[0000 1010, 0000 1110], [0001 1010, 0001 1110],
-        ///             [0010 1010, 0010 1110], [0011 1010, 0011 1110]},
+        /// then result = {[0000 1010, 0000 1110], [0001 1010, 0001 1110],
+        ///                [0010 1010, 0010 1110], [0011 1010, 0011 1110]},
         /// </summary>
-        private (uint, uint)[] LiftRanges(int toBits, int newBits, (uint, uint)[] ranges)
+        private static (uint, uint)[] LiftRanges(int toBits, int newBits, (uint, uint)[] ranges)
         {
             // nothing happens if no new bits are added
             if (newBits == 0)
@@ -107,7 +107,7 @@ namespace System.Text.RegularExpressions.Symbolic
                     #region 0-case is empty
                     if (set.One.IsFull)
                     {
-                        ranges = new[] { (mask, (mask << 1) - 1) };
+                        ranges = [(mask, (mask << 1) - 1)];
                     }
                     else //1-case is neither full nor empty
                     {
@@ -125,7 +125,7 @@ namespace System.Text.RegularExpressions.Symbolic
                     #region 0-case is full
                     if (set.One.IsEmpty)
                     {
-                        ranges = new[] { (0u, mask - 1) };
+                        ranges = [(0u, mask - 1)];
                     }
                     else
                     {

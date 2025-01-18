@@ -1,3 +1,4 @@
+project(utils C)
 
 set(utils_win32_sources
     mono-os-semaphore-win32.c
@@ -8,12 +9,18 @@ set(utils_win32_sources
 
 if(HOST_WIN32 AND HOST_AMD64)
     enable_language(ASM_MASM)
+    add_compile_options($<$<COMPILE_LANGUAGE:ASM_MASM>:/Zi>)      # enable debugging information
+    add_compile_options($<$<COMPILE_LANGUAGE:ASM_MASM>:/nologo>)  # Don't display the output header when building asm files
     set(CMAKE_ASM_MASM_COMPILE_OPTIONS_MSVC_RUNTIME_LIBRARY_MultiThreaded         "")
     set(CMAKE_ASM_MASM_COMPILE_OPTIONS_MSVC_RUNTIME_LIBRARY_MultiThreadedDLL      "")
     set(CMAKE_ASM_MASM_COMPILE_OPTIONS_MSVC_RUNTIME_LIBRARY_MultiThreadedDebug    "")
     set(CMAKE_ASM_MASM_COMPILE_OPTIONS_MSVC_RUNTIME_LIBRARY_MultiThreadedDebugDLL "")
 
     list(APPEND utils_win32_sources win64.asm)
+elseif(HOST_WASM)
+    set (CMAKE_ASM_COMPILER_VERSION "${CMAKE_C_COMPILER_VERSION}")
+    set (CMAKE_ASM_COMPILER_TARGET "${CMAKE_C_COMPILER_TARGET}")
+    enable_language(ASM)
 endif()
 
 set(utils_unix_sources
@@ -23,15 +30,17 @@ set(utils_unix_sources
 
 if(HOST_WIN32)
     set(utils_platform_sources ${utils_win32_sources})
+elseif(HOST_WASM)
+    set(utils_platform_sources ${utils_unix_sources} mono-threads-wasm.S)
 else()
     set(utils_platform_sources ${utils_unix_sources})
 endif()
 
 set(utils_common_sources
-    mono-md5.c
     mono-sha1.c
     mono-logger.c
     mono-logger-internals.h
+    mono-cgroup.c
     mono-codeman.c
     mono-counters.c
     mono-compiler.h
@@ -63,35 +72,19 @@ set(utils_common_sources
     mono-flight-recorder.c
     mono-os-wait.h
     mono-coop-mutex.h
-    mono-once.h
     mono-lazy-init.h
-    mono-networkinterfaces.c
-    mono-networkinterfaces.h
     mono-proclib.c
-    mono-proclib-windows.c
     mono-proclib.h
-    mono-proclib-windows-internals.h
     mono-publib.c
     mono-string.h
     mono-time.c
     mono-time.h
-    strenc-internals.h
-    strenc.h
-    strenc.c
-    mono-uri.c
-    mono-poll.c
     mono-path.c
     mono-os-semaphore.h
     mono-coop-semaphore.h
     mono-sigcontext.h
-    mono-stdlib.c
     mono-property-hash.h
     mono-property-hash.c
-    mono-value-hash.h
-    mono-value-hash.c
-    freebsd-elf_common.h
-    freebsd-elf32.h
-    freebsd-elf64.h
     freebsd-dwarf.h
     dtrace.h
     mono-error.c
@@ -102,11 +95,7 @@ set(utils_common_sources
     mono-forward-internal.h
     mono-machine.h
     mono-math.h
-    mono-membar.h
     mono-path.h
-    mono-poll.h
-    mono-uri.h
-    mono-stdlib.h
     valgrind.h
     mach-support.h
     memcheck.h
@@ -139,6 +128,7 @@ set(utils_common_sources
     mono-threads-android.c
     mono-threads-haiku.c
     mono-threads-aix.c
+    mono-threads-wasm.h
     mono-threads-wasm.c
     mono-threads-sunos.c
     mono-threads.h
@@ -151,9 +141,6 @@ set(utils_common_sources
     mono-tls.h
     mono-tls-inline.h
     mono-tls.c
-    mono-utils-debug.c
-    mono-utils-debug.h
-    linux_magic.h
     mono-memory-model.h
     atomic.h
     atomic.c
@@ -168,15 +155,6 @@ set(utils_common_sources
     mono-conc-hashtable.c
     json.h
     json.c
-    networking.c
-    networking-posix.c
-    networking-fallback.c
-    networking-missing.c
-    networking-windows.c
-    networking.h
-    mono-rand.c
-    mono-rand-windows.c
-    mono-rand.h
     memfuncs.c
     memfuncs.h
     parse.c
@@ -191,45 +169,48 @@ set(utils_common_sources
     options.h
     options-def.h
     options.c
-	ftnptr.h)
+    ftnptr.h
+    wasm-module-reader.h
+    wasm-module-reader.c
+    mono-bitutils.h
+    mono-bitutils.c
+  )
 
 if(MONO_CROSS_COMPILE)
 set(utils_arch_sources mach-support-unknown.c)
 elseif(HOST_AMD64)
 set(utils_arch_sources
     mach-support-amd64.c)
-elseif(HOST_X86)
-set(utils_arch_sources
-    mach-support-x86.c)
 elseif(HOST_ARM64)
 set(utils_arch_sources
     mach-support-arm64.c)
-elseif(HOST_ARM)
-set(utils_arch_sources
-    mach-support-arm.c)
 else()
 #message(FATAL_ERROR "")
 endif()
 
 if(MONO_CROSS_COMPILE)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-cross.c")
-elseif(TARGET_AMD64)
-set(utils_arch_sources "${utils_arch_sources};mono-hwcap-x86.c")
-elseif(TARGET_X86)
+elseif(TARGET_AMD64 OR TARGET_X86)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-x86.c")
 elseif(TARGET_ARM64)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-arm64.c")
 elseif(TARGET_ARM)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-arm.c")
+elseif(TARGET_RISCV64)
+set(utils_arch_sources "${utils_arch_sources};mono-hwcap-riscv.c")
 elseif(TARGET_S390X)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-s390x.c")
 elseif(TARGET_WASM)
 set(utils_arch_sources "${utils_arch_sources};mono-hwcap-wasm.c;mono-mmap-wasm.c")
+elseif(TARGET_WASI)
+set(utils_arch_sources "${utils_arch_sources};mono-hwcap-wasm.c")
+elseif(TARGET_POWERPC OR TARGET_POWERPC64)
+set(utils_arch_sources "${utils_arch_sources};mono-hwcap-ppc.c")
 else()
   message(FATAL_ERROR "")
 endif()
 
-addprefix(utils_sources ../utils/ "${utils_platform_sources};${utils_arch_sources};${utils_common_sources}")
+set(utils_sources "${utils_platform_sources};${utils_arch_sources};${utils_common_sources}")
 
 if(ENABLE_DTRACE)
     find_program(DTRACE dtrace)
@@ -252,3 +233,21 @@ if(ENABLE_DTRACE)
 
     set(utils_sources "${utils_sources};${CMAKE_CURRENT_LIST_DIR}/mono-dtrace.h;../utils/dtrace.h")
 endif()
+
+if(HOST_WIN32 AND NOT DISABLE_SHARED_LIBS)
+    add_library(utils_objects_shared OBJECT ${utils_sources})
+    target_link_libraries(utils_objects_shared PRIVATE monoapi eglib_api)
+    target_compile_definitions(utils_objects_shared PRIVATE -DMONO_DLL_EXPORT)
+    target_include_directories(utils_objects_shared PRIVATE ${PROJECT_BINARY_DIR}/../..
+        ${PROJECT_SOURCE_DIR}/../..
+        ${PROJECT_SOURCE_DIR}/..)
+endif()
+
+add_library(utils_objects OBJECT ${utils_sources})
+target_link_libraries(utils_objects PRIVATE monoapi eglib_api)
+if(NOT HOST_WIN32)
+    target_compile_definitions(utils_objects PRIVATE -DMONO_DLL_EXPORT)
+endif()
+target_include_directories(utils_objects PRIVATE ${PROJECT_BINARY_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/..)

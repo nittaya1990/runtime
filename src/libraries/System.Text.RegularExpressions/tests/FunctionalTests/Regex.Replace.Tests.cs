@@ -22,7 +22,7 @@ namespace System.Text.RegularExpressions.Tests
                 yield return new object[] { engine, "a", "aaaaa", "b", RegexOptions.None, 2, 3, "aaabb" };
 
                 // Stress
-                yield return new object[] { engine, ".", new string('a', 1000), "b", RegexOptions.None, 1000, 0, new string('b', 1000) };
+                yield return new object[] { engine, ".", new string('a', 999), "b", RegexOptions.None, 999, 0, new string('b', 999) };
 
                 // Undefined groups
                 yield return new object[] { engine, @"(?<256>cat)\s*(?<512>dog)", "slkfjsdcat dogkljeah", "STARTcat$2048$1024dogEND", RegexOptions.None, 20, 0, "slkfjsdSTARTcat$2048$1024dogENDkljeah" };
@@ -34,9 +34,9 @@ namespace System.Text.RegularExpressions.Tests
                 yield return new object[] { engine, @"D\.(.+)", "D.Bau", "David $1", RegexOptions.None, 5, 0, "David Bau" };
 
                 // Stress
-                string pattern = string.Concat(Enumerable.Repeat("([a-z]", 1000).Concat(Enumerable.Repeat(")", 1000)));
+                string pattern = string.Concat(Enumerable.Repeat("([a-z]", 999).Concat(Enumerable.Repeat(")", 999)));
                 string input = string.Concat(Enumerable.Repeat("abcde", 200));
-                yield return new object[] { engine, pattern, input, "$1000", RegexOptions.None, input.Length, 0, "e" };
+                yield return new object[] { engine, pattern, input, "$999", RegexOptions.None, input.Length, 0, "de" };
                 yield return new object[] { engine, pattern, input, "$1", RegexOptions.None, input.Length, 0, input };
 
                 // Undefined group
@@ -264,7 +264,8 @@ namespace System.Text.RegularExpressions.Tests
         [InlineData(RegexOptions.RightToLeft)]
         public void Replace_MatchEvaluatorReturnsNullOrEmpty(RegexOptions options)
         {
-            string result = Regex.Replace("abcde", @"[abcd]", (Match match) => {
+            string result = Regex.Replace("abcde", @"[abcd]", (Match match) =>
+            {
                 return match.Value switch
                 {
                     "a" => "x",
@@ -333,13 +334,13 @@ namespace System.Text.RegularExpressions.Tests
             AssertExtensions.Throws<ArgumentOutOfRangeException>("startat", () => new Regex("pattern").Replace("input", new MatchEvaluator(MatchEvaluator1), 0, 6));
         }
 
-        public static string MatchEvaluator1(Match match) => match.Value.ToLower() == "big" ? "Huge": "Tiny";
+        public static string MatchEvaluator1(Match match) => match.Value.ToLower() == "big" ? "Huge" : "Tiny";
 
         public static string MatchEvaluator2(Match match) => "SUCCESS";
 
         public static string MatchEvaluator3(Match match)
         {
-            if (match.Value == "a" || match.Value == "b" || match.Value == "c")
+            if (match.Value is "a" or "b" or "c")
                 return match.Value.ToUpperInvariant();
             return string.Empty;
         }

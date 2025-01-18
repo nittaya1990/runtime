@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Microsoft.Extensions.Configuration;
+
 namespace Microsoft.Extensions.Logging.Console
 {
     /// <summary>
@@ -8,16 +10,24 @@ namespace Microsoft.Extensions.Logging.Console
     /// </summary>
     public class SimpleConsoleFormatterOptions : ConsoleFormatterOptions
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SimpleConsoleFormatterOptions"/> class.
+        /// </summary>
         public SimpleConsoleFormatterOptions() { }
 
         /// <summary>
-        /// Determines when to use color when logging messages.
+        /// Gets or sets the behavior that describes when to use color when logging messages.
         /// </summary>
         public LoggerColorBehavior ColorBehavior { get; set; }
 
         /// <summary>
-        /// When <see langword="true" />, the entire message gets logged in a single line.
+        /// Gets or sets a value that indicates whether the entire message is logged in a single line.
         /// </summary>
+        /// <value>
+        /// <see langword="true" /> if the entire message is logged in a single line.
+        /// </value>
         public bool SingleLine { get; set; }
+
+        internal override void Configure(IConfiguration configuration) => configuration.Bind(this);
     }
 }

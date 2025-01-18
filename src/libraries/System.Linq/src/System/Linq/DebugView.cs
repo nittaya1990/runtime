@@ -52,7 +52,11 @@ namespace System.Linq
 
     internal sealed class SystemCore_EnumerableDebugViewEmptyException : Exception
     {
+#pragma warning disable CA1822
+        // This property value is used by the debugger EE as the message
+        // displayed when a dynamic object has no members.
         public string Empty => SR.EmptyEnumerable;
+#pragma warning restore CA1822
     }
 
     internal sealed class SystemCore_EnumerableDebugView
@@ -72,11 +76,7 @@ namespace System.Linq
         {
             get
             {
-                var tempList = new List<object?>();
-                foreach (object? item in _enumerable)
-                {
-                    tempList.Add(item);
-                }
+                List<object?> tempList = [.. _enumerable];
 
                 if (tempList.Count == 0)
                 {
@@ -105,20 +105,20 @@ namespace System.Linq
 
         // The name of this property must alphabetically follow `Key` so the elements appear last in the display.
         [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-        public TElement[] Values => _cachedValues ?? (_cachedValues = _grouping.ToArray());
+        public TElement[] Values => _cachedValues ??= _grouping.ToArray();
     }
 
     internal sealed class SystemLinq_LookupDebugView<TKey, TElement>
     {
-        private readonly Lookup<TKey, TElement> _lookup;
+        private readonly ILookup<TKey, TElement> _lookup;
         private IGrouping<TKey, TElement>[]? _cachedGroupings;
 
-        public SystemLinq_LookupDebugView(Lookup<TKey, TElement> lookup)
+        public SystemLinq_LookupDebugView(ILookup<TKey, TElement> lookup)
         {
             _lookup = lookup;
         }
 
         [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-        public IGrouping<TKey, TElement>[] Groupings => _cachedGroupings ?? (_cachedGroupings = _lookup.ToArray());
+        public IGrouping<TKey, TElement>[] Groupings => _cachedGroupings ??= _lookup.ToArray();
     }
 }

@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -12,14 +11,14 @@ using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace Microsoft.Interop
 {
-    public abstract class BoolMarshallerBase : IMarshallingGenerator
+    public abstract class BoolMarshallerBase : IUnboundMarshallingGenerator
     {
-        private readonly PredefinedTypeSyntax _nativeType;
+        private readonly ManagedTypeInfo _nativeType;
         private readonly int _trueValue;
         private readonly int _falseValue;
         private readonly bool _compareToTrue;
 
-        protected BoolMarshallerBase(PredefinedTypeSyntax nativeType, int trueValue, int falseValue, bool compareToTrue)
+        protected BoolMarshallerBase(ManagedTypeInfo nativeType, int trueValue, int falseValue, bool compareToTrue)
         {
             _nativeType = nativeType;
             _trueValue = trueValue;
@@ -27,11 +26,9 @@ namespace Microsoft.Interop
             _compareToTrue = compareToTrue;
         }
 
-        public bool IsSupported(TargetFramework target, Version version) => true;
-
-        public TypeSyntax AsNativeType(TypePositionInfo info)
+        public ManagedTypeInfo AsNativeType(TypePositionInfo info)
         {
-            Debug.Assert(info.ManagedType is SpecialTypeInfo(_, _, SpecialType.System_Boolean));
+            Debug.Assert(info.ManagedType is SpecialTypeInfo { SpecialType: SpecialType.System_Boolean });
             return _nativeType;
         }
 
@@ -50,23 +47,24 @@ namespace Microsoft.Interop
             return ValueBoundaryBehavior.NativeIdentifier;
         }
 
-        public IEnumerable<StatementSyntax> Generate(TypePositionInfo info, StubCodeContext context)
+        public IEnumerable<StatementSyntax> Generate(TypePositionInfo info, StubCodeContext codeContext, StubIdentifierContext context)
         {
+            MarshalDirection elementMarshalDirection = MarshallerHelpers.GetMarshalDirection(info, codeContext);
             (string managedIdentifier, string nativeIdentifier) = context.GetIdentifiers(info);
             switch (context.CurrentStage)
             {
-                case StubCodeContext.Stage.Setup:
+                case StubIdentifierContext.Stage.Setup:
                     break;
-                case StubCodeContext.Stage.Marshal:
+                case StubIdentifierContext.Stage.Marshal:
                     // <nativeIdentifier> = (<nativeType>)(<managedIdentifier> ? _trueValue : _falseValue);
-                    if (info.RefKind != RefKind.Out)
+                    if (elementMarshalDirection is MarshalDirection.ManagedToUnmanaged or MarshalDirection.Bidirectional)
                     {
                         yield return ExpressionStatement(
                             AssignmentExpression(
                                 SyntaxKind.SimpleAssignmentExpression,
                                 IdentifierName(nativeIdentifier),
                                 CastExpression(
-                                    AsNativeType(info),
+                                    AsNativeType(info).Syntax,
                                     ParenthesizedExpression(
                                         ConditionalExpression(IdentifierName(managedIdentifier),
                                             LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(_trueValue)),
@@ -74,8 +72,8 @@ namespace Microsoft.Interop
                     }
 
                     break;
-                case StubCodeContext.Stage.Unmarshal:
-                    if (info.IsManagedReturnPosition || (info.IsByRef && info.RefKind != RefKind.In))
+                case StubIdentifierContext.Stage.Unmarshal:
+                    if (elementMarshalDirection is MarshalDirection.UnmanagedToManaged or MarshalDirection.Bidirectional)
                     {
                         // <managedIdentifier> = <nativeIdentifier> == _trueValue;
                         //   or
@@ -99,14 +97,15 @@ namespace Microsoft.Interop
 
         public bool UsesNativeIdentifier(TypePositionInfo info, StubCodeContext context) => true;
 
-        public bool SupportsByValueMarshalKind(ByValueContentsMarshalKind marshalKind, StubCodeContext context) => false;
+        public ByValueMarshalKindSupport SupportsByValueMarshalKind(ByValueContentsMarshalKind marshalKind, TypePositionInfo info, out GeneratorDiagnostic? diagnostic)
+            => ByValueMarshalKindSupportDescriptor.Default.GetSupport(marshalKind, info, out diagnostic);
     }
 
     /// <summary>
     /// Marshals a boolean value as 1 byte.
     /// </summary>
     /// <remarks>
-    /// This boolean type is the natural size of a boolean in the CLR (<see href="https://www.ecma-international.org/publications/standards/Ecma-335.htm">ECMA-335 (III.1.1.2)</see>).
+    /// This boolean type is the natural size of a boolean in the CLR (<see href="https://www.ecma-international.org/publications-and-standards/standards/ecma-335/">ECMA-335 (III.1.1.2)</see>).
     ///
     /// This is typically compatible with <see href="https://en.cppreference.com/w/c/types/boolean">C99</see>
     /// and <see href="https://en.cppreference.com/w/cpp/language/types">C++</see>, but those is implementation defined.
@@ -114,8 +113,12 @@ namespace Microsoft.Interop
     /// </remarks>
     public sealed class ByteBoolMarshaller : BoolMarshallerBase
     {
-        public ByteBoolMarshaller()
-            : base(PredefinedType(Token(SyntaxKind.ByteKeyword)), trueValue: 1, falseValue: 0, compareToTrue: false)
+        /// <summary>
+        /// Constructor a <see cref="ByteBoolMarshaller" instance.
+        /// </summary>
+        /// <param name="signed">True if the byte should be signed, otherwise false</param>
+        public ByteBoolMarshaller(bool signed)
+            : base(signed ? SpecialTypeInfo.SByte : SpecialTypeInfo.Byte, trueValue: 1, falseValue: 0, compareToTrue: false)
         {
         }
     }
@@ -124,12 +127,16 @@ namespace Microsoft.Interop
     /// Marshals a boolean value as a 4-byte integer.
     /// </summary>
     /// <remarks>
-    /// Corresponds to the definition of <see href="https://docs.microsoft.com/windows/win32/winprog/windows-data-types">BOOL</see>.
+    /// Corresponds to the definition of <see href="https://learn.microsoft.com/windows/win32/winprog/windows-data-types">BOOL</see>.
     /// </remarks>
     public sealed class WinBoolMarshaller : BoolMarshallerBase
     {
-        public WinBoolMarshaller()
-            : base(PredefinedType(Token(SyntaxKind.IntKeyword)), trueValue: 1, falseValue: 0, compareToTrue: false)
+        /// <summary>
+        /// Constructor a <see cref="WinBoolMarshaller" instance.
+        /// </summary>
+        /// <param name="signed">True if the int should be signed, otherwise false</param>
+        public WinBoolMarshaller(bool signed)
+            : base(signed ? SpecialTypeInfo.Int32 : SpecialTypeInfo.UInt32, trueValue: 1, falseValue: 0, compareToTrue: false)
         {
         }
     }
@@ -142,7 +149,7 @@ namespace Microsoft.Interop
         private const short VARIANT_TRUE = -1;
         private const short VARIANT_FALSE = 0;
         public VariantBoolMarshaller()
-            : base(PredefinedType(Token(SyntaxKind.ShortKeyword)), trueValue: VARIANT_TRUE, falseValue: VARIANT_FALSE, compareToTrue: true)
+            : base(SpecialTypeInfo.Int16, trueValue: VARIANT_TRUE, falseValue: VARIANT_FALSE, compareToTrue: true)
         {
         }
     }

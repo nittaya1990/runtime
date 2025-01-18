@@ -27,7 +27,7 @@
     jb      LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_PopThenDone_\REFREG)
     add     \DESTREG, [C_VAR(g_GCShadow)]
     cmp     \DESTREG, [C_VAR(g_GCShadowEnd)]
-    ja      LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_PopThenDone_\REFREG)
+    jae     LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_PopThenDone_\REFREG)
 
     // Update the shadow heap.
     mov     [\DESTREG], \REFREG
@@ -84,6 +84,21 @@ LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_Done_\REFREG):
     // we're in a debug build and write barrier checking has been enabled).
     UPDATE_GC_SHADOW \BASENAME, \REFREG, rdi
 
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+    mov     r11, [C_VAR(g_write_watch_table)]
+    cmp     r11, 0x0
+    je      LOCAL_LABEL(\BASENAME\()_CheckCardTable_\REFREG)
+
+    mov     r10, rdi
+    shr     r10, 0xC // SoftwareWriteWatch::AddressToTableByteIndexShift
+    add     r10, r11
+    cmp     byte ptr [r10], 0x0
+    jne     LOCAL_LABEL(\BASENAME\()_CheckCardTable_\REFREG)
+    mov     byte ptr [r10], 0xFF
+#endif
+
+LOCAL_LABEL(\BASENAME\()_CheckCardTable_\REFREG):
+
     // If the reference is to an object that's not in an ephemeral generation we have no need to track it
     // (since the object won't be collected or moved by an ephemeral collection).
     cmp     \REFREG, [C_VAR(g_ephemeral_low)]
@@ -95,17 +110,25 @@ LOCAL_LABEL(\BASENAME\()_UpdateShadowHeap_Done_\REFREG):
     // track this write. The location address is translated into an offset in the card table bitmap. We set
     // an entire byte in the card table since it's quicker than messing around with bitmasks and we only write
     // the byte if it hasn't already been done since writes are expensive and impact scaling.
-    shr     rdi, 11
-    add     rdi, [C_VAR(g_card_table)]
-    cmp     byte ptr [rdi], 0x0FF
-    jne     LOCAL_LABEL(\BASENAME\()_UpdateCardTable_\REFREG)
-
-LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG):
-    ret
+    shr     rdi, 0x0B
+    mov     r10, [C_VAR(g_card_table)]
+    cmp     byte ptr [rdi + r10], 0x0FF
+    je      LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG)
 
 // We get here if it's necessary to update the card table.
-LOCAL_LABEL(\BASENAME\()_UpdateCardTable_\REFREG):
-    mov     byte ptr [rdi], 0x0FF
+    mov     byte ptr [rdi + r10], 0xFF
+
+#ifdef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES
+    // Shift rdi by 0x0A more to get the card bundle byte (we shifted by 0x0B already)
+    shr     rdi, 0x0A
+    add     rdi, [C_VAR(g_card_bundle_table)]
+    cmp     byte ptr [rdi], 0xFF
+    je      LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG)
+
+    mov     byte ptr [rdi], 0xFF
+#endif
+
+LOCAL_LABEL(\BASENAME\()_NoBarrierRequired_\REFREG):
     ret
 
 .endm
@@ -198,12 +221,8 @@ LEAF_END RhpCheckedAssignRef\EXPORT_REG_NAME, _TEXT
 // just one write barrier that assumes the input register is RSI.
 DEFINE_CHECKED_WRITE_BARRIER RSI, ESI
 
-// WARNING: Code in EHHelpers.cpp makes assumptions about write barrier code, in particular:
-// - Function "InWriteBarrierHelper" assumes an AV due to passed in null pointer will happen at RhpCheckedLockCmpXchgAVLocation
-// - Function "UnwindSimpleHelperToCaller" assumes the stack contains just the pushed return address
 LEAF_ENTRY RhpCheckedLockCmpXchg, _TEXT
     mov             rax, rdx
-ALTERNATE_ENTRY RhpCheckedLockCmpXchgAVLocation
     lock cmpxchg    [rdi], rsi
     jne             LOCAL_LABEL(RhpCheckedLockCmpXchg_NoBarrierRequired_RSI)
 
@@ -211,15 +230,11 @@ ALTERNATE_ENTRY RhpCheckedLockCmpXchgAVLocation
 
 LEAF_END RhpCheckedLockCmpXchg, _TEXT
 
-// WARNING: Code in EHHelpers.cpp makes assumptions about write barrier code, in particular:
-// - Function "InWriteBarrierHelper" assumes an AV due to passed in null pointer will happen at RhpCheckedXchgAVLocation
-// - Function "UnwindSimpleHelperToCaller" assumes the stack contains just the pushed return address
 LEAF_ENTRY RhpCheckedXchg, _TEXT
 
     // Setup rax with the new object for the exchange, that way it will automatically hold the correct result
     // afterwards and we can leave rdx unaltered ready for the GC write barrier below.
     mov             rax, rsi
-ALTERNATE_ENTRY RhpCheckedXchgAVLocation
     xchg            [rdi], rax
 
     DEFINE_CHECKED_WRITE_BARRIER_CORE RhpCheckedXchg, RSI
@@ -232,54 +247,80 @@ LEAF_END RhpCheckedXchg, _TEXT
 // On entry:
 //      rdi: address of ref-field (assigned to)
 //      rsi: address of the data (source)
-//      rcx: be trashed
 //
 // On exit:
 //      rdi, rsi are incremented by 8,
-//      rcx: trashed
+//      rcx, rax: trashed
 //
+// NOTE: Keep in sync with RBM_CALLEE_TRASH_WRITEBARRIER_BYREF and RBM_CALLEE_GCTRASH_WRITEBARRIER_BYREF
+//       if you add more trashed registers.
+//
+// WARNING: Code in EHHelpers.cpp makes assumptions about write barrier code, in particular:
+// - Function "InWriteBarrierHelper" assumes an AV due to passed in null pointer will happen at RhpByRefAssignRefAVLocation1/2
+// - Function "UnwindSimpleHelperToCaller" assumes the stack contains just the pushed return address
 LEAF_ENTRY RhpByRefAssignRef, _TEXT
+ALTERNATE_ENTRY RhpByRefAssignRefAVLocation1
     mov     rcx, [rsi]
+ALTERNATE_ENTRY RhpByRefAssignRefAVLocation2
     mov     [rdi], rcx
 
     // Check whether the writes were even into the heap. If not there's no card update required.
     cmp     rdi, [C_VAR(g_lowest_address)]
-    jb      LOCAL_LABEL(RhpByRefAssignRef_NotInHeap)
+    jb      LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
     cmp     rdi, [C_VAR(g_highest_address)]
-    jae     LOCAL_LABEL(RhpByRefAssignRef_NotInHeap)
+    jae     LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
 
     // Update the shadow copy of the heap with the same value just written to the same heap. (A no-op unless
     // we're in a debug build and write barrier checking has been enabled).
     UPDATE_GC_SHADOW BASENAME, rcx, rdi
 
+#ifdef FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP
+    cmp     qword ptr [C_VAR(g_write_watch_table)], 0x0
+    je      LOCAL_LABEL(RhpByRefAssignRef_CheckCardTable)
+
+    mov     rax, rdi
+    shr     rax, 0xC // SoftwareWriteWatch::AddressToTableByteIndexShift
+    add     rax, [C_VAR(g_write_watch_table)]
+    cmp     byte ptr [rax], 0x0
+    jne     LOCAL_LABEL(RhpByRefAssignRef_CheckCardTable)
+    mov     byte ptr [rax], 0xFF
+#endif
+
+LOCAL_LABEL(RhpByRefAssignRef_CheckCardTable):
+
     // If the reference is to an object that's not in an ephemeral generation we have no need to track it
     // (since the object won't be collected or moved by an ephemeral collection).
     cmp     rcx, [C_VAR(g_ephemeral_low)]
-    jb      LOCAL_LABEL(RhpByRefAssignRef_NotInHeap)
+    jb      LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
     cmp     rcx, [C_VAR(g_ephemeral_high)]
-    jae     LOCAL_LABEL(RhpByRefAssignRef_NotInHeap)
+    jae     LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
 
-    // move current rdi value into rcx and then increment the pointers
+    // move current rdi value into rcx, we need to keep rdi and eventually increment by 8
     mov     rcx, rdi
-    add     rsi, 0x8
-    add     rdi, 0x8
 
     // We have a location on the GC heap being updated with a reference to an ephemeral object so we must
     // track this write. The location address is translated into an offset in the card table bitmap. We set
     // an entire byte in the card table since it's quicker than messing around with bitmasks and we only write
     // the byte if it hasn't already been done since writes are expensive and impact scaling.
-    shr     rcx, 11
-    add     rcx, [C_VAR(g_card_table)]
-    cmp     byte ptr [rcx], 0x0FF
-    jne     LOCAL_LABEL(RhpByRefAssignRef_UpdateCardTable)
-    ret
+    shr     rcx, 0x0B
+    mov     rax, [C_VAR(g_card_table)]
+    cmp     byte ptr [rcx + rax], 0x0FF
+    je      LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
 
 // We get here if it's necessary to update the card table.
-LOCAL_LABEL(RhpByRefAssignRef_UpdateCardTable):
-    mov     byte ptr [rcx], 0x0FF
-    ret
+    mov     byte ptr [rcx + rax], 0xFF
 
-LOCAL_LABEL(RhpByRefAssignRef_NotInHeap):
+#ifdef FEATURE_MANUALLY_MANAGED_CARD_BUNDLES
+    // Shift rcx by 0x0A more to get the card bundle byte (we shifted by 0x0B already)
+    shr     rcx, 0x0A
+    add     rcx, [C_VAR(g_card_bundle_table)]
+    cmp     byte ptr [rcx], 0xFF
+    je      LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired)
+
+    mov     byte ptr [rcx], 0xFF
+#endif
+
+LOCAL_LABEL(RhpByRefAssignRef_NoBarrierRequired):
     // Increment the pointers before leaving
     add     rdi, 0x8
     add     rsi, 0x8

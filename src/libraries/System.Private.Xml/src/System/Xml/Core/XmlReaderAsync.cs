@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
-using System.Text;
 using System.Diagnostics;
 using System.Globalization;
-using System.Xml.Schema;
+using System.IO;
+using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Schema;
 
 namespace System.Xml
 {
@@ -339,11 +339,7 @@ namespace System.Xml
                         }
                         else
                         {
-                            if (sb == null)
-                            {
-                                sb = new StringBuilder();
-                                sb.Append(value);
-                            }
+                            sb ??= new StringBuilder().Append(value);
                             sb.Append(await GetValueAsync().ConfigureAwait(false));
                         }
                         break;
@@ -399,7 +395,7 @@ namespace System.Xml
             return true;
         }
 
-        private Task FinishReadElementContentAsXxxAsync()
+        private Task<bool> FinishReadElementContentAsXxxAsync()
         {
             if (NodeType != XmlNodeType.EndElement)
             {

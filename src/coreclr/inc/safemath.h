@@ -31,11 +31,11 @@
 
 #include "static_assert.h"
 
-#ifdef PAL_STDCPP_COMPAT
 #include <type_traits>
-#else
-#include "clr_std/type_traits"
-#endif
+
+#ifdef FEATURE_PAL
+#include "pal_mstypes.h"
+#endif // FEATURE_PAL
 
 //==================================================================
 // Semantics: if val can be represented as the exact same value
@@ -159,7 +159,7 @@ inline bool DoubleFitsInIntType(double val)
 // Modified to track an overflow bit instead of throwing exceptions.  In most
 // cases the Visual C++ optimizer (Whidbey beta1 - v14.00.40607) is able to
 // optimize the bool away completely.
-// Note that using a sentinal value (IntMax for example) to represent overflow
+// Note that using a sentinel value (IntMax for example) to represent overflow
 // actually results in poorer code-gen.
 //
 // This has also been simplified significantly to remove functionality we

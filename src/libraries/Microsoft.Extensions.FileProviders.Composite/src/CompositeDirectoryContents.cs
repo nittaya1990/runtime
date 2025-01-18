@@ -26,8 +26,10 @@ namespace Microsoft.Extensions.FileProviders.Composite
         /// </summary>
         /// <param name="fileProviders">The list of <see cref="IFileProvider"/> for which the results have to be composed.</param>
         /// <param name="subpath">The path.</param>
-        public CompositeDirectoryContents(IList<IFileProvider> fileProviders!!, string subpath)
+        public CompositeDirectoryContents(IList<IFileProvider> fileProviders, string subpath)
         {
+            ThrowHelper.ThrowIfNull(fileProviders);
+
             _fileProviders = fileProviders;
             _subPath = subpath;
         }
@@ -77,7 +79,7 @@ namespace Microsoft.Extensions.FileProviders.Composite
         /// Creates an enumerator for all files in all providers given.
         /// Ensures each item in the collection is distinct.
         /// </summary>
-        /// <returns>An enumerator over all files in all given providers</returns>
+        /// <returns>An enumerator over all files in all given providers.</returns>
         public IEnumerator<IFileInfo> GetEnumerator()
         {
             EnsureFilesAreInitialized();
@@ -91,7 +93,7 @@ namespace Microsoft.Extensions.FileProviders.Composite
         }
 
         /// <summary>
-        /// True if any given providers exists
+        /// Gets a value that indicates if any given providers exist.
         /// </summary>
         public bool Exists
         {

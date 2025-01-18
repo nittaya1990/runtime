@@ -33,33 +33,32 @@ namespace System.Runtime.CompilerServices
         public const string ByRefFields = nameof(ByRefFields);
 
         /// <summary>
+        /// Represents a runtime feature where byref-like types can be used in Generic parameters.
+        /// </summary>
+        public const string ByRefLikeGenerics = nameof(ByRefLikeGenerics);
+
+        /// <summary>
         /// Indicates that this version of runtime supports virtual static members of interfaces.
         /// </summary>
         public const string VirtualStaticsInInterfaces = nameof(VirtualStaticsInInterfaces);
+
+        /// <summary>
+        /// Indicates that this version of runtime supports <see cref="System.IntPtr" /> and <see cref="System.UIntPtr" /> as numeric types.
+        /// </summary>
+        public const string NumericIntPtr = nameof(NumericIntPtr);
 
         /// <summary>
         /// Checks whether a certain feature is supported by the Runtime.
         /// </summary>
         public static bool IsSupported(string feature)
         {
-            switch (feature)
+            return feature switch
             {
-                case PortablePdb:
-                case CovariantReturnsOfClasses:
-                case ByRefFields:
-                case UnmanagedSignatureCallingConvention:
-                case DefaultImplementationsOfInterfaces:
-#pragma warning disable CA2252
-                case VirtualStaticsInInterfaces:
-#pragma warning restore CA2252
-                    return true;
-                case nameof(IsDynamicCodeSupported):
-                    return IsDynamicCodeSupported;
-                case nameof(IsDynamicCodeCompiled):
-                    return IsDynamicCodeCompiled;
-            }
-
-            return false;
+                PortablePdb or CovariantReturnsOfClasses or ByRefFields or ByRefLikeGenerics or UnmanagedSignatureCallingConvention or DefaultImplementationsOfInterfaces or VirtualStaticsInInterfaces or NumericIntPtr => true,
+                nameof(IsDynamicCodeSupported) => IsDynamicCodeSupported,
+                nameof(IsDynamicCodeCompiled) => IsDynamicCodeCompiled,
+                _ => false,
+            };
         }
     }
 }

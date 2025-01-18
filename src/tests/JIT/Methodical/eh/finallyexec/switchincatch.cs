@@ -4,13 +4,14 @@
 // switch in catch 
 
 using System;
+using Xunit;
 
-namespace strswitch
+namespace strswitch_switchincatch_cs
 {
     /// <summary>
     /// Summary description for Class1.
     /// </summary>
-    class Class1
+    public class Class1
     {
         private static TestUtil.TestLog testLog;
 
@@ -40,7 +41,9 @@ namespace strswitch
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
-        static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             string[] s = { "one", "two", "three", "four", "five", "six" };
             //Start recording
@@ -49,7 +52,7 @@ namespace strswitch
             for (int i = 0; i < s.Length; i++)
             {
 
-                beginloop:
+            beginloop:
                 try
                 {
                     try
@@ -84,11 +87,11 @@ namespace strswitch
                     Console.WriteLine("In outer finally\n");
                 }
 
-                continueloop:
+            continueloop:
                 Console.WriteLine("Continuing");
 
             }
-            finish:
+        finish:
             // stop recoding
             testLog.StopRecording();
             return testLog.VerifyOutput();

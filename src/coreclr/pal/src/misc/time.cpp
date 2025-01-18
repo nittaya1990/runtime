@@ -19,7 +19,6 @@ Abstract:
 
 #include "pal/palinternal.h"
 #include "pal/dbgmsg.h"
-#include "pal/misc.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -82,13 +81,13 @@ GetSystemTime(
         goto EXIT;
     }
 
-    lpSystemTime->wYear = 1900 + utPtr->tm_year;
-    lpSystemTime->wMonth = utPtr->tm_mon + 1;
-    lpSystemTime->wDayOfWeek = utPtr->tm_wday;
-    lpSystemTime->wDay = utPtr->tm_mday;
-    lpSystemTime->wHour = utPtr->tm_hour;
-    lpSystemTime->wMinute = utPtr->tm_min;
-    lpSystemTime->wSecond = utPtr->tm_sec;
+    lpSystemTime->wYear = (WORD)(1900 + utPtr->tm_year);
+    lpSystemTime->wMonth = (WORD)(utPtr->tm_mon + 1);
+    lpSystemTime->wDayOfWeek = (WORD)utPtr->tm_wday;
+    lpSystemTime->wDay = (WORD)utPtr->tm_mday;
+    lpSystemTime->wHour = (WORD)utPtr->tm_hour;
+    lpSystemTime->wMinute = (WORD)utPtr->tm_min;
+    lpSystemTime->wSecond = (WORD)utPtr->tm_sec;
 
     if(-1 == timeofday_retval)
     {
@@ -101,7 +100,7 @@ GetSystemTime(
         int old_seconds;
         int new_seconds;
 
-        lpSystemTime->wMilliseconds = timeval.tv_usec/tccMillieSecondsToMicroSeconds;
+        lpSystemTime->wMilliseconds = (WORD)(timeval.tv_usec/tccMillieSecondsToMicroSeconds);
 
         old_seconds = utPtr->tm_sec;
         new_seconds = timeval.tv_sec%60;

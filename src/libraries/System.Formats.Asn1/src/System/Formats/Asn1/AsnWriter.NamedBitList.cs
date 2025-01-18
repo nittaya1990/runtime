@@ -32,8 +32,13 @@ namespace System.Formats.Asn1
         /// <exception cref="ArgumentNullException">
         ///   <paramref name="value"/> is <see langword="null"/>.
         /// </exception>
-        public void WriteNamedBitList(Enum value!!, Asn1Tag? tag = null)
+        public void WriteNamedBitList(Enum value, Asn1Tag? tag = null)
         {
+            if (value is null)
+            {
+                throw new ArgumentNullException(nameof(value));
+            }
+
             CheckUniversalTag(tag, UniversalTagNumber.BitString);
 
             WriteNamedBitList(tag, value.GetType(), value);
@@ -43,6 +48,9 @@ namespace System.Formats.Asn1
         ///   Write a [<see cref="FlagsAttribute"/>] enum value as a NamedBitList with
         ///   a specified tag.
         /// </summary>
+        /// <typeparam name="TEnum">
+        ///   The [<see cref="FlagsAttribute" />] enumeration type to write.
+        /// </typeparam>
         /// <param name="value">The enumeration value to write</param>
         /// <param name="tag">The tag to write, or <see langword="null"/> for the default tag (Universal 3).</param>
         /// <exception cref="ArgumentException">
@@ -86,8 +94,13 @@ namespace System.Formats.Asn1
         ///   For example, the bit array <c>{ false, true, true }</c> encodes as <c>0b0110_0000</c> with 5
         ///   unused bits.
         /// </remarks>
-        public void WriteNamedBitList(BitArray value!!, Asn1Tag? tag = null)
+        public void WriteNamedBitList(BitArray value, Asn1Tag? tag = null)
         {
+            if (value is null)
+            {
+                throw new ArgumentNullException(nameof(value));
+            }
+
             CheckUniversalTag(tag, UniversalTagNumber.BitString);
 
             WriteBitArray(value, tag);
@@ -106,15 +119,30 @@ namespace System.Formats.Asn1
 
             ulong integralValue;
 
-            if (backingType == typeof(ulong))
+            // When widening from a signed type to a ulong it must zero extend not sign extend. Convert to unsigned
+            // types first for zero extension.
+            if (backingType == typeof(sbyte))
             {
+                integralValue = unchecked((byte)Convert.ToSByte(value));
+            }
+            else if (backingType == typeof(short))
+            {
+                integralValue = unchecked((ushort)Convert.ToInt16(value));
+            }
+            else if (backingType == typeof(int))
+            {
+                integralValue = unchecked((uint)Convert.ToInt32(value));
+            }
+            else if (backingType == typeof(ulong))
+            {
+                // long is handled in the catch all, this handles ulong specifically since it may not fit in a long.
                 integralValue = Convert.ToUInt64(value);
             }
             else
             {
-                // All other types fit in a (signed) long.
-                long numericValue = Convert.ToInt64(value);
-                integralValue = unchecked((ulong)numericValue);
+                // Other unsigned types fit in a long without concern for their sign.
+                // This also handles a signed long, which doesn't need to be widened.
+                integralValue = unchecked((ulong)Convert.ToInt64(value));
             }
 
             WriteNamedBitList(tag, integralValue);

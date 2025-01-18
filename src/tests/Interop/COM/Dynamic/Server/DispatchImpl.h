@@ -11,7 +11,7 @@ class DispatchImpl : public UnknownImpl
 {
 public:
     DispatchImpl(GUID guid, void *instance, const wchar_t* tlb = nullptr);
-    virtual ~DispatchImpl();
+    virtual ~DispatchImpl() = default;
 
     DispatchImpl(const DispatchImpl&) = delete;
     DispatchImpl& operator=(const DispatchImpl&) = delete;
@@ -20,24 +20,24 @@ public:
     DispatchImpl& operator=(DispatchImpl&&) = default;
 
 protected:
-    HRESULT DoGetTypeInfoCount(UINT* pctinfo);
-    HRESULT DoGetTypeInfo(UINT iTInfo, ITypeInfo** ppTInfo);
-    HRESULT DoGetIDsOfNames(LPOLESTR* rgszNames, UINT cNames, DISPID* rgDispId);
-    HRESULT DoInvoke(DISPID dispIdMember, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr);
+    HRESULT DoGetTypeInfoCount(uint32_t* pctinfo);
+    HRESULT DoGetTypeInfo(uint32_t iTInfo, ITypeInfo** ppTInfo);
+    HRESULT DoGetIDsOfNames(LPOLESTR* rgszNames, uint32_t cNames, DISPID* rgDispId);
+    HRESULT DoInvoke(DISPID dispIdMember, uint16_t wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, uint32_t* puArgErr);
 
 private:
-    ITypeLib *_typeLib;
-    ITypeInfo *_typeInfo;
+    ComSmartPtr<ITypeLib> _typeLib;
+    ComSmartPtr<ITypeInfo> _typeInfo;
     void *_instance;
 };
 
 // Macro to use for defining dispatch impls
 #define DEFINE_DISPATCH() \
-    STDMETHOD(GetTypeInfoCount)(UINT *pctinfo) \
+    STDMETHOD(GetTypeInfoCount)(uint32_t *pctinfo) \
         { return DispatchImpl::DoGetTypeInfoCount(pctinfo); } \
-    STDMETHOD(GetTypeInfo)(UINT iTInfo, LCID lcid, ITypeInfo **ppTInfo) \
+    STDMETHOD(GetTypeInfo)(uint32_t iTInfo, LCID lcid, ITypeInfo **ppTInfo) \
         { return DispatchImpl::DoGetTypeInfo(iTInfo, ppTInfo); } \
-    STDMETHOD(GetIDsOfNames)(REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID lcid, DISPID* rgDispId) \
+    STDMETHOD(GetIDsOfNames)(REFIID riid, LPOLESTR* rgszNames, uint32_t cNames, LCID lcid, DISPID* rgDispId) \
         { return DispatchImpl::DoGetIDsOfNames(rgszNames, cNames, rgDispId); } \
-    STDMETHOD(Invoke)(DISPID dispIdMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) \
+    STDMETHOD(Invoke)(DISPID dispIdMember, REFIID riid, LCID lcid, uint16_t wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, uint32_t* puArgErr) \
         { return DispatchImpl::DoInvoke(dispIdMember, wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr); }

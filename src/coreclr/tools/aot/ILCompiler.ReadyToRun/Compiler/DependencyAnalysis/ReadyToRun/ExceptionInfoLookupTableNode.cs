@@ -14,7 +14,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
 {
     public class EHInfoNode : ObjectNode, ISymbolDefinitionNode
     {
-        public override ObjectNodeSection Section => ObjectNodeSection.ReadOnlyDataSection;
+        public override ObjectNodeSection GetSection(NodeFactory factory) => ObjectNodeSection.ReadOnlyDataSection;
 
         public override bool IsShareable => false;
 
@@ -43,7 +43,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             // EH info node is a singleton in the R2R PE file
-            sb.Append("EHInfoNode");
+            sb.Append("EHInfoNode"u8);
         }
 
         public override ObjectData GetData(NodeFactory factory, bool relocsOnly = false)
@@ -69,7 +69,6 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         private readonly EHInfoNode _ehInfoNode;
 
         public ExceptionInfoLookupTableNode(NodeFactory nodeFactory)
-            : base(nodeFactory.Target)
         {
             _nodeFactory = nodeFactory;
             _ehInfoNode = new EHInfoNode();
@@ -78,7 +77,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         public override void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append(nameMangler.CompilationUnitPrefix);
-            sb.Append("__ReadyToRunExceptionInfoLookupTable@");
+            sb.Append("__ReadyToRunExceptionInfoLookupTable@"u8);
             sb.Append(Offset.ToString());
         }
 

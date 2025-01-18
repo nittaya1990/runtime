@@ -16,7 +16,7 @@ namespace System.Text.Json.Serialization.Converters
         where TDictionary : IEnumerable<KeyValuePair<TKey, TValue>>
         where TKey : notnull
     {
-        internal override bool CanHaveIdMetadata => true;
+        internal override bool CanHaveMetadata => true;
 
         protected internal override bool OnWriteResume(
             Utf8JsonWriter writer,
@@ -28,6 +28,7 @@ namespace System.Text.Json.Serialization.Converters
             if (state.Current.CollectionEnumerator == null)
             {
                 enumerator = value.GetEnumerator();
+                state.Current.CollectionEnumerator = enumerator;
                 if (!enumerator.MoveNext())
                 {
                     enumerator.Dispose();
@@ -45,9 +46,8 @@ namespace System.Text.Json.Serialization.Converters
 
             do
             {
-                if (ShouldFlush(writer, ref state))
+                if (ShouldFlush(ref state, writer))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
 
@@ -61,11 +61,10 @@ namespace System.Text.Json.Serialization.Converters
                 TValue element = enumerator.Current.Value;
                 if (!_valueConverter.TryWrite(writer, element, options, ref state))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
 
-                state.Current.EndDictionaryElement();
+                state.Current.EndDictionaryEntry();
             } while (enumerator.MoveNext());
 
             enumerator.Dispose();

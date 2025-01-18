@@ -30,6 +30,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Security;
@@ -43,11 +44,11 @@ namespace System.Net
 {
     internal sealed class HttpConnection
     {
-        private static AsyncCallback s_onreadCallback = new AsyncCallback(OnRead);
+        private static readonly AsyncCallback s_onreadCallback = new AsyncCallback(OnRead);
         private const int BufferSize = 8192;
         private Socket? _socket;
-        private Stream _stream;
-        private HttpEndPointListener _epl;
+        private readonly Stream _stream;
+        private readonly HttpEndPointListener _epl;
         private MemoryStream? _memoryStream;
         private byte[]? _buffer;
         private HttpListenerContext _context;
@@ -55,18 +56,17 @@ namespace System.Net
         private ListenerPrefix? _prefix;
         private HttpRequestStream? _requestStream;
         private HttpResponseStream? _responseStream;
-        private bool _chunked;
         private int _reuses;
         private bool _contextBound;
-        private bool _secure;
-        private X509Certificate _cert;
+        private readonly bool _secure;
+        private readonly X509Certificate _cert;
         private int _timeout = 90000; // 90k ms for first request, 15k ms from then on
-        private Timer _timer;
+        private readonly Timer _timer;
         private IPEndPoint? _localEndPoint;
         private HttpListener? _lastListener;
         private int[]? _clientCertErrors;
         private X509Certificate2? _clientCert;
-        private SslStream? _sslStream;
+        private readonly SslStream? _sslStream;
         private InputState _inputState = InputState.RequestLine;
         private LineState _lineState = LineState.None;
         private int _position;
@@ -84,20 +84,14 @@ namespace System.Net
             else
             {
 #pragma warning disable CA5359
-                _sslStream = epl.Listener.CreateSslStream(new NetworkStream(sock, false), false, (t, c, ch, e) =>
+                _sslStream = HttpListener.CreateSslStream(new NetworkStream(sock, false), false, (t, c, ch, e) =>
                 {
                     if (c == null)
                     {
                         return true;
                     }
 
-                    var c2 = c as X509Certificate2;
-                    if (c2 == null)
-                    {
-                        c2 = new X509Certificate2(c.GetRawCertData());
-                    }
-
-                    _clientCert = c2;
+                    _clientCert = c as X509Certificate2 ?? X509CertificateLoader.LoadCertificate(c.GetRawCertData());
                     _clientCertErrors = new int[] { (int)e };
                     return true;
                 });
@@ -107,9 +101,11 @@ namespace System.Net
             }
 
             _timer = new Timer(OnTimeout, null, Timeout.Infinite, Timeout.Infinite);
-            if (_sslStream != null) {
-                _sslStream.AuthenticateAsServer (_cert, true, (SslProtocols)ServicePointManager.SecurityProtocol, false);
-            }
+
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete
+            _sslStream?.AuthenticateAsServer(_cert, true, (SslProtocols)ServicePointManager.SecurityProtocol, false);
+#pragma warning restore SYSLIB0014
+
             Init();
         }
 
@@ -136,7 +132,6 @@ namespace System.Net
             _requestStream = null;
             _responseStream = null;
             _prefix = null;
-            _chunked = false;
             _memoryStream = new MemoryStream();
             _position = 0;
             _inputState = InputState.RequestLine;
@@ -192,8 +187,7 @@ namespace System.Net
 
         public void BeginReadRequest()
         {
-            if (_buffer == null)
-                _buffer = new byte[BufferSize];
+            _buffer ??= new byte[BufferSize];
             try
             {
                 if (_reuses == 1)
@@ -218,7 +212,6 @@ namespace System.Net
                 _memoryStream = null;
                 if (chunked)
                 {
-                    _chunked = true;
                     _context.Response.SendChunked = true;
                     _requestStream = new ChunkedInputStream(_context, _stream, buffer, _position, length - _position);
                 }
@@ -246,8 +239,17 @@ namespace System.Net
 
         private static void OnRead(IAsyncResult ares)
         {
-            HttpConnection cnc = (HttpConnection)ares.AsyncState!;
-            cnc.OnReadInternal(ares);
+            HttpConnection? cnc = null;
+            try
+            {
+                cnc = (HttpConnection)ares.AsyncState!;
+                cnc.OnReadInternal(ares);
+            }
+            catch
+            {
+                cnc?.Close(true);
+                return;
+            }
         }
 
         private void OnReadInternal(IAsyncResult ares)
@@ -409,8 +411,7 @@ namespace System.Net
 
         private string? ReadLine(byte[] buffer, int offset, int len, ref int used)
         {
-            if (_currentLine == null)
-                _currentLine = new StringBuilder(128);
+            _currentLine ??= new StringBuilder(128);
             int last = offset + len;
             used = 0;
             for (int i = offset; i < last && _lineState != LineState.LF; i++)
@@ -472,7 +473,7 @@ namespace System.Net
         {
             if (_contextBound)
             {
-                _epl.UnbindContext(_context);
+                HttpEndPointListener.UnbindContext(_context);
                 _contextBound = false;
             }
         }
@@ -504,9 +505,7 @@ namespace System.Net
         {
             if (_socket != null)
             {
-                Stream st = GetResponseStream();
-                if (st != null)
-                    st.Close();
+                GetResponseStream()?.Close();
 
                 _responseStream = null;
             }
@@ -519,16 +518,6 @@ namespace System.Net
 
                 if (!force && _context.Request.FlushInput())
                 {
-                    if (_chunked && _context.Response.ForceCloseChunked == false)
-                    {
-                        // Don't close. Keep working.
-                        _reuses++;
-                        Unbind();
-                        Init();
-                        BeginReadRequest();
-                        return;
-                    }
-
                     _reuses++;
                     Unbind();
                     Init();
@@ -540,16 +529,14 @@ namespace System.Net
                 _socket = null;
                 try
                 {
-                    if (s != null)
-                        s.Shutdown(SocketShutdown.Both);
+                    s?.Shutdown(SocketShutdown.Both);
                 }
                 catch
                 {
                 }
                 finally
                 {
-                    if (s != null)
-                        s.Close();
+                    s?.Close();
                 }
                 Unbind();
                 RemoveConnection();

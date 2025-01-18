@@ -65,7 +65,7 @@ public:
         m_pNext(NULL),
         m_dwRefCount(1),
         m_hrResultCode(S_FALSE),
-        m_hInitException(NULL),
+        m_hInitException{},
         m_pLoaderAllocator(dac_cast<PTR_LoaderAllocator>(nullptr))
     {
         WRAPPER_NO_CONTRACT;
@@ -153,7 +153,7 @@ public:
         }
         CONTRACTL_END;
 
-        FastInterlockIncrement((LONG*)&m_dwRefCount);
+        InterlockedIncrement((LONG*)&m_dwRefCount);
     }
 
     void Release()
@@ -169,7 +169,7 @@ public:
 
         ListLockHolder lock(m_pList);
 
-        if (FastInterlockDecrement((LONG*)&m_dwRefCount) == 0)
+        if (InterlockedDecrement((LONG*)&m_dwRefCount) == 0)
         {
             // Remove from list
             m_pList->Unlink(this);

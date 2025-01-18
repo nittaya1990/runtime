@@ -1,9 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <CrossHostArch Condition="'$(CrossBuild)' == 'true' or '$(TargetArchitecture)' != '$(BuildArchitecture)' or '$(HostOS)' != '$(TargetOS)' or '$(EnableNativeSanitizers)' != ''">$(BuildArchitecture)</CrossHostArch>
     <OutputPath>$(RuntimeBinDir)/crossgen2</OutputPath>
-    <!-- The default value for macOS is false -->
-    <UseAppHost>true</UseAppHost>
-    <AppHostRuntimeIdentifier>$(Crossgen2PackageRID)</AppHostRuntimeIdentifier>
   </PropertyGroup>
   <Import Project="crossgen2.props" />
 </Project>

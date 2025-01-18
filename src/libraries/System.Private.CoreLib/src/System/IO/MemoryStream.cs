@@ -43,8 +43,7 @@ namespace System.IO
 
         public MemoryStream(int capacity)
         {
-            if (capacity < 0)
-                throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_NegativeCapacity);
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
 
             _buffer = capacity != 0 ? new byte[capacity] : Array.Empty<byte>();
             _capacity = capacity;
@@ -59,8 +58,10 @@ namespace System.IO
         {
         }
 
-        public MemoryStream(byte[] buffer!!, bool writable)
+        public MemoryStream(byte[] buffer, bool writable)
         {
+            ArgumentNullException.ThrowIfNull(buffer);
+
             _buffer = buffer;
             _length = _capacity = buffer.Length;
             _writable = writable;
@@ -77,12 +78,12 @@ namespace System.IO
         {
         }
 
-        public MemoryStream(byte[] buffer!!, int index, int count, bool writable, bool publiclyVisible)
+        public MemoryStream(byte[] buffer, int index, int count, bool writable, bool publiclyVisible)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(buffer);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -239,7 +240,7 @@ namespace System.IO
             if (n < 0)
                 n = 0;
 
-            Debug.Assert(_position + n >= 0, "_position + n >= 0");  // len is less than 2^31 -1.
+            Debug.Assert(_position + n >= 0);  // len is less than 2^31 -1.
             _position += n;
             return n;
         }
@@ -306,12 +307,10 @@ namespace System.IO
             }
             set
             {
-                if (value < 0)
-                    throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NeedNonNegNum);
-
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
                 EnsureNotClosed();
 
-                if (value > MemStreamMaxLength)
+                if (value > MemStreamMaxLength - _origin)
                     throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_StreamLength);
                 _position = _origin + (int)value;
             }
@@ -328,7 +327,7 @@ namespace System.IO
             if (n <= 0)
                 return 0;
 
-            Debug.Assert(_position + n >= 0, "_position + n >= 0");  // len is less than 2^31 -1.
+            Debug.Assert(_position + n >= 0);  // len is less than 2^31 -1.
 
             if (n <= 8)
             {
@@ -494,7 +493,7 @@ namespace System.IO
                 return Task.CompletedTask;
 
             // If destination is not a memory stream, write there asynchronously:
-            if (!(destination is MemoryStream memStrDest))
+            if (destination is not MemoryStream memStrDest)
                 return destination.WriteAsync(_buffer, pos, n, cancellationToken);
 
             try
@@ -513,41 +512,26 @@ namespace System.IO
         {
             EnsureNotClosed();
 
-            if (offset > MemStreamMaxLength)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_StreamLength);
-
-            switch (loc)
+            return SeekCore(offset, loc switch
             {
-                case SeekOrigin.Begin:
-                    {
-                        int tempPosition = unchecked(_origin + (int)offset);
-                        if (offset < 0 || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                case SeekOrigin.Current:
-                    {
-                        int tempPosition = unchecked(_position + (int)offset);
-                        if (unchecked(_position + offset) < _origin || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                case SeekOrigin.End:
-                    {
-                        int tempPosition = unchecked(_length + (int)offset);
-                        if (unchecked(_length + offset) < _origin || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                default:
-                    throw new ArgumentException(SR.Argument_InvalidSeekOrigin);
-            }
+                SeekOrigin.Begin => _origin,
+                SeekOrigin.Current => _position,
+                SeekOrigin.End => _length,
+                _ => throw new ArgumentException(SR.Argument_InvalidSeekOrigin)
+            });
+        }
 
-            Debug.Assert(_position >= 0, "_position >= 0");
-            return _position;
+        private long SeekCore(long offset, int loc)
+        {
+            if (offset > MemStreamMaxLength - loc)
+                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_StreamLength);
+            int tempPosition = unchecked(loc + (int)offset);
+            if (unchecked(loc + offset) < _origin || tempPosition < _origin)
+                throw new IOException(SR.IO_SeekBeforeBegin);
+            _position = tempPosition;
+
+            Debug.Assert(_position >= _origin);
+            return _position - _origin;
         }
 
         // Sets the length of the stream to a given value.  The new
@@ -756,8 +740,10 @@ namespace System.IO
         }
 
         // Writes this MemoryStream to another stream.
-        public virtual void WriteTo(Stream stream!!)
+        public virtual void WriteTo(Stream stream)
         {
+            ArgumentNullException.ThrowIfNull(stream);
+
             EnsureNotClosed();
 
             stream.Write(_buffer, _origin, _length - _origin);

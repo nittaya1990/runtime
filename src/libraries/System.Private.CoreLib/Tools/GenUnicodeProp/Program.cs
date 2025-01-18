@@ -37,7 +37,7 @@ namespace GenUnicodeProp
 
             // Next, iterate though all assigned code points, populating
             // the category casing & numeric grapheme maps. Also put the
-            // data into the the DataTable structure, which will compute
+            // data into the DataTable structure, which will compute
             // the tiered offset tables.
 
             DataTable categoryCasingTable = new DataTable();
@@ -175,7 +175,7 @@ namespace GenUnicodeProp
             PrintByteArray(tableName.Replace('1', '3'), file, levels[2]);
         }
 
-        private static void PrintValueArray<T>(string tableName, Dictionary<T, byte> d, Func<T, byte[]> getBytesCallback, StreamWriter file)
+        private static void PrintValueArray<T>(string tableName, Dictionary<T, byte> d, Func<T, byte[]> getBytesCallback, StreamWriter file) where T : notnull
         {
             Console.WriteLine("    ******************************** .");
 
@@ -204,14 +204,14 @@ namespace GenUnicodeProp
 
         private static void PrintByteArray(string tableName, StreamWriter file, byte[] str)
         {
-            file.Write("\n        private static ReadOnlySpan<byte> " + tableName + " => new byte[" + str.Length + "]\n        {\n");
+            file.Write("\n        private static ReadOnlySpan<byte> " + tableName + " => // " + str.Length + "\n        [\n");
             file.Write("            0x{0:x2}", str[0]);
             for (var i = 1; i < str.Length; i++)
             {
                 file.Write(i % 16 == 0 ? ",\n            " : ", ");
                 file.Write("0x{0:x2}", str[i]);
             }
-            file.Write("\n        };\n");
+            file.Write("\n        ];\n");
         }
 
         private static void PrintAssertTableLevelsBitCountRoutine(string tableName, StreamWriter file, TableLevels expectedLevels)

@@ -18,13 +18,15 @@ namespace BinderTracingTests
     class BinderTestAttribute : Attribute
     {
         public bool Isolate { get; private set; }
+        public string ActiveIssue { get; private set; }
         public string TestSetup { get; private set; }
         public string[] AdditionalLoadsToTrack { get; private set; }
-        public BinderTestAttribute(bool isolate = false, string testSetup = null, string[] additionalLoadsToTrack = null)
+        public BinderTestAttribute(bool isolate = false, string testSetup = null, string[] additionalLoadsToTrack = null, string activeIssue = null)
         {
             Isolate = isolate;
             TestSetup = testSetup;
             AdditionalLoadsToTrack = additionalLoadsToTrack;
+            ActiveIssue = activeIssue;
         }
     }
 
@@ -75,15 +77,14 @@ namespace BinderTracingTests
         {
             MethodInfo[] methods = typeof(BinderTracingTest)
                 .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .Where(m => m.GetCustomAttribute<BinderTestAttribute>() != null && m.ReturnType == typeof(BindOperation))
+                .Where(m => m.GetCustomAttribute<BinderTestAttribute>() != null &&
+                    m.ReturnType == typeof(BindOperation) &&
+                    m.GetCustomAttribute<BinderTestAttribute>().ActiveIssue == null)
                 .ToArray();
 
             foreach (var method in methods)
             {
                 BinderTestAttribute attribute = method.GetCustomAttribute<BinderTestAttribute>();
-                if (attribute.Isolate && Environment.GetEnvironmentVariable("COMPlus_GCStress") != null)
-                    continue;
-
                 bool success = attribute.Isolate
                     ? RunTestInSeparateProcess(method)
                     : RunSingleTest(method);
@@ -110,7 +111,10 @@ namespace BinderTracingTests
                     // Run specific test - first argument should be the test method name
                     MethodInfo method = typeof(BinderTracingTest)
                         .GetMethod(args[0], BindingFlags.Public | BindingFlags.Static);
-                    Assert.True(method != null && method.GetCustomAttribute<BinderTestAttribute>() != null && method.ReturnType == typeof(BindOperation));
+                    Assert.True(method != null &&
+                        method.GetCustomAttribute<BinderTestAttribute>() != null &&
+                        method.ReturnType == typeof(BindOperation) &&
+                        method.GetCustomAttribute<BinderTestAttribute>().ActiveIssue == null);
                     success = RunSingleTest(method);
                 }
             }
@@ -168,6 +172,7 @@ namespace BinderTracingTests
                 Func<BindOperation> func = (Func<BindOperation>)method.CreateDelegate(typeof(Func<BindOperation>));
                 using (var listener = new BinderEventListener(loadsToTrack))
                 {
+                    Console.WriteLine($"[{DateTime.Now:T}] Invoking {method.Name}...");
                     BindOperation expected = func();
                     ValidateSingleBind(listener, expected.AssemblyName, expected);
                 }
@@ -178,15 +183,15 @@ namespace BinderTracingTests
                 return false;
             }
 
+            Console.WriteLine($"Test {method.Name} finished.");
             return true;
         }
 
         private static bool RunTestInSeparateProcess(MethodInfo method)
         {
-            var startInfo = new ProcessStartInfo()
+            string subprocessName = Process.GetCurrentProcess().MainModule.FileName;
+            var startInfo = new ProcessStartInfo(subprocessName, new[] { Assembly.GetExecutingAssembly().Location, method.Name })
             {
-                FileName = Process.GetCurrentProcess().MainModule.FileName,
-                Arguments = $"{Assembly.GetExecutingAssembly().Location} {method.Name}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
@@ -195,6 +200,7 @@ namespace BinderTracingTests
             Console.WriteLine($"[{DateTime.Now:T}] Launching process for {method.Name}...");
             using (Process p = Process.Start(startInfo))
             {
+                Console.WriteLine($"Started subprocess '{subprocessName}' with PID {p.Id} for {method.Name}...");
                 p.OutputDataReceived += (_, args) => Console.WriteLine(args.Data);
                 p.BeginOutputReadLine();
 
@@ -208,6 +214,7 @@ namespace BinderTracingTests
 
         private static void ValidateSingleBind(BinderEventListener listener, AssemblyName assemblyName, BindOperation expected)
         {
+            Console.WriteLine($"[{DateTime.Now:T}] Validating bind operation for {assemblyName}...");
             BindOperation[] binds = listener.WaitAndGetEventsForAssembly(assemblyName);
             Assert.True(binds.Length == 1, $"Bind event count for {assemblyName} - expected: 1, actual: {binds.Length}");
             BindOperation actual = binds[0];

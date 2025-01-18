@@ -3,7 +3,9 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.Json.Serialization.Tests.Schemas.OrderPayload;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -12,16 +14,16 @@ namespace System.Text.Json.Serialization.Tests
     public partial class StreamTests
     {
         [Fact]
-        public static async Task WriteNullArgumentFail()
+        public async Task WriteNullArgumentFail()
         {
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await JsonSerializer.SerializeAsync((Stream)null, 1));
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await JsonSerializer.SerializeAsync((Stream)null, 1, typeof(int)));
-            Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize((Stream)null));
+            Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize((Stream)null, 1));
             Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize((Stream)null, 1, typeof(int)));
         }
 
         [Fact]
-        public static async Task VerifyValueFail()
+        public async Task VerifyValueFail()
         {
             MemoryStream stream = new MemoryStream();
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await JsonSerializer.SerializeAsync(stream, "", (Type)null));
@@ -29,7 +31,7 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact]
-        public static async Task VerifyTypeFail()
+        public async Task VerifyTypeFail()
         {
             MemoryStream stream = new MemoryStream();
             await Assert.ThrowsAsync<ArgumentException>(async () => await JsonSerializer.SerializeAsync(stream, 1, typeof(string)));
@@ -127,7 +129,14 @@ namespace System.Text.Json.Serialization.Tests
             Assert.Equal(551_368, stream.TestWriteBytesCount);
 
             // We should have more than one write called due to the large byte count.
-            Assert.InRange(stream.TestWriteCount, 1, int.MaxValue);
+            if (Serializer.IsAsyncSerializer)
+            {
+                Assert.InRange(stream.TestAsyncWriteCount, 1, int.MaxValue);
+            }
+            else
+            {
+                Assert.InRange(stream.TestWriteCount, 1, int.MaxValue);
+            }
 
             // We don't auto-flush.
             Assert.Equal(0, stream.TestFlushCount);
@@ -289,7 +298,7 @@ namespace System.Text.Json.Serialization.Tests
         [InlineData(1000, false, false)]
         public async Task VeryLargeJsonFileTest(int payloadSize, bool ignoreNull, bool writeIndented)
         {
-            List<Order> list = JsonTestHelper.PopulateLargeObject(payloadSize);
+            List<Order> list = Order.PopulateLargeObject(payloadSize);
 
             JsonSerializerOptions options = new JsonSerializerOptions
             {
@@ -337,10 +346,10 @@ namespace System.Text.Json.Serialization.Tests
 
             int length = ListLength * depthFactor;
             List<Order>[] orders = new List<Order>[length];
-            orders[0] = JsonTestHelper.PopulateLargeObject(1);
+            orders[0] = Order.PopulateLargeObject(1);
             for (int i = 1; i < length; i++ )
             {
-                orders[i] = JsonTestHelper.PopulateLargeObject(1);
+                orders[i] = Order.PopulateLargeObject(1);
                 orders[i - 1][0].RelatedOrder = orders[i];
             }
 
@@ -381,10 +390,10 @@ namespace System.Text.Json.Serialization.Tests
 
             int length = ListLength * depthFactor;
             List<Order>[] orders = new List<Order>[length];
-            orders[0] = JsonTestHelper.PopulateLargeObject(1000);
+            orders[0] = Order.PopulateLargeObject(1000);
             for (int i = 1; i < length; i++)
             {
-                orders[i] = JsonTestHelper.PopulateLargeObject(1);
+                orders[i] = Order.PopulateLargeObject(1);
                 orders[i - 1][0].RelatedOrder = orders[i];
             }
 
@@ -404,6 +413,239 @@ namespace System.Text.Json.Serialization.Tests
             using (var memoryStream = new MemoryStream())
             {
                 await Assert.ThrowsAsync<JsonException>(async () => await Serializer.SerializeWrapper(memoryStream, orders[0], options));
+            }
+        }
+
+        [Fact]
+        public void NestedSerializeCallsFlushAtThreshold()
+        {
+            var data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            var options = new JsonSerializerOptions { DefaultBufferSize = 512 };
+            options.Converters.Add(new MyStringConverter());
+
+            using var stream = new TestStream(1);
+            JsonSerializer.Serialize(stream, CreateManyTestObjects(), options);
+
+            // Flush should happen every ~460 bytes (+36 for writing data when just below threshold)
+            // Assuming a "perfect" array pool implementation, the number of write calls should be closer to (data.Length * 10_000 / (512 * .9))
+            // But because the array pool may give a larger buffer than 512, we need to be a little more permissive when checking how many writes occur
+            Assert.InRange(stream.TestWriteCount, data.Length * 10_000 / 5000, data.Length * 10_000 / 200);
+
+            IEnumerable<string> CreateManyTestObjects()
+            {
+                int i = 0;
+                while (++i < 10_000)
+                {
+                    yield return data;
+                }
+            }
+        }
+
+        [Fact]
+        public void SerializeCallsFlushAtThreshold()
+        {
+            var data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            var options = new JsonSerializerOptions { DefaultBufferSize = 512 };
+
+            using var stream = new TestStream(1);
+            JsonSerializer.Serialize(stream, CreateManyTestObjects(), options);
+
+            // Flush should happen every ~460 bytes (+36 for writing data when just below threshold)
+            // Assuming a "perfect" array pool implementation, the number of write calls should be closer to (data.Length * 10_000 / (512 * .9))
+            // But because the array pool may give a larger buffer than 512, we need to be a little more permissive when checking how many writes occur
+            Assert.InRange(stream.TestWriteCount, data.Length * 10_000 / 5000, data.Length * 10_000 / 200);
+
+            IEnumerable<string> CreateManyTestObjects()
+            {
+                int i = 0;
+                while (++i < 10_000)
+                {
+                    yield return data;
+                }
+            }
+        }
+
+        [Fact]
+        public async Task NestedSerializeAsyncCallsFlushAtThreshold()
+        {
+            var data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            var options = new JsonSerializerOptions { DefaultBufferSize = 512 };
+            options.Converters.Add(new MyStringConverter());
+
+            using var stream = new TestStream(1);
+            await JsonSerializer.SerializeAsync(stream, CreateManyTestObjects(), options);
+
+            // Flush should happen every ~460 bytes (+36 for writing data when just below threshold)
+            // Assuming a "perfect" array pool implementation, the number of write calls should be closer to (data.Length * 10_000 / (512 * .9))
+            // But because the array pool may give a larger buffer than 512, we need to be a little more permissive when checking how many writes occur
+            Assert.InRange(stream.TestAsyncWriteCount, data.Length * 10_000 / 5000, data.Length * 10_000 / 200);
+
+            IEnumerable<string> CreateManyTestObjects()
+            {
+                int i = 0;
+                while (++i < 10_000)
+                {
+                    yield return data;
+                }
+            }
+        }
+
+        [Fact]
+        public async Task SerializeAsyncCallsFlushAtThreshold()
+        {
+            var data = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            var options = new JsonSerializerOptions { DefaultBufferSize = 512 };
+
+            using var stream = new TestStream(1);
+            await JsonSerializer.SerializeAsync(stream, CreateManyTestObjects(), options);
+
+            // Flush should happen every ~460 bytes (+36 for writing data when just below threshold)
+            // Assuming a "perfect" array pool implementation, the number of write calls should be closer to (data.Length * 10_000 / (512 * .9))
+            // But because the array pool may give a larger buffer than 512, we need to be a little more permissive when checking how many writes occur
+            Assert.InRange(stream.TestAsyncWriteCount, data.Length * 10_000 / 5000, data.Length * 10_000 / 200);
+
+            IEnumerable<string> CreateManyTestObjects()
+            {
+                int i = 0;
+                while (++i < 10_000)
+                {
+                    yield return data;
+                }
+            }
+        }
+
+        class MyStringConverter : JsonConverter<string>
+        {
+            public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+                throw new NotImplementedException();
+
+            public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+            {
+                JsonSerializer.Serialize(writer, value);
+            }
+        }
+
+        [Theory]
+        [InlineData(32)]
+        [InlineData(128)]
+        [InlineData(1024)]
+        [InlineData(1024 * 16)] // the default JsonSerializerOptions.DefaultBufferSize value
+        [InlineData(1024 * 1024)]
+        public async Task ShouldUseFastPathOnSmallPayloads(int defaultBufferSize)
+        {
+            if (Serializer.ForceSmallBufferInOptions)
+            {
+                return;
+            }
+
+            var instrumentedResolver = new PocoWithInstrumentedFastPath.Context(
+                new JsonSerializerOptions
+                {
+                    DefaultBufferSize = defaultBufferSize,
+                });
+
+            // The current implementation uses a heuristic
+            int smallValueThreshold = defaultBufferSize / 2;
+            PocoWithInstrumentedFastPath smallValue = CreateValueWithSerializationSize(smallValueThreshold);
+
+            var stream = new MemoryStream();
+
+            // The first 10 serializations should not call into the fast path
+            for (int i = 0; i < 10; i++)
+            {
+                await Serializer.SerializeWrapper(stream, smallValue, instrumentedResolver.Options);
+                stream.Position = 0;
+                Assert.Equal(0, instrumentedResolver.FastPathInvocationCount);
+            }
+
+            // Subsequent iterations do call into the fast path
+            for (int i = 0; i < 10; i++)
+            {
+                await Serializer.SerializeWrapper(stream, smallValue, instrumentedResolver.Options);
+                stream.Position = 0;
+                Assert.Equal(i + 1, instrumentedResolver.FastPathInvocationCount);
+            }
+
+            // Polymorphic serialization should use the fast path
+            await Serializer.SerializeWrapper(stream, (object)smallValue, instrumentedResolver.Options);
+            stream.Position = 0;
+            Assert.Equal(11, instrumentedResolver.FastPathInvocationCount);
+
+            // Attempt to serialize a value that is deemed large
+            var largeValue = CreateValueWithSerializationSize(smallValueThreshold + 1);
+            await Serializer.SerializeWrapper(stream, largeValue, instrumentedResolver.Options);
+            stream.Position = 0;
+            Assert.Equal(12, instrumentedResolver.FastPathInvocationCount);
+
+            // Any subsequent attempts no longer call into the fast path
+            for (int i = 0; i < 10; i++)
+            {
+                await Serializer.SerializeWrapper(stream, smallValue, instrumentedResolver.Options);
+                stream.Position = 0;
+                Assert.Equal(12, instrumentedResolver.FastPathInvocationCount);
+            }
+
+            static PocoWithInstrumentedFastPath CreateValueWithSerializationSize(int targetSerializationSize)
+            {
+                int objectSerializationPaddingSize = """{"Value":""}""".Length; // 12
+                return new PocoWithInstrumentedFastPath { Value = new string('a', targetSerializationSize - objectSerializationPaddingSize) };
+            }
+        }
+
+        public class PocoWithInstrumentedFastPath
+        {
+            public string? Value { get; set; }
+
+            public class Context : JsonSerializerContext, IJsonTypeInfoResolver
+            {
+                public int FastPathInvocationCount { get; private set; }
+
+                public Context(JsonSerializerOptions options) : base(options)
+                { }
+
+                protected override JsonSerializerOptions? GeneratedSerializerOptions => Options;
+                public override JsonTypeInfo? GetTypeInfo(Type type) => GetTypeInfo(type, Options);
+
+                public JsonTypeInfo? GetTypeInfo(Type type, JsonSerializerOptions options)
+                {
+                    if (type == typeof(string))
+                    {
+                        return JsonMetadataServices.CreateValueInfo<string>(options, JsonMetadataServices.StringConverter);
+                    }
+
+                    if (type == typeof(object))
+                    {
+                        return JsonMetadataServices.CreateValueInfo<object>(options, JsonMetadataServices.ObjectConverter);
+                    }
+
+                    if (type == typeof(PocoWithInstrumentedFastPath))
+                    {
+                        return JsonMetadataServices.CreateObjectInfo<PocoWithInstrumentedFastPath>(options,
+                            new JsonObjectInfoValues<PocoWithInstrumentedFastPath>
+                            {
+                                PropertyMetadataInitializer = _ => new JsonPropertyInfo[1]
+                                {
+                                    JsonMetadataServices.CreatePropertyInfo<string>(options,
+                                        new JsonPropertyInfoValues<string>
+                                        {
+                                            DeclaringType = typeof(PocoWithInstrumentedFastPath),
+                                            PropertyName = "Value",
+                                            Getter = obj => ((PocoWithInstrumentedFastPath)obj).Value,
+                                        })
+                                },
+
+                                SerializeHandler = (writer, value) =>
+                                {
+                                    writer.WriteStartObject();
+                                    writer.WriteString("Value", value.Value);
+                                    writer.WriteEndObject();
+                                    FastPathInvocationCount++;
+                                }
+                            });
+                    }
+
+                    return null;
+                }
             }
         }
 
@@ -477,6 +719,7 @@ namespace System.Text.Json.Serialization.Tests
         public int TestFlushCount { get; private set; }
 
         public int TestWriteCount { get; private set; }
+        public int TestAsyncWriteCount { get; private set; }
         public int TestWriteBytesCount { get; private set; }
         public int TestReadCount { get; private set; }
         public int TestRequestedReadBytesCount { get; private set; }
@@ -501,6 +744,13 @@ namespace System.Text.Json.Serialization.Tests
             TestReadCount++;
             TestRequestedReadBytesCount += count;
             return _stream.Read(buffer, offset, count);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            TestAsyncWriteCount++;
+            TestWriteBytesCount += (count - offset);
+            return _stream.WriteAsync(buffer, offset, count, cancellationToken);
         }
 
         public override long Seek(long offset, SeekOrigin origin) => _stream.Seek(offset, origin);

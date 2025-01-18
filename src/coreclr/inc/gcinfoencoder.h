@@ -21,7 +21,7 @@
  Fat Header for other cases:
     - EncodingType[Fat]
     - Flag:     isVarArg,
-                hasSecurityObject,
+                unused (was hasSecurityObject),
                 hasGSCookie,
                 hasPSPSymStackSlot,
                 hasGenericsInstContextStackSlot,
@@ -32,7 +32,7 @@
                 hasReversePInvokeFrame,
     - ReturnKind (Fat: 4 bits)
     - CodeLength
-    - Prolog (if hasSecurityObject || hasGenericsInstContextStackSlot || hasGSCookie)
+    - Prolog (if hasGenericsInstContextStackSlot || hasGSCookie)
     - Epilog (if hasGSCookie)
     - SecurityObjectStackSlot (if any)
     - GSCookieStackSlot (if any)
@@ -118,7 +118,7 @@ struct GcInfoSize
     size_t NumUntracked;
     size_t NumTransitions;
     size_t SizeOfCode;
-    size_t EncPreservedSlots;
+    size_t EncInfoSize;
 
     size_t UntrackedSlotSize;
     size_t NumUntrackedSize;
@@ -285,7 +285,7 @@ private:
     // Writes bits knowing that they will all fit in the current memory slot
     inline void WriteInCurrentSlot( size_t data, UINT32 count )
     {
-        data &= SAFE_SHIFT_LEFT(1, count) - 1;
+        data &= ((size_t)-1 >> (BITS_PER_SIZE_T - count));
         data <<= (BITS_PER_SIZE_T - m_FreeBitsInCurrentSlot);
         *m_pCurrentSlot |= data;
     }
@@ -409,18 +409,10 @@ public:
                                     GcSlotState slotState
                                     );
 
-
-    //------------------------------------------------------------------------
-    // ReturnKind
-    //------------------------------------------------------------------------
-
-    void SetReturnKind(ReturnKind returnKind);
-
     //------------------------------------------------------------------------
     // Miscellaneous method information
     //------------------------------------------------------------------------
 
-    void SetSecurityObjectStackSlot( INT32 spOffset );
     void SetPrologSize( UINT32 prologSize );
     void SetGSCookieStackSlot( INT32 spOffsetGSCookie, UINT32 validRangeStart, UINT32 validRangeEnd );
     void SetPSPSymStackSlot( INT32 spOffsetPSPSym );
@@ -434,13 +426,16 @@ public:
 
     // Number of slots preserved during EnC remap
     void SetSizeOfEditAndContinuePreservedArea( UINT32 size );
+#ifdef TARGET_ARM64
+    void SetSizeOfEditAndContinueFixedStackFrame( UINT32 size );
+#endif
 
 #ifdef TARGET_AMD64
     // Used to only report a frame once for the leaf function/funclet
     // instead of once for each live function/funclet on the stack.
     // Called only by RyuJIT (not JIT64)
     void SetWantsReportOnlyLeaf();
-#elif defined(TARGET_ARM) || defined(TARGET_ARM64) || defined(TARGET_LOONGARCH64)
+#elif defined(TARGET_ARM) || defined(TARGET_ARM64) || defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
     void SetHasTailCalls();
 #endif // TARGET_AMD64
 
@@ -466,6 +461,12 @@ public:
     //
     BYTE* Emit();
 
+    //
+    // Return the size in bytes of the constructed GC info. This is the size passed
+    // to the VM via `allocGCInfo`. It is only valid after `Emit` is called.
+    //
+    size_t GetEncodedGCInfoSize() const;
+
 private:
 
     friend struct CompareLifetimeTransitionsByOffsetThenSlot;
@@ -483,10 +484,6 @@ private:
     IAllocator*                 m_pAllocator;
     NoMemoryFunction            m_pNoMem;
 
-#ifdef _DEBUG
-    const char *m_MethodName, *m_ModuleName;
-#endif
-
     BitStreamWriter     m_Info1;    // Used for everything except for chunk encodings
     BitStreamWriter     m_Info2;    // Used for chunk encodings
 
@@ -496,20 +493,21 @@ private:
     bool   m_IsVarArg;
 #if defined(TARGET_AMD64)
     bool   m_WantsReportOnlyLeaf;
-#elif defined(TARGET_ARM) || defined(TARGET_ARM64) || defined(TARGET_LOONGARCH64)
+#elif defined(TARGET_ARM) || defined(TARGET_ARM64) || defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
     bool   m_HasTailCalls;
 #endif // TARGET_AMD64
-    INT32  m_SecurityObjectStackSlot;
     INT32  m_GSCookieStackSlot;
     UINT32 m_GSCookieValidRangeStart;
     UINT32 m_GSCookieValidRangeEnd;
     INT32  m_PSPSymStackSlot;
     INT32  m_GenericsInstContextStackSlot;
     GENERIC_CONTEXTPARAM_TYPE m_contextParamType;
-    ReturnKind m_ReturnKind;
     UINT32 m_CodeLength;
     UINT32 m_StackBaseRegister;
     UINT32 m_SizeOfEditAndContinuePreservedArea;
+#ifdef TARGET_ARM64
+    UINT32 m_SizeOfEditAndContinueFixedStackFrame;
+#endif
     INT32  m_ReversePInvokeFrameSlot;
     InterruptibleRange* m_pLastInterruptibleRange;
 
@@ -534,6 +532,8 @@ private:
     UINT32 m_NumCallSites;
 #endif // PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
 
+    size_t m_BlockSize; // The byte size passed to the `allocGCInfo` call
+
     void GrowSlotTable();
 
     void WriteSlotStateVector(BitStreamWriter &writer, const BitArray& vector);
@@ -542,7 +542,9 @@ private:
     void SizeofSlotStateVarLengthVector(const BitArray& vector, UINT32 baseSkip, UINT32 baseRun, UINT32 * pSizeofSimple, UINT32 * pSizeofRLE, UINT32 * pSizeofRLENeg);
     UINT32 WriteSlotStateVarLengthVector(BitStreamWriter &writer, const BitArray& vector, UINT32 baseSkip, UINT32 baseRun);
 
-    bool IsAlwaysScratch(GcSlotDesc &slot);
+#ifdef PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
+    bool DoNotTrackInPartiallyInterruptible(GcSlotDesc &slot);
+#endif // PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
 
     // Assumes that "*ppTransitions" is has size "numTransitions", is sorted by CodeOffset then by SlotId,
     // and that "*ppEndTransitions" points one beyond the end of the array.  If "*ppTransitions" contains

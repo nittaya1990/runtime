@@ -2,10 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-internal class test
+namespace Test_i4flat_cs
 {
-    public static int Main()
+public class test
+{
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         int x;
         int y;
@@ -1120,4 +1125,5 @@ internal class test
         else
             return 1;
     }
+}
 }

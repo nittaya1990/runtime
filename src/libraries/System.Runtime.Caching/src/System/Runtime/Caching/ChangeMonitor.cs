@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.Caching.Resources;
-using System.Diagnostics.CodeAnalysis;
-using System.Threading;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.Caching.Resources;
+using System.Threading;
 
 // Every member of this class is thread-safe.
 //
@@ -219,8 +219,13 @@ namespace System.Runtime.Caching
         // on subsequent calls.  The OnChangedCallback is guaranteed to be called exactly once.
         // It will be called when the dependency changes, or if it has already changed, it will
         // be called immediately (on the same thread??).
-        public void NotifyOnChanged(OnChangedCallback onChangedCallback!!)
+        public void NotifyOnChanged(OnChangedCallback onChangedCallback)
         {
+            if (onChangedCallback is null)
+            {
+                throw new ArgumentNullException(nameof(onChangedCallback));
+            }
+
             if (Interlocked.CompareExchange(ref _onChangedCallback, onChangedCallback, null) != null)
             {
                 throw new InvalidOperationException(SR.Method_already_invoked);

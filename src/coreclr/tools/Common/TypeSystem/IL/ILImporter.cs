@@ -2,13 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-
+using System.Buffers.Binary;
 using Internal.TypeSystem;
-using Internal.IL;
 
 namespace Internal.IL
 {
-    internal partial class ILImporter
+    internal sealed partial class ILImporter
     {
         private BasicBlock[] _basicBlocks; // Maps IL offset to basic block
 
@@ -23,30 +22,28 @@ namespace Internal.IL
 
         private byte ReadILByte()
         {
-            if (_currentOffset >= _ilBytes.Length)
+            if (_currentOffset + 1 > _ilBytes.Length)
                 ReportMethodEndInsideInstruction();
 
             return _ilBytes[_currentOffset++];
         }
 
-        private UInt16 ReadILUInt16()
+        private ushort ReadILUInt16()
         {
-            if (_currentOffset + 1 >= _ilBytes.Length)
+            if (!BinaryPrimitives.TryReadUInt16LittleEndian(_ilBytes.AsSpan(_currentOffset), out ushort value))
                 ReportMethodEndInsideInstruction();
 
-            UInt16 val = (UInt16)(_ilBytes[_currentOffset] + (_ilBytes[_currentOffset + 1] << 8));
-            _currentOffset += 2;
-            return val;
+            _currentOffset += sizeof(ushort);
+            return value;
         }
 
-        private UInt32 ReadILUInt32()
+        private uint ReadILUInt32()
         {
-            if (_currentOffset + 3 >= _ilBytes.Length)
+            if (!BinaryPrimitives.TryReadUInt32LittleEndian(_ilBytes.AsSpan(_currentOffset), out uint value))
                 ReportMethodEndInsideInstruction();
 
-            UInt32 val = (UInt32)(_ilBytes[_currentOffset] + (_ilBytes[_currentOffset + 1] << 8) + (_ilBytes[_currentOffset + 2] << 16) + (_ilBytes[_currentOffset + 3] << 24));
-            _currentOffset += 4;
-            return val;
+            _currentOffset += sizeof(uint);
+            return value;
         }
 
         private int ReadILToken()
@@ -56,8 +53,10 @@ namespace Internal.IL
 
         private ulong ReadILUInt64()
         {
-            ulong value = ReadILUInt32();
-            value |= (((ulong)ReadILUInt32()) << 32);
+            if (!BinaryPrimitives.TryReadUInt64LittleEndian(_ilBytes.AsSpan(_currentOffset), out ulong value))
+                ReportMethodEndInsideInstruction();
+
+            _currentOffset += sizeof(ulong);
             return value;
         }
 
@@ -117,8 +116,9 @@ namespace Internal.IL
                 MarkInstructionBoundary();
 
                 ILOpcode opCode = (ILOpcode)ReadILByte();
+                if (opCode == ILOpcode.prefix1)
+                    opCode = (ILOpcode)(0x100 + ReadILByte());
 
-            again:
                 switch (opCode)
                 {
                     case ILOpcode.ldarg_s:
@@ -182,19 +182,13 @@ namespace Internal.IL
                     case ILOpcode.sizeof_:
                         SkipIL(4);
                         break;
-                    case ILOpcode.prefix1:
-                        opCode = (ILOpcode)(0x100 + ReadILByte());
-                        goto again;
                     case ILOpcode.br_s:
                     case ILOpcode.leave_s:
                         {
                             int delta = (sbyte)ReadILByte();
                             int target = _currentOffset + delta;
                             if ((uint)target < (uint)_basicBlocks.Length)
-                            {
                                 CreateBasicBlock(target);
-                                OnLeaveTargetCreated(target);
-                            }
                             else
                                 ReportInvalidBranchTarget(target);
                         }
@@ -227,10 +221,7 @@ namespace Internal.IL
                             int delta = (int)ReadILUInt32();
                             int target = _currentOffset + delta;
                             if ((uint)target < (uint)_basicBlocks.Length)
-                            {
                                 CreateBasicBlock(target);
-                                OnLeaveTargetCreated(target);
-                            }
                             else
                                 ReportInvalidBranchTarget(target);
                         }
@@ -279,8 +270,6 @@ namespace Internal.IL
             }
         }
 
-        partial void OnLeaveTargetCreated(int target);
-
         private void FindEHTargets()
         {
             for (int i = 0; i < _exceptionRegions.Length; i++)
@@ -315,15 +304,22 @@ namespace Internal.IL
 
         private void MarkBasicBlock(BasicBlock basicBlock)
         {
+            MarkBasicBlock(basicBlock, ref _pendingBasicBlocks);
+        }
+
+        private static void MarkBasicBlock(BasicBlock basicBlock, ref BasicBlock list)
+        {
             if (basicBlock.State == BasicBlock.ImportState.Unmarked)
             {
                 // Link
-                basicBlock.Next = _pendingBasicBlocks;
-                _pendingBasicBlocks = basicBlock;
+                basicBlock.Next = list;
+                list = basicBlock;
 
                 basicBlock.State = BasicBlock.ImportState.IsPending;
             }
         }
+
+        partial void StartImportingInstruction(ILOpcode opcode);
 
         private void ImportBasicBlock(BasicBlock basicBlock)
         {
@@ -335,8 +331,11 @@ namespace Internal.IL
                 StartImportingInstruction();
 
                 ILOpcode opCode = (ILOpcode)ReadILByte();
+                if (opCode == ILOpcode.prefix1)
+                    opCode = (ILOpcode)(0x100 + ReadILByte());
 
-            again:
+                StartImportingInstruction(opCode);
+
                 switch (opCode)
                 {
                     case ILOpcode.nop:
@@ -579,7 +578,7 @@ namespace Internal.IL
                         ImportConvert(WellKnownType.Double, false, false);
                         break;
                     case ILOpcode.conv_u4:
-                        ImportConvert(WellKnownType.UInt32, false, false);
+                        ImportConvert(WellKnownType.UInt32, false, true);
                         break;
                     case ILOpcode.conv_u8:
                         ImportConvert(WellKnownType.UInt64, false, true);
@@ -823,11 +822,8 @@ namespace Internal.IL
                         ImportStoreIndirect(WellKnownType.IntPtr);
                         break;
                     case ILOpcode.conv_u:
-                        ImportConvert(WellKnownType.UIntPtr, false, false);
+                        ImportConvert(WellKnownType.UIntPtr, false, true);
                         break;
-                    case ILOpcode.prefix1:
-                        opCode = (ILOpcode)(0x100 + ReadILByte());
-                        goto again;
                     case ILOpcode.arglist:
                         ImportArgList();
                         break;

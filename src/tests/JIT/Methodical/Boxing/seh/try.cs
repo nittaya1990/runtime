@@ -3,9 +3,10 @@
 
 
 using System;
+using Xunit;
 
 
-namespace SinCalc
+namespace SinCalc_try_seh_cs
 {
     internal class MistakeException : Exception
     {
@@ -14,7 +15,7 @@ namespace SinCalc
         override public String ToString() { return "Mistake is " + mistake.ToString(); }
     }
 
-    internal class SinCalc
+    public class SinCalc
     {
         protected static object PI = 3.1415926535897932384626433832795d;
 
@@ -49,7 +50,9 @@ namespace SinCalc
             return Result1;
         }
 
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static void TestEntryPoint()
         {
             object i;
             object Angle;
@@ -91,7 +94,6 @@ namespace SinCalc
                 }
             }
             Console.WriteLine("**** PASSED ****");
-            return 100;
         }
     }
 }

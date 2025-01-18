@@ -5,8 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
+using ILCompiler;
 using Internal.TypeSystem;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.IO;
 
@@ -18,20 +20,25 @@ namespace TypeSystemTests
         RuntimeDetermined,
     }
 
-    class TestTypeSystemContext : MetadataTypeSystemContext
+    internal class TestTypeSystemContext : MetadataTypeSystemContext
     {
-        Dictionary<string, ModuleDesc> _modules = new Dictionary<string, ModuleDesc>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, ModuleDesc> _modules = new Dictionary<string, ModuleDesc>(StringComparer.OrdinalIgnoreCase);
 
-        MetadataFieldLayoutAlgorithm _metadataFieldLayout = new TestMetadataFieldLayoutAlgorithm();
-        MetadataRuntimeInterfacesAlgorithm _metadataRuntimeInterfacesAlgorithm = new MetadataRuntimeInterfacesAlgorithm();
-        ArrayOfTRuntimeInterfacesAlgorithm _arrayOfTRuntimeInterfacesAlgorithm;
-        VirtualMethodAlgorithm _virtualMethodAlgorithm = new MetadataVirtualMethodAlgorithm();
-        
+        private VectorFieldLayoutAlgorithm _vectorFieldLayoutAlgorithm;
+        private Int128FieldLayoutAlgorithm _int128FieldLayoutAlgorithm;
+
+        private MetadataFieldLayoutAlgorithm _metadataFieldLayout = new TestMetadataFieldLayoutAlgorithm();
+        private MetadataRuntimeInterfacesAlgorithm _metadataRuntimeInterfacesAlgorithm = new MetadataRuntimeInterfacesAlgorithm();
+        private ArrayOfTRuntimeInterfacesAlgorithm _arrayOfTRuntimeInterfacesAlgorithm;
+        private VirtualMethodAlgorithm _virtualMethodAlgorithm = new MetadataVirtualMethodAlgorithm();
+
         public CanonicalizationMode CanonMode { get; set; } = CanonicalizationMode.RuntimeDetermined;
 
-        public TestTypeSystemContext(TargetArchitecture arch)
-            : base(new TargetDetails(arch, TargetOS.Unknown, TargetAbi.Unknown))
+        public TestTypeSystemContext(TargetArchitecture arch, TargetOS targetOS = TargetOS.Unknown)
+            : base(new TargetDetails(arch, targetOS, TargetAbi.Unknown))
         {
+            _vectorFieldLayoutAlgorithm = new VectorFieldLayoutAlgorithm(_metadataFieldLayout, true);
+            _int128FieldLayoutAlgorithm = new Int128FieldLayoutAlgorithm(_metadataFieldLayout);
         }
 
         public ModuleDesc GetModuleForSimpleName(string simpleName)
@@ -48,17 +55,14 @@ namespace TypeSystemTests
             string bindingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             string filePath = Path.Combine(bindingDirectory, simpleName + ".dll");
             Stream peStream = preLoadedFile;
-            if (peStream == null)
-            {
-                peStream = File.OpenRead(filePath);
-            }
+            peStream ??= File.OpenRead(filePath);
 
             ModuleDesc module = Internal.TypeSystem.Ecma.EcmaModule.Create(this, new PEReader(peStream), containingAssembly: null);
             _modules.Add(simpleName, module);
             return module;
         }
 
-        public override ModuleDesc ResolveAssembly(System.Reflection.AssemblyName name, bool throwIfNotFound)
+        public override ModuleDesc ResolveAssembly(AssemblyNameInfo name, bool throwIfNotFound)
         {
             return GetModuleForSimpleName(name.Name);
         }
@@ -67,16 +71,21 @@ namespace TypeSystemTests
         {
             if (type == UniversalCanonType)
                 return UniversalCanonLayoutAlgorithm.Instance;
+            else if (VectorFieldLayoutAlgorithm.IsVectorType(type))
+            {
+                return _vectorFieldLayoutAlgorithm;
+            }
+            else if (Int128FieldLayoutAlgorithm.IsIntegerType(type))
+            {
+                return _int128FieldLayoutAlgorithm;
+            }
 
             return _metadataFieldLayout;
         }
 
         protected override RuntimeInterfacesAlgorithm GetRuntimeInterfacesAlgorithmForNonPointerArrayType(ArrayType type)
         {
-            if (_arrayOfTRuntimeInterfacesAlgorithm == null)
-            {
-                _arrayOfTRuntimeInterfacesAlgorithm = new ArrayOfTRuntimeInterfacesAlgorithm(SystemModule.GetType("System", "Array`1"));
-            }
+            _arrayOfTRuntimeInterfacesAlgorithm ??= new ArrayOfTRuntimeInterfacesAlgorithm(SystemModule.GetType("System", "Array`1"));
             return _arrayOfTRuntimeInterfacesAlgorithm;
         }
 
@@ -131,5 +140,8 @@ namespace TypeSystemTests
 
         public override bool SupportsUniversalCanon => true;
         public override bool SupportsCanon => true;
+
+        public override bool SupportsCOMInterop => true;
+        public override bool SupportsTypeEquivalence => true;
     }
 }

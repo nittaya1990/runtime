@@ -1,13 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
 using System.Diagnostics.Tracing;
-#endif
 using Xunit;
-using System;
 
 namespace BasicEventSourceTests
 {
@@ -29,7 +24,6 @@ namespace BasicEventSourceTests
         /// Tests EventSource Traits.
         /// </summary>
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_EventSource_Traits_Contract()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -46,7 +40,6 @@ namespace BasicEventSourceTests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_EventSource_Traits_Dynamic()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");

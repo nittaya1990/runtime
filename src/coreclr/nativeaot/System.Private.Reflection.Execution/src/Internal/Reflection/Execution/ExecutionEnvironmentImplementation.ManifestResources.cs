@@ -2,17 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Reflection;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 
+using Internal.NativeFormat;
+using Internal.Reflection.Core.Execution;
 using Internal.Runtime;
 using Internal.Runtime.Augments;
 using Internal.Runtime.TypeLoader;
-
-using Internal.Reflection.Core.Execution;
-using Internal.NativeFormat;
 
 namespace Internal.Reflection.Execution
 {
@@ -28,7 +27,7 @@ namespace Internal.Reflection.Execution
             {
                 if (resourceName == resourceInfos[i].Name)
                 {
-                    return new ManifestResourceInfo(assembly, resourceName, ResourceLocation.Embedded);
+                    return new ManifestResourceInfo(null, null, ResourceLocation.Embedded | ResourceLocation.ContainedInManifestFile);
                 }
             }
             return null;
@@ -47,9 +46,7 @@ namespace Internal.Reflection.Execution
 
         public sealed override Stream GetManifestResourceStream(Assembly assembly, string name)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-
+            ArgumentNullException.ThrowIfNull(name);
 
             // This was most likely an embedded resource which the toolchain should have embedded
             // into an assembly.
@@ -66,7 +63,7 @@ namespace Internal.Reflection.Execution
             return null;
         }
 
-        private unsafe Stream ReadResourceFromBlob(ResourceInfo resourceInfo)
+        private static unsafe UnmanagedMemoryStream ReadResourceFromBlob(ResourceInfo resourceInfo)
         {
             byte* pBlob;
             uint cbBlob;
@@ -81,9 +78,9 @@ namespace Internal.Reflection.Execution
             return new UnmanagedMemoryStream(pBlob + resourceInfo.Index, resourceInfo.Length);
         }
 
-        private LowLevelList<ResourceInfo> GetExtractedResources(Assembly assembly)
+        private static LowLevelList<ResourceInfo> GetExtractedResources(Assembly assembly)
         {
-            LowLevelDictionary<string, LowLevelList<ResourceInfo>> extractedResourceDictionary = this.ExtractedResourceDictionary;
+            LowLevelDictionary<string, LowLevelList<ResourceInfo>> extractedResourceDictionary = ExtractedResourceDictionary;
             string assemblyName = assembly.GetName().FullName;
             LowLevelList<ResourceInfo> resourceInfos;
             if (!extractedResourceDictionary.TryGetValue(assemblyName, out resourceInfos))
@@ -91,7 +88,7 @@ namespace Internal.Reflection.Execution
             return resourceInfos;
         }
 
-        private LowLevelDictionary<string, LowLevelList<ResourceInfo>> ExtractedResourceDictionary
+        private static LowLevelDictionary<string, LowLevelList<ResourceInfo>> ExtractedResourceDictionary
         {
             get
             {

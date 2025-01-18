@@ -9,6 +9,8 @@
 #include "pal.h"
 #endif // TARGET_UNIX
 
+#include <minipal/guid.h>
+
 #ifdef FEATURE_PERFTRACING
 
 extern "C" UINT64 QCALLTYPE EventPipeInternal_Enable(
@@ -44,7 +46,10 @@ extern "C" UINT64 QCALLTYPE EventPipeInternal_Enable(
             nullptr,
             nullptr,
             nullptr);
-        EventPipeAdapter::StartStreaming(sessionID);
+        if (sessionID != 0)
+        {
+            EventPipeAdapter::StartStreaming(sessionID);
+        }
     }
     END_QCALL;
 
@@ -60,7 +65,7 @@ extern "C" void QCALLTYPE EventPipeInternal_Disable(UINT64 sessionID)
     END_QCALL;
 }
 
-extern "C" bool QCALLTYPE EventPipeInternal_GetSessionInfo(UINT64 sessionID, EventPipeSessionInfo *pSessionInfo)
+extern "C" BOOL QCALLTYPE EventPipeInternal_GetSessionInfo(UINT64 sessionID, EventPipeSessionInfo *pSessionInfo)
 {
     QCALL_CONTRACT;
 
@@ -85,7 +90,8 @@ extern "C" bool QCALLTYPE EventPipeInternal_GetSessionInfo(UINT64 sessionID, Eve
 
 extern "C" INT_PTR QCALLTYPE EventPipeInternal_CreateProvider(
     _In_z_ LPCWSTR providerName,
-    EventPipeCallback pCallbackFunc)
+    EventPipeCallback pCallbackFunc,
+    void* pCallbackContext)
 {
     QCALL_CONTRACT;
 
@@ -93,7 +99,7 @@ extern "C" INT_PTR QCALLTYPE EventPipeInternal_CreateProvider(
 
     BEGIN_QCALL;
 
-    pProvider = EventPipeAdapter::CreateProvider(providerName, pCallbackFunc);
+    pProvider = EventPipeAdapter::CreateProvider(providerName, pCallbackFunc, pCallbackContext);
 
     END_QCALL;
 
@@ -103,7 +109,7 @@ extern "C" INT_PTR QCALLTYPE EventPipeInternal_CreateProvider(
 extern "C" INT_PTR QCALLTYPE EventPipeInternal_DefineEvent(
     INT_PTR provHandle,
     UINT32 eventID,
-    __int64 keywords,
+    int64_t keywords,
     UINT32 eventVersion,
     UINT32 level,
     void *pMetadata,
@@ -115,7 +121,7 @@ extern "C" INT_PTR QCALLTYPE EventPipeInternal_DefineEvent(
 
     BEGIN_QCALL;
 
-    _ASSERTE(provHandle != NULL);
+    _ASSERTE(provHandle != (INT_PTR)NULL);
     EventPipeProvider *pProvider = reinterpret_cast<EventPipeProvider *>(provHandle);
     pEvent = EventPipeAdapter::AddEvent(pProvider, eventID, keywords, eventVersion, (EventPipeEventLevel)level, /* needStack = */ true, (BYTE *)pMetadata, metadataLength);
     _ASSERTE(pEvent != NULL);
@@ -145,7 +151,7 @@ extern "C" void QCALLTYPE EventPipeInternal_DeleteProvider(INT_PTR provHandle)
     QCALL_CONTRACT;
     BEGIN_QCALL;
 
-    if (provHandle != NULL)
+    if (provHandle != 0)
     {
         EventPipeProvider *pProvider = reinterpret_cast<EventPipeProvider *>(provHandle);
         EventPipeAdapter::DeleteProvider(pProvider);
@@ -186,7 +192,7 @@ extern "C" int QCALLTYPE EventPipeInternal_EventActivityIdControl(uint32_t contr
 
         case ActivityControlCode::EVENT_ACTIVITY_CONTROL_CREATE_ID:
 
-            CoCreateGuid(pActivityId);
+            minipal_guid_v4_create(reinterpret_cast<minipal_guid_t*>(pActivityId));
             break;
 
         case ActivityControlCode::EVENT_ACTIVITY_CONTROL_GET_SET_ID:
@@ -199,7 +205,7 @@ extern "C" int QCALLTYPE EventPipeInternal_EventActivityIdControl(uint32_t contr
         case ActivityControlCode::EVENT_ACTIVITY_CONTROL_CREATE_SET_ID:
 
             *pActivityId = *pThread->GetActivityId();
-            CoCreateGuid(&currentActivityId);
+            minipal_guid_v4_create(&currentActivityId);
             pThread->SetActivityId(&currentActivityId);
             break;
 
@@ -222,14 +228,14 @@ extern "C" void QCALLTYPE EventPipeInternal_WriteEventData(
     QCALL_CONTRACT;
     BEGIN_QCALL;
 
-    _ASSERTE(eventHandle != NULL);
+    _ASSERTE(eventHandle != (INT_PTR)NULL);
     EventPipeEvent *pEvent = reinterpret_cast<EventPipeEvent *>(eventHandle);
     EventPipeAdapter::WriteEvent(pEvent, pEventData, eventDataCount, pActivityId, pRelatedActivityId);
 
     END_QCALL;
 }
 
-extern "C" bool QCALLTYPE EventPipeInternal_GetNextEvent(UINT64 sessionID, EventPipeEventInstanceData *pInstance)
+extern "C" BOOL QCALLTYPE EventPipeInternal_GetNextEvent(UINT64 sessionID, EventPipeEventInstanceData *pInstance)
 {
     QCALL_CONTRACT;
 
@@ -255,17 +261,30 @@ extern "C" bool QCALLTYPE EventPipeInternal_GetNextEvent(UINT64 sessionID, Event
     return pNextInstance != NULL;
 }
 
-extern "C" HANDLE QCALLTYPE EventPipeInternal_GetWaitHandle(UINT64 sessionID)
+extern "C" BOOL QCALLTYPE EventPipeInternal_SignalSession(UINT64 sessionID)
 {
     QCALL_CONTRACT;
 
-    HANDLE waitHandle = NULL;
+    bool result = false;
     BEGIN_QCALL;
 
-    waitHandle = EventPipeAdapter::GetWaitHandle(sessionID);
+    result = EventPipeAdapter::SignalSession(sessionID);
 
     END_QCALL;
-    return waitHandle;
+    return result;
+}
+
+extern "C" BOOL QCALLTYPE EventPipeInternal_WaitForSessionSignal(UINT64 sessionID, INT32 timeoutMs)
+{
+    QCALL_CONTRACT;
+
+    bool result = false;
+    BEGIN_QCALL;
+
+    result = EventPipeAdapter::WaitForSessionSignal(sessionID, timeoutMs);
+
+    END_QCALL;
+    return result;
 }
 
 #endif // FEATURE_PERFTRACING

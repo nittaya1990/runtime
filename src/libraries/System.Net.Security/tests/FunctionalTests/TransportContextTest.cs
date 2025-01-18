@@ -35,9 +35,9 @@ namespace System.Net.Security.Tests
 
         private static void CheckTransportContext(TransportContext context)
         {
-            var cbt1 = context.GetChannelBinding(ChannelBindingKind.Endpoint);
-            var cbt2 = context.GetChannelBinding(ChannelBindingKind.Unique);
-            var cbt3 = context.GetChannelBinding(ChannelBindingKind.Unknown);
+            using ChannelBinding cbt1 = context.GetChannelBinding(ChannelBindingKind.Endpoint);
+            using ChannelBinding cbt2 = context.GetChannelBinding(ChannelBindingKind.Unique);
+            using ChannelBinding cbt3 = context.GetChannelBinding(ChannelBindingKind.Unknown);
 
             CheckChannelBinding(ChannelBindingKind.Endpoint, cbt1);
             CheckChannelBinding(ChannelBindingKind.Unique, cbt2);
@@ -45,9 +45,10 @@ namespace System.Net.Security.Tests
 
             Assert.True(cbt1 != null, "ChannelBindingKind.Endpoint token data should be returned.");
 
-            if (OperatingSystem.IsMacOS())
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsAndroid())
             {
-                Assert.True(cbt2 == null, "ChannelBindingKind.Unique token data is not expected on OSX platform.");
+                var platform = OperatingSystem.IsMacOS() ? "macOS" : "Android";
+                Assert.True(cbt2 == null, $"ChannelBindingKind.Unique token data is not expected on {platform}.");
             }
             else
             {

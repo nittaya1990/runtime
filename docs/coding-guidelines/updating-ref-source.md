@@ -2,8 +2,8 @@ This document provides the steps you need to take to update the reference assemb
 
 ## For most assemblies within libraries
 
-1. Implement the API in the source assembly and [build it](../workflow/building/libraries/README.md#building-individual-libraries). Note that when adding new public types, this might fail with a `TypeMustExist` error. The deadlock can be worked around by disabling the `RunApiCompat` property: `dotnet build /p:RunApiCompat=false`.
-2. Run the following command (from the src directory) `dotnet msbuild /t:GenerateReferenceAssemblySource` to update the reference assembly**.
+1. Implement the API in the source assembly and [build it](../workflow/building/libraries/README.md#building-individual-libraries). Note that when adding new public types, this might fail with a `TypeMustExist` error. The deadlock can be worked around by disabling ApiCompat's assembly validation: `dotnet build /p:ApiCompatValidateAssemblies=false`.
+2. Update the reference assembly located in the ref directory using the GenAPI tool. Note GenAPI may generate lots of mismatches (e.g., https://github.com/dotnet/runtime/issues/100843), so manual fixups are often needed. Fully manual edits are discouraged as they cause drift from what the GenAPI tool generates, making subsequent updates less clear and leading to risk in the reference assemblies differing from the runtime assemblies. Run the following command (from the src directory) `dotnet msbuild /t:GenerateReferenceAssemblySource` to run the GenAPI tool**.
 3. Navigate to the ref directory and build the reference assembly.
 4. Add, build, and run tests.
 
@@ -13,7 +13,7 @@ This document provides the steps you need to take to update the reference assemb
 
 These steps can also be applied to some unique assemblies which depend on changes in System.Private.Corelib. (partial facades like System.Memory, for example).
 
-1) Run `dotnet build --no-incremental /t:GenerateReferenceSource` from the System.Runtime/src directory.
+1) Run `dotnet build --no-incremental /t:GenerateReferenceAssemblySource` from the System.Runtime/src directory.
 2) Filter out all unrelated changes and extract the changes you care about (ignore certain attributes being removed). Generally, this step is not required for other reference assemblies.
 
 ## For Full Facade Assemblies implementation assemblies
@@ -21,7 +21,7 @@ These steps can also be applied to some unique assemblies which depend on change
 For implementation assemblies that are "full facades" over another assembly but define types in the reference assembly (ex. System.Runtime.Serialization.Json or System.Xml.XDocument), use the following command to generate the reference source code instead:
 
 ```
-dotnet msbuild /t:GenerateReferenceAssemblySource /p:GenAPIAdditionalParameters=--follow-type-forwards
+dotnet msbuild /t:GenerateReferenceAssemblySource /p:GenAPIFollowTypeForwards=true
 ```
 
 ## For .NETFramework Facade Assemblies

@@ -215,13 +215,15 @@ public:
         unsigned m_bitNum;
 
     public:
-        Iter(Env env, const UINT64& bits) : m_bits(bits), m_bitNum(0)
+        Iter(Env env, const UINT64& bits)
+            : m_bits(bits)
+            , m_bitNum(0)
         {
         }
 
         bool NextElem(unsigned* pElem)
         {
-            // TODO-Throughtput: use BitScanForward64() intrinsic (see short/long implementation).
+            // TODO-Throughput: use BitScanForward64() intrinsic (see short/long implementation).
             if (m_bits)
             {
                 unsigned bitNum = m_bitNum;

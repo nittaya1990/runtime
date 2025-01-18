@@ -8,7 +8,7 @@ namespace Internal.TypeSystem
 {
     public class LockFreeObjectInterner : LockFreeReaderHashtableOfPointers<object, GCHandle>
     {
-        static LockFreeObjectInterner s_interner = new LockFreeObjectInterner();
+        private static readonly LockFreeObjectInterner s_interner = new LockFreeObjectInterner();
         public static GCHandle GetInternedObjectHandle(object obj)
         {
             return s_interner.GetOrCreateValue(obj);
@@ -67,7 +67,7 @@ namespace Internal.TypeSystem
         }
 
         /// <summary>
-        /// Convert an IntPtr into a value for comparisions, or for returning.
+        /// Convert an IntPtr into a value for comparisons, or for returning.
         /// </summary>
         protected override GCHandle ConvertIntPtrToValue(IntPtr pointer)
         {

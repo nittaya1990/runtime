@@ -99,8 +99,14 @@
   <data name="Argument_WriteEncodedValue_OneValueAtATime" xml:space="preserve">
     <value>The input to WriteEncodedValue must represent a single encoded value with no trailing data.</value>
   </data>
+  <data name="ArgumentOutOfRange_NeedNonNegNum" xml:space="preserve">
+    <value>Non-negative number required.</value>
+  </data>
   <data name="AsnWriter_EncodeUnbalancedStack" xml:space="preserve">
     <value>Encode cannot be called while a Sequence, Set-Of, or Octet String is still open.</value>
+  </data>
+  <data name="AsnWriter_ModifyingWhileEncoding" xml:space="preserve">
+    <value>The AsnWriter cannot be written to while performing the Encode callback.</value>
   </data>
   <data name="AsnWriter_PopWrongTag" xml:space="preserve">
     <value>Cannot pop the requested tag as it is not currently in progress.</value>
@@ -140,6 +146,9 @@
   </data>
   <data name="ContentException_NamedBitListValueTooBig" xml:space="preserve">
     <value>The encoded named bit list value is larger than the value size of the '{0}' enum.</value>
+  </data>
+  <data name="ContentException_OidTooBig" xml:space="preserve">
+    <value>The encoded object identifier (OID) exceeds the limits supported by this library. Supported OIDs are limited to 64 arcs and each subidentifier is limited to a 128-bit value.</value>
   </data>
   <data name="ContentException_PrimitiveEncodingRequired" xml:space="preserve">
     <value>The encoded value uses a constructed encoding, which is invalid for '{0}' values.</value>

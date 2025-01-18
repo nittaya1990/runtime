@@ -2,10 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-namespace JitTest
+namespace JitTest_s_addsub_signed_cs
 {
-    internal class Test
+    public class Test
     {
         private static void testNumbers(long a, long b)
         {
@@ -66,7 +67,9 @@ namespace JitTest
                 throw new Exception();
         }
 
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             try
             {

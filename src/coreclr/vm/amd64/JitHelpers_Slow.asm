@@ -1,13 +1,8 @@
 ; Licensed to the .NET Foundation under one or more agreements.
 ; The .NET Foundation licenses this file to you under the MIT license.
 
-; ==++==
-;
-
-;
-; ==--==
 ; ***********************************************************************
-; File: JitHelpers_Slow.asm, see history in jithelp.asm
+; File: JitHelpers_Slow.asm
 ;
 ; Notes: These are ASM routinues which we believe to be cold in normal
 ;        AMD64 scenarios, mainly because they have other versions which
@@ -60,11 +55,6 @@ extern g_pStringClass:QWORD
 extern FramedAllocateString:proc
 extern JIT_NewArr1:proc
 
-extern JIT_GetSharedNonGCStaticBase_Helper:proc
-extern JIT_GetSharedGCStaticBase_Helper:proc
-
-extern JIT_InternalThrow:proc
-
 ifdef _DEBUG
 ; Version for when we're sure to be in the GC, checks whether or not the card
 ; needs to be updated
@@ -86,7 +76,7 @@ ifdef WRITE_BARRIER_CHECK
         ; Check that our adjusted destination is somewhere in the shadow gc
         add     r10, [g_GCShadow]
         cmp     r10, [g_GCShadowEnd]
-        ja      NoShadow
+        jnb     NoShadow
 
         ; Write ref into real GC; see comment below about possibility of AV
         mov     [rcx], rdx
@@ -188,15 +178,15 @@ LEAF_ENTRY JIT_TrialAllocSFastSP, _TEXT
         inc     [g_global_alloc_lock]
         jnz     JIT_NEW
 
-        mov     rax, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr]       ; alloc_ptr
-        mov     r10, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_limit]     ; limit_ptr
+        mov     rax, [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr]       ; alloc_ptr
+        mov     r10, [g_global_alloc_context + OFFSETOF__ee_alloc_context__m_CombinedLimit] ; m_CombinedLimit
 
         add     r8, rax
 
         cmp     r8, r10
         ja      AllocFailed
 
-        mov     qword ptr [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr], r8     ; update the alloc ptr
+        mov     qword ptr [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr], r8 ; update the alloc ptr
         mov     [rax], rcx
         mov     [g_global_alloc_lock], -1
 
@@ -210,34 +200,29 @@ LEAF_END JIT_TrialAllocSFastSP, _TEXT
 ; HCIMPL2(Object*, JIT_Box, CORINFO_CLASS_HANDLE type, void* unboxedData)
 NESTED_ENTRY JIT_BoxFastUP, _TEXT
 
-        mov     rax, [rcx + OFFSETOF__MethodTable__m_pWriteableData]
-
-        ; Check whether the class has not been initialized
-        test    dword ptr [rax + OFFSETOF__MethodTableWriteableData__m_dwFlags], MethodTableWriteableData__enum_flag_Unrestored
-        jnz     JIT_Box
-
-        mov     r8d, [rcx + OFFSET__MethodTable__m_BaseSize]
-
         ; m_BaseSize is guaranteed to be a multiple of 8.
+        mov     r8d, [rcx + OFFSET__MethodTable__m_BaseSize]
 
         inc     [g_global_alloc_lock]
         jnz     JIT_Box
 
-        mov     rax, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr]       ; alloc_ptr
-        mov     r10, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_limit]     ; limit_ptr
+        mov     rax, [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr]       ; alloc_ptr
+        mov     r10, [g_global_alloc_context + OFFSETOF__ee_alloc_context__m_CombinedLimit] ; m_CombinedLimit
 
         add     r8, rax
 
         cmp     r8, r10
         ja      NoAlloc
 
+        test    rdx, rdx
+        je      NullRef
 
-        mov     qword ptr [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr], r8     ; update the alloc ptr
+        mov     qword ptr [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr], r8 ; update the alloc ptr
         mov     [rax], rcx
         mov     [g_global_alloc_lock], -1
 
         ; Check whether the object contains pointers
-        test    dword ptr [rcx + OFFSETOF__MethodTable__m_dwFlags], MethodTable__enum_flag_ContainsPointers
+        test    dword ptr [rcx + OFFSETOF__MethodTable__m_dwFlags], MethodTable__enum_flag_ContainsGCPointers
         jnz     ContainsPointers
 
         ; We have no pointers - emit a simple inline copy loop
@@ -270,6 +255,7 @@ NESTED_ENTRY JIT_BoxFastUP, _TEXT
         ret
 
     NoAlloc:
+    NullRef:
         mov     [g_global_alloc_lock], -1
         jmp     JIT_Box
 NESTED_END JIT_BoxFastUP, _TEXT
@@ -299,15 +285,15 @@ LEAF_ENTRY AllocateStringFastUP, _TEXT
         inc     [g_global_alloc_lock]
         jnz     FramedAllocateString
 
-        mov     rax, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr]       ; alloc_ptr
-        mov     r10, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_limit]     ; limit_ptr
+        mov     rax, [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr]       ; alloc_ptr
+        mov     r10, [g_global_alloc_context + OFFSETOF__ee_alloc_context__m_CombinedLimit] ; m_CombinedLimit
 
         add     r8, rax
 
         cmp     r8, r10
         ja      AllocFailed
 
-        mov     qword ptr [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr], r8     ; update the alloc ptr
+        mov     qword ptr [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr], r8 ; update the alloc ptr
         mov     [rax], r11
         mov     [g_global_alloc_lock], -1
 
@@ -355,8 +341,8 @@ LEAF_ENTRY JIT_NewArr1VC_UP, _TEXT
         inc     [g_global_alloc_lock]
         jnz     JIT_NewArr1
 
-        mov     rax, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr]       ; alloc_ptr
-        mov     r10, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_limit]     ; limit_ptr
+        mov     rax, [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr]       ; alloc_ptr
+        mov     r10, [g_global_alloc_context + OFFSETOF__ee_alloc_context__m_CombinedLimit] ; m_CombinedLimit
 
         add     r8, rax
         jc      AllocFailed
@@ -364,7 +350,7 @@ LEAF_ENTRY JIT_NewArr1VC_UP, _TEXT
         cmp     r8, r10
         ja      AllocFailed
 
-        mov     qword ptr [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr], r8     ; update the alloc ptr
+        mov     qword ptr [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr], r8 ; update the alloc ptr
         mov     [rax], rcx
         mov     [g_global_alloc_lock], -1
 
@@ -408,15 +394,15 @@ LEAF_ENTRY JIT_NewArr1OBJ_UP, _TEXT
         inc     [g_global_alloc_lock]
         jnz     JIT_NewArr1
 
-        mov     rax, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr]       ; alloc_ptr
-        mov     r10, [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_limit]     ; limit_ptr
+        mov     rax, [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr]       ; alloc_ptr
+        mov     r10, [g_global_alloc_context + OFFSETOF__ee_alloc_context__m_CombinedLimit] ; m_CombinedLimit
 
         add     r8, rax
 
         cmp     r8, r10
         ja      AllocFailed
 
-        mov     qword ptr [g_global_alloc_context + OFFSETOF__gc_alloc_context__alloc_ptr], r8     ; update the alloc ptr
+        mov     qword ptr [g_global_alloc_context + OFFSETOF__ee_alloc_context__alloc_ptr], r8 ; update the alloc ptr
         mov     [rax], rcx
         mov     [g_global_alloc_lock], -1
 

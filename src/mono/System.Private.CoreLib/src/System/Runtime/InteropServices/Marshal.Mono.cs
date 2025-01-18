@@ -44,17 +44,12 @@ namespace System.Runtime.InteropServices
         [EditorBrowsable(EditorBrowsableState.Never)]
         public static extern void StructureToPtr(object structure, IntPtr ptr, bool fDeleteOld);
 
-        [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        private static extern bool IsPinnableType(QCallTypeHandle type);
-
         internal static bool IsPinnable(object? obj)
         {
             if (obj == null || obj is string)
                 return true;
             var type = (obj.GetType() as RuntimeType)!;
-            return IsPinnableType(new QCallTypeHandle(ref type));
-            //Type type = obj.GetType ();
-            //return !type.IsValueType || RuntimeTypeHandle.HasReferences (type as RuntimeType);
+            return !RuntimeTypeHandle.HasReferences(type);
         }
 
         private static void PrelinkCore(MethodInfo m)
@@ -68,16 +63,7 @@ namespace System.Runtime.InteropServices
         }
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
-        private static extern void PtrToStructureInternal(IntPtr ptr, object structure, bool allowValueClasses);
-
-        private static void PtrToStructureHelper(IntPtr ptr, object? structure, bool allowValueClasses)
-        {
-            if (structure == null)
-                throw new ArgumentNullException(nameof(structure));
-            if (ptr == IntPtr.Zero)
-                throw new ArgumentNullException(nameof(ptr));
-            PtrToStructureInternal(ptr, structure, allowValueClasses);
-        }
+        private static extern void PtrToStructureHelper(IntPtr ptr, object structure, bool allowValueClasses);
 
         [MethodImpl(MethodImplOptions.InternalCall)]
         private static extern void GetDelegateForFunctionPointerInternal(QCallTypeHandle t, IntPtr ptr, ObjectHandleOnStack res);
@@ -85,11 +71,10 @@ namespace System.Runtime.InteropServices
         [MethodImpl(MethodImplOptions.InternalCall)]
         private static extern IntPtr GetFunctionPointerForDelegateInternal(Delegate d);
 
-        private static Delegate GetDelegateForFunctionPointerInternal(IntPtr ptr, Type t)
+        private static Delegate GetDelegateForFunctionPointerInternal(IntPtr ptr, RuntimeType t)
         {
-            RuntimeType rttype = (RuntimeType)t;
             Delegate? res = null;
-            GetDelegateForFunctionPointerInternal(new QCallTypeHandle(ref rttype), ptr, ObjectHandleOnStack.Create(ref res));
+            GetDelegateForFunctionPointerInternal(new QCallTypeHandle(ref t), ptr, ObjectHandleOnStack.Create(ref res));
             return res!;
         }
 
@@ -99,9 +84,8 @@ namespace System.Runtime.InteropServices
         [MethodImpl(MethodImplOptions.InternalCall)]
         private static extern int SizeOfHelper(QCallTypeHandle t, bool throwIfNotMarshalable);
 
-        private static int SizeOfHelper(Type t, bool throwIfNotMarshalable)
+        private static int SizeOfHelper(RuntimeType rttype, bool throwIfNotMarshalable)
         {
-            RuntimeType rttype = (RuntimeType)t;
             return SizeOfHelper(new QCallTypeHandle(ref rttype), throwIfNotMarshalable);
         }
 
@@ -125,9 +109,17 @@ namespace System.Runtime.InteropServices
 
         private static Dictionary<(Type, string), ICustomMarshaler>? MarshalerInstanceCache;
 
+#pragma warning disable 9080
+        private static unsafe void SetInvokeArgs(ref string cookie, IntPtr *params_byref)
+        {
+            ByReference objRef = ByReference.Create(ref cookie);
+            *(ByReference*)params_byref = objRef;
+        }
+#pragma warning restore 9080
+
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
             Justification = "Implementation detail of MarshalAs.CustomMarshaler")]
-        internal static ICustomMarshaler? GetCustomMarshalerInstance(Type type, string cookie)
+        internal static unsafe ICustomMarshaler? GetCustomMarshalerInstance(Type type, string cookie)
         {
             var key = (type, cookie);
 
@@ -153,19 +145,27 @@ namespace System.Runtime.InteropServices
                 }
                 catch (AmbiguousMatchException)
                 {
-                    throw new ApplicationException($"Custom marshaler '{type.FullName}' implements multiple static GetInstance methods that take a single string parameter.");
+                    throw new ApplicationException(SR.Format(SR.CustomMarshaler_MultipleGetInstanceMethods, type.FullName));
                 }
 
                 if ((getInstanceMethod == null) ||
                     (getInstanceMethod.ReturnType != typeof(ICustomMarshaler)))
                 {
-                    throw new ApplicationException($"Custom marshaler '{type.FullName}' does not implement a static GetInstance method that takes a single string parameter and returns an ICustomMarshaler.");
+                    throw new ApplicationException(SR.Format(SR.CustomMarshaler_NoGetInstanceMethod, type.FullName));
+                }
+
+                if (getInstanceMethod.ContainsGenericParameters)
+                {
+                    throw new System.TypeLoadException(SR.Format(SR.CustomMarshaler_UnassignedGenericParams, type.FullName));
                 }
 
                 Exception? exc;
                 try
                 {
-                    result = (ICustomMarshaler?)getInstanceMethod.InternalInvoke(null, new object[] { cookie }, out exc);
+                    IntPtr byrefStorage = default;
+                    IntPtr *pbyrefStorage = &byrefStorage;
+                    SetInvokeArgs(ref cookie, pbyrefStorage);
+                    result = (ICustomMarshaler?)getInstanceMethod.InternalInvoke(null, pbyrefStorage, out exc);
                 }
                 catch (Exception e)
                 {
@@ -182,7 +182,7 @@ namespace System.Runtime.InteropServices
                 }
 
                 if (result == null)
-                    throw new ApplicationException($"A call to GetInstance() for custom marshaler '{type.FullName}' returned null, which is not allowed.");
+                    throw new ApplicationException(SR.Format(SR.CustomMarshaler_NullReturnForGetInstance, type.FullName));
 
                 lock (cache)
                     cache[key] = result;

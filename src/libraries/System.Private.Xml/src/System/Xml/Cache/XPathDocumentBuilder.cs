@@ -2,16 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Xml;
-using System.Xml.XPath;
 using System.Xml.Schema;
-using System.Diagnostics;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
+using System.Xml.XPath;
 
 namespace MS.Internal.Xml.Cache
 {
@@ -425,8 +425,7 @@ namespace MS.Internal.Xml.Cache
         /// </summary>
         public override void WriteSurrogateCharEntity(char lowChar, char highChar)
         {
-            ReadOnlySpan<char> chars = stackalloc char[] { highChar, lowChar };
-            WriteString(new string(chars), TextBlockType.Text);
+            WriteString(new string([highChar, lowChar]), TextBlockType.Text);
         }
 
         /// <summary>
@@ -600,13 +599,12 @@ namespace MS.Internal.Xml.Cache
                 IDtdAttributeInfo? idAttribute = attrList.LookupIdAttribute();
                 if (idAttribute != null)
                 {
-                    if (_elemIdMap == null)
-                        _elemIdMap = new Hashtable();
+                    _elemIdMap ??= new Hashtable();
 
                     // Id was defined in DTD and DTD doesn't have notion of namespace so we should
                     // use prefix instead of namespace here.  Schema already does this for us.
                     _elemIdMap.Add(new XmlQualifiedName(attrList.LocalName, attrList.Prefix),
-                                       new XmlQualifiedName(idAttribute.LocalName, idAttribute.Prefix));
+                                   new XmlQualifiedName(idAttribute.LocalName, idAttribute.Prefix));
                 }
             }
         }
@@ -617,8 +615,7 @@ namespace MS.Internal.Xml.Cache
         private XPathNodeRef LinkSimilarElements(XPathNode[] pagePrev, int idxPrev, XPathNode[] pageNext, int idxNext)
         {
             // Set link on previous element
-            if (pagePrev != null)
-                pagePrev[idxPrev].SetSimilarElement(_infoTable, pageNext, idxNext);
+            pagePrev?[idxPrev].SetSimilarElement(_infoTable, pageNext, idxNext);
 
             // Add next element to index
             return new XPathNodeRef(pageNext, idxNext);

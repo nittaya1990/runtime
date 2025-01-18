@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Xml;
 
 namespace System.Runtime.Serialization
 {
@@ -36,7 +36,7 @@ namespace System.Runtime.Serialization
 
         public string Name { get; }
 
-        public string? Namespace { get; }
+        public string Namespace { get; }
 
         public IDataNode? Value
         {
@@ -168,7 +168,7 @@ namespace System.Runtime.Serialization
             _clrTypeName = _clrAssemblyName = null;
         }
 
-        internal void AddQualifiedNameAttribute(ElementData element, string elementPrefix, string elementName, string elementNs, string valueName, string? valueNs)
+        internal static void AddQualifiedNameAttribute(ElementData element, string elementPrefix, string elementName, string elementNs, string valueName, string? valueNs)
         {
             string prefix = ExtensionDataReader.GetPrefix(valueNs);
             element.AddAttribute(elementPrefix, elementNs, elementName, prefix + ":" + valueName);

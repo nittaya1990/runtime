@@ -48,7 +48,6 @@ namespace System.Net.WebSockets.Client.Tests
 
         [OuterLoop]
         [ConditionalTheory(nameof(WebSocketsSupported)), MemberData(nameof(EchoServers))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/43751")]
         public async Task Proxy_SetNull_ConnectsSuccessfully(Uri server)
         {
             for (int i = 0; i < 3; i++) // Connect and disconnect multiple times to exercise shared handler on netcoreapp
@@ -144,6 +143,25 @@ namespace System.Net.WebSockets.Client.Tests
         }
 
         [ConditionalFact(nameof(WebSocketsSupported))]
+        [SkipOnPlatform(TestPlatforms.Browser, "KeepAlive not supported on browser")]
+        public static void KeepAliveTimeout_Roundtrips()
+        {
+            var cws = new ClientWebSocket();
+            Assert.True(cws.Options.KeepAliveTimeout == Timeout.InfiniteTimeSpan);
+
+            cws.Options.KeepAliveTimeout = TimeSpan.Zero;
+            Assert.Equal(TimeSpan.Zero, cws.Options.KeepAliveTimeout);
+
+            cws.Options.KeepAliveTimeout = TimeSpan.MaxValue;
+            Assert.Equal(TimeSpan.MaxValue, cws.Options.KeepAliveTimeout);
+
+            cws.Options.KeepAliveTimeout = Timeout.InfiniteTimeSpan;
+            Assert.Equal(Timeout.InfiniteTimeSpan, cws.Options.KeepAliveTimeout);
+
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("value", () => cws.Options.KeepAliveTimeout = TimeSpan.MinValue);
+        }
+
+        [ConditionalFact(nameof(WebSocketsSupported))]
         [SkipOnPlatform(TestPlatforms.Browser, "Certificates not supported on browser")]
         public void RemoteCertificateValidationCallback_Roundtrips()
         {
@@ -236,7 +254,6 @@ namespace System.Net.WebSockets.Client.Tests
         }
 
         [ConditionalTheory(nameof(WebSocketsSupported))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34690", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [InlineData("ws")]
         [InlineData("wss")]
         [SkipOnPlatform(TestPlatforms.Browser, "Credentials not supported on browser")]
@@ -268,7 +285,7 @@ namespace System.Net.WebSockets.Client.Tests
 
                 // Send non-success error code so that SocketsHttpHandler won't retry.
                 await connection.SendResponseAsync(statusCode: HttpStatusCode.Forbidden);
-                connection.Dispose();
+                await connection.DisposeAsync();
             }));
 
             Assert.True(connectionAccepted);

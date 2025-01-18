@@ -78,7 +78,7 @@ m_cbRec(0)
 HRESULT Target_CMiniTableDef::ReadFrom(DataTargetReader & reader)
 {
     HRESULT hr = S_OK;
-    CORDB_ADDRESS pColDefs = NULL;
+    CORDB_ADDRESS pColDefs = 0;
     IfFailRet(reader.ReadPointer(&pColDefs));
     IfFailRet(reader.Read8(&m_cCols));
     IfFailRet(reader.Read8(&m_iKey));
@@ -376,9 +376,9 @@ dbg_m_pLock(0),
 m_fMinimalDelta(FALSE),
 m_rENCRecs(0)
 {
-    memset(&m_pLookUpHashs, 0, TBL_COUNT*sizeof(CORDB_ADDRESS));
+    memset(&m_pLookUpHashes, 0, TBL_COUNT*sizeof(CORDB_ADDRESS));
     memset(&m_pVS, 0, TBL_COUNT*sizeof(CORDB_ADDRESS));
-    memset(&m_bSortable, 0, TBL_COUNT*sizeof(BOOL));
+    memset(&m_bSortable, 0, TBL_COUNT*sizeof(BYTE));
 }
 
 HRESULT Target_CMiniMdRW::ReadFrom(DataTargetReader & reader)
@@ -389,7 +389,7 @@ HRESULT Target_CMiniMdRW::ReadFrom(DataTargetReader & reader)
     IfFailRet(reader.ReadPointer(&m_pMemberRefHash));
     IfFailRet(reader.ReadPointer(&m_pMemberDefHash));
     for (int i = 0; i < TBL_COUNT; i++)
-        IfFailRet(reader.ReadPointer(&m_pLookUpHashs[i]));
+        IfFailRet(reader.ReadPointer(&m_pLookUpHashes[i]));
     IfFailRet(reader.ReadPointer(&m_pNamedItemHash));
     IfFailRet(reader.Read32(&m_maxRid));
     IfFailRet(reader.Read32(&m_limRid));

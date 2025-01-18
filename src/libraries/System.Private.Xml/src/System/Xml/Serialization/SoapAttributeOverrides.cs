@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.ComponentModel;
+using System.IO;
+using System.Reflection;
+using System.Xml.Schema;
+
 namespace System.Xml.Serialization
 {
-    using System.Reflection;
-    using System.Collections;
-    using System.IO;
-    using System.Xml.Schema;
-    using System;
-    using System.ComponentModel;
-
     public class SoapAttributeOverrides
     {
         private readonly Hashtable _types = new Hashtable();

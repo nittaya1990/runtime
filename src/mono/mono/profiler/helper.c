@@ -8,7 +8,9 @@
 
 #include <config.h>
 
+#if !defined (HOST_WASM)
 #include <mono/utils/mono-logger-internals.h>
+#endif
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -30,7 +32,7 @@
 #include "helper.h"
 
 void
-mono_profhelper_close_socket_fd (int fd)
+mono_profhelper_close_socket_fd (SOCKET fd)
 {
 #ifdef HOST_WIN32
 	closesocket (fd);
@@ -40,11 +42,12 @@ mono_profhelper_close_socket_fd (int fd)
 }
 
 void
-mono_profhelper_setup_command_server (int *server_socket, int *command_port, const char* profiler_name)
+mono_profhelper_setup_command_server (SOCKET *server_socket, int *command_port, const char* profiler_name)
 {
+#if !defined (HOST_WASM)
 	*server_socket = socket (PF_INET, SOCK_STREAM, 0);
 
-	if (*server_socket == -1) {
+	if (*server_socket == INVALID_SOCKET) {
 		mono_profiler_printf_err ("Could not create log profiler server socket: %s", g_strerror (errno));
 		exit (1);
 	}
@@ -54,15 +57,15 @@ mono_profhelper_setup_command_server (int *server_socket, int *command_port, con
 	memset (&server_address, 0, sizeof (server_address));
 	server_address.sin_family = AF_INET;
 	server_address.sin_addr.s_addr = INADDR_ANY;
-	server_address.sin_port = htons (*command_port);
+	server_address.sin_port = htons (GINT_TO_UINT16 (*command_port));
 
-	if (bind (*server_socket, (struct sockaddr *) &server_address, sizeof (server_address)) == -1) {
+	if (bind (*server_socket, (struct sockaddr *) &server_address, sizeof (server_address)) == SOCKET_ERROR) {
 		mono_profiler_printf_err ("Could not bind %s profiler server socket on port %d: %s", profiler_name, *command_port, g_strerror (errno));
 		mono_profhelper_close_socket_fd (*server_socket);
 		exit (1);
 	}
 
-	if (listen (*server_socket, 1) == -1) {
+	if (listen (*server_socket, 1) == SOCKET_ERROR) {
 		mono_profiler_printf_err ("Could not listen on %s profiler server socket: %s", profiler_name, g_strerror (errno));
 		mono_profhelper_close_socket_fd (*server_socket);
 		exit (1);
@@ -77,11 +80,13 @@ mono_profhelper_setup_command_server (int *server_socket, int *command_port, con
 	}
 
 	*command_port = ntohs (server_address.sin_port);
+#endif
 }
 
 void
-mono_profhelper_add_to_fd_set (fd_set *set, int fd, int *max_fd)
+mono_profhelper_add_to_fd_set (fd_set *set, SOCKET fd, int *max_fd)
 {
+#if !defined (HOST_WASM)
 	/*
 	 * This should only trigger for the basic FDs (server socket, pipes) at
 	 * startup if for some mysterious reason they're too large. In this case,
@@ -97,6 +102,7 @@ mono_profhelper_add_to_fd_set (fd_set *set, int fd, int *max_fd)
 
 	FD_SET (fd, set);
 
-	if (*max_fd < fd)
-		*max_fd = fd;
+	if (*max_fd < GUINT64_TO_INT(fd))
+		*max_fd = (int)fd;
+#endif
 }

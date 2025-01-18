@@ -15,7 +15,7 @@
 //  * No use of runtime facilities that check whether a GC is in progress, these will deadlock. The big
 //    example we know about so far is making a p/invoke call.
 //  * For the AfterMarkPhase callout special attention must be paid to avoid any action that reads the MethodTable*
-//    from an object header (e.g. casting). At this point the GC may have mark bits set in the the pointer.
+//    from an object header (e.g. casting). At this point the GC may have mark bits set in the pointer.
 //
 
 class MethodTable;
@@ -97,6 +97,6 @@ private:
     static CrstStatic s_sLock;
 
     // Prototypes for the callouts.
-    typedef void (REDHAWK_CALLCONV * GcRestrictedCallbackFunction)(uint32_t uiCondemnedGeneration);
-    typedef CLR_BOOL (REDHAWK_CALLCONV * HandleTableRestrictedCallbackFunction)(Object * pObject);
+    typedef void (* GcRestrictedCallbackFunction)(uint32_t uiCondemnedGeneration);
+    typedef CLR_BOOL (* HandleTableRestrictedCallbackFunction)(Object * pObject);
 };

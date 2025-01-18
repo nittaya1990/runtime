@@ -21,20 +21,36 @@
 #define RESOLVE_STUB_THIRD_WORD 0xb460
 #define LOOKUP_STUB_FIRST_WORD 0xf8df
 
+#define ENUM_CALLEE_SAVED_REGISTERS() \
+    CALLEE_SAVED_REGISTER(R4) \
+    CALLEE_SAVED_REGISTER(R5) \
+    CALLEE_SAVED_REGISTER(R6) \
+    CALLEE_SAVED_REGISTER(R7) \
+    CALLEE_SAVED_REGISTER(R8) \
+    CALLEE_SAVED_REGISTER(R9) \
+    CALLEE_SAVED_REGISTER(R10) \
+    CALLEE_SAVED_REGISTER(R11) \
+    CALLEE_SAVED_REGISTER(Lr)
+
+#define ENUM_FP_CALLEE_SAVED_REGISTERS() \
+    CALLEE_SAVED_REGISTER(D[8]) \
+    CALLEE_SAVED_REGISTER(D[9]) \
+    CALLEE_SAVED_REGISTER(D[10]) \
+    CALLEE_SAVED_REGISTER(D[11]) \
+    CALLEE_SAVED_REGISTER(D[12]) \
+    CALLEE_SAVED_REGISTER(D[13]) \
+    CALLEE_SAVED_REGISTER(D[14]) \
+    CALLEE_SAVED_REGISTER(D[15])
+
 class MethodDesc;
 class FramedMethodFrame;
 class Module;
 struct DeclActionInfo;
 class ComCallMethodDesc;
-class BaseDomain;
 class ZapNode;
 struct ArgLocDesc;
 
 extern PCODE GetPreStubEntryPoint();
-
-#ifndef TARGET_UNIX
-#define USE_REDIRECT_FOR_GCSTRESS
-#endif // TARGET_UNIX
 
 // CPU-dependent functions
 Stub * GenerateInitPInvokeFrameHelper();
@@ -48,22 +64,13 @@ EXTERN_C void checkStack(void);
 //**********************************************************************
 
 #define COMMETHOD_PREPAD                        12   // # extra bytes to allocate in addition to sizeof(ComCallMethodDesc)
-#ifdef FEATURE_COMINTEROP
-#define COMMETHOD_CALL_PRESTUB_SIZE             12
-#define COMMETHOD_CALL_PRESTUB_ADDRESS_OFFSET   8   // the offset of the call target address inside the prestub
-#endif // FEATURE_COMINTEROP
 
 #define STACK_ALIGN_SIZE                        4
 
 #define JUMP_ALLOCATE_SIZE                      8   // # bytes to allocate for a jump instruction
 #define BACK_TO_BACK_JUMP_ALLOCATE_SIZE         8   // # bytes to allocate for a back to back jump instruction
 
-#define HAS_COMPACT_ENTRYPOINTS                 1
-
 #define HAS_NDIRECT_IMPORT_PRECODE              1
-
-#define USE_INDIRECT_CODEHEADER
-
 
 EXTERN_C void getFPReturn(int fpSize, INT64 *pRetVal);
 EXTERN_C void setFPReturn(int fpSize, INT64 retVal);
@@ -182,6 +189,33 @@ struct EHContext {
 
 #define ARGUMENTREGISTERS_SIZE sizeof(ArgumentRegisters)
 
+
+//**********************************************************************
+// Profiling
+//**********************************************************************
+
+#ifdef PROFILING_SUPPORTED
+
+typedef struct _PROFILE_PLATFORM_SPECIFIC_DATA
+{
+    UINT32      r0;         // Keep r0 & r1 contiguous to make returning 64-bit results easier
+    UINT32      r1;
+    void       *R11;
+    void       *Pc;
+    union                   // Float arg registers as 32-bit (s0-s15) and 64-bit (d0-d7)
+    {
+        UINT32  s[16];
+        UINT64  d[8];
+    };
+    FunctionID  functionId;
+    void       *probeSp;    // stack pointer of managed function
+    void       *profiledSp; // location of arguments on stack
+    LPVOID      hiddenArg;
+    UINT32      flags;
+} PROFILE_PLATFORM_SPECIFIC_DATA, *PPROFILE_PLATFORM_SPECIFIC_DATA;
+
+#endif  // PROFILING_SUPPORTED
+
 //**********************************************************************
 // Exception handling
 //**********************************************************************
@@ -228,10 +262,6 @@ inline void ClearITState(T_CONTEXT *context) {
     LIMITED_METHOD_DAC_CONTRACT;
     context->Cpsr = context->Cpsr & 0xf9ff03ff;
 }
-
-#ifdef FEATURE_COMINTEROP
-void emitCOMStubCall (ComCallMethodDesc *pCOMMethodRX, ComCallMethodDesc *pCOMMethodRW, PCODE target);
-#endif // FEATURE_COMINTEROP
 
 //------------------------------------------------------------------------
 inline void emitUnconditionalBranchThumb(LPBYTE pBuffer, int16_t offset)
@@ -315,24 +345,6 @@ inline PCODE decodeJump(PCODE pCode)
 //
 
 //------------------------------------------------------------------------
-inline BOOL isJump(PCODE pCode)
-{
-    LIMITED_METHOD_DAC_CONTRACT;
-
-    TADDR pInstr = PCODEToPINSTR(pCode);
-
-    return *dac_cast<PTR_DWORD>(pInstr) == 0xf000f8df;
-}
-
-//------------------------------------------------------------------------
-inline BOOL isBackToBackJump(PCODE pBuffer)
-{
-    WRAPPER_NO_CONTRACT;
-    SUPPORTS_DAC;
-    return isJump(pBuffer);
-}
-
-//------------------------------------------------------------------------
 inline void emitBackToBackJump(LPBYTE pBufferRX, LPBYTE pBufferRW, LPVOID target)
 {
     WRAPPER_NO_CONTRACT;
@@ -348,7 +360,6 @@ inline PCODE decodeBackToBackJump(PCODE pBuffer)
 
 //----------------------------------------------------------------------
 #include "stublink.h"
-struct ArrayOpScript;
 
 inline BOOL IsThumbCode(PCODE pCode)
 {
@@ -896,36 +907,12 @@ public:
         Emit16((WORD) (0x0b00 | ((dest & 0xf) << 12) | (abs(offset)>>2)));
     }
 
-#ifdef FEATURE_INTERPRETER
-    void ThumbEmitStoreMultipleVFPDoubleReg(ThumbVFPDoubleReg source, ThumbReg dest, unsigned numRegs)
-    {
-        _ASSERTE((numRegs + source) <= 16);
-
-        // The third nibble is 0x8; the 0x4 bit (D) is zero because the source reg number must be less
-        // than 16 for double registers.
-        Emit16((WORD) (0xec80 | 0x80 | dest));
-        Emit16((WORD) (((source & 0xf) << 12) | 0xb00 | numRegs));
-    }
-
-    void ThumbEmitLoadMultipleVFPDoubleReg(ThumbVFPDoubleReg dest, ThumbReg source, unsigned numRegs)
-    {
-        _ASSERTE((numRegs + dest) <= 16);
-
-        // The third nibble is 0x8; the 0x4 bit (D) is zero because the source reg number must be less
-        // than 16 for double registers.
-        Emit16((WORD) (0xec90 | 0x80 | source));
-        Emit16((WORD) (((dest & 0xf) << 12) | 0xb00 | numRegs));
-    }
-#endif // FEATURE_INTERPRETER
-
     // Scratches r12.
     void ThumbEmitTailCallManagedMethod(MethodDesc *pMD);
 
     void EmitShuffleThunk(struct ShuffleEntry *pShuffleEntryArray);
     VOID EmitComputedInstantiatingMethodStub(MethodDesc* pSharedMD, struct ShuffleEntry *pShuffleEntryArray, void* extraArg);
 };
-
-extern "C" void SinglecastDelegateInvokeStub();
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -998,7 +985,7 @@ struct HijackArgs
 // Currently ClrFlushInstructionCache has no effect on X86
 //
 
-inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
+inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode, bool hasCodeExecutedBefore = false)
 {
     return FlushInstructionCache(GetCurrentProcess(), pCodeAddr, sizeOfCode);
 }
@@ -1008,11 +995,6 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
 //
 // Create alias for optimized implementations of helpers provided on this platform
 //
-#define JIT_GetSharedGCStaticBase           JIT_GetSharedGCStaticBase_SingleAppDomain
-#define JIT_GetSharedNonGCStaticBase        JIT_GetSharedNonGCStaticBase_SingleAppDomain
-#define JIT_GetSharedGCStaticBaseNoCtor     JIT_GetSharedGCStaticBaseNoCtor_SingleAppDomain
-#define JIT_GetSharedNonGCStaticBaseNoCtor  JIT_GetSharedNonGCStaticBaseNoCtor_SingleAppDomain
-
 
 //------------------------------------------------------------------------
 //
@@ -1026,7 +1008,7 @@ inline BOOL ClrFlushInstructionCache(LPCVOID pCodeAddr, size_t sizeOfCode)
 // Precode to shuffle this and retbuf for closed delegates over static methods with return buffer
 struct ThisPtrRetBufPrecode {
 
-    static const int Type = 0x46;
+    static const int Type = 0x01;
 
     // mov r12, r0
     // mov r0, r1
@@ -1063,8 +1045,8 @@ struct ThisPtrRetBufPrecode {
         }
         CONTRACTL_END;
 
-        ExecutableWriterHolder<ThisPtrRetBufPrecode> precodeWriterHolder(this, sizeof(ThisPtrRetBufPrecode)); 
-        return FastInterlockCompareExchange((LONG*)&precodeWriterHolder.GetRW()->m_pTarget, (LONG)target, (LONG)expected) == (LONG)expected;
+        ExecutableWriterHolder<ThisPtrRetBufPrecode> precodeWriterHolder(this, sizeof(ThisPtrRetBufPrecode));
+        return InterlockedCompareExchange((LONG*)&precodeWriterHolder.GetRW()->m_pTarget, (LONG)target, (LONG)expected) == (LONG)expected;
     }
 #endif // !DACCESS_COMPILE
 };

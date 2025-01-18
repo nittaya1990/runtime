@@ -2,9 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Threading;
 
 namespace System.ComponentModel
 {
@@ -16,10 +18,11 @@ namespace System.ComponentModel
         internal const string PropertyDescriptorPropertyTypeMessage = "PropertyDescriptor's PropertyType cannot be statically discovered.";
 
         private TypeConverter? _converter;
-        private Dictionary<object, EventHandler?>? _valueChangedHandlers;
+        private ConcurrentDictionary<object, EventHandler?>? _valueChangedHandlers;
         private object?[]? _editors;
         private Type[]? _editorTypes;
         private int _editorCount;
+        private object? _syncObject;
 
         /// <summary>
         /// Initializes a new instance of the <see cref='System.ComponentModel.PropertyDescriptor'/> class with the specified name and
@@ -48,6 +51,8 @@ namespace System.ComponentModel
         protected PropertyDescriptor(MemberDescriptor descr, Attribute[]? attrs) : base(descr, attrs)
         {
         }
+
+        private object SyncObject => LazyInitializer.EnsureInitialized(ref _syncObject);
 
         /// <summary>
         /// When overridden in a derived class, gets the type of the
@@ -79,12 +84,50 @@ namespace System.ComponentModel
                         }
                     }
 
-                    if (_converter == null)
-                    {
-                        _converter = TypeDescriptor.GetConverter(PropertyType);
-                    }
+                    _converter ??= TypeDescriptor.GetConverter(PropertyType);
                 }
                 return _converter;
+            }
+        }
+
+        /// <summary>
+        /// Gets the type converter for this property.
+        /// </summary>
+        public virtual TypeConverter ConverterFromRegisteredType
+        {
+            get
+            {
+                // Always grab the attribute collection first here, because if the metadata version
+                // changes it will invalidate our type converter cache.
+                AttributeCollection attrs = Attributes;
+
+                if (_converter == null)
+                {
+                    TypeConverterAttribute attr = (TypeConverterAttribute)attrs[typeof(TypeConverterAttribute)]!;
+                    if (attr.ConverterTypeName != null && attr.ConverterTypeName.Length > 0)
+                    {
+                        // We don't validate that the type is registered since the trimmer
+                        // does not remove custom attributes that references the converter.
+                        _converter = CreateConverterFromTypeName(attr);
+                    }
+
+                    _converter ??= TypeDescriptor.GetConverterFromRegisteredType(PropertyType);
+                }
+
+                return _converter;
+
+                [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:UnrecognizedReflectionPattern",
+                    Justification = "GetTypeFromName() can be called on a registered type.")]
+                TypeConverter? CreateConverterFromTypeName(TypeConverterAttribute attr)
+                {
+                    Type? converterType = GetTypeFromName(attr.ConverterTypeName);
+                    if (converterType != null && typeof(TypeConverter).IsAssignableFrom(converterType))
+                    {
+                        return (TypeConverter?)CreateInstance(converterType)!;
+                    }
+
+                    return null;
+                }
             }
         }
 
@@ -122,15 +165,16 @@ namespace System.ComponentModel
         /// <summary>
         /// Allows interested objects to be notified when this property changes.
         /// </summary>
-        public virtual void AddValueChanged(object component!!, EventHandler handler!!)
+        public virtual void AddValueChanged(object component, EventHandler handler)
         {
-            if (_valueChangedHandlers == null)
-            {
-                _valueChangedHandlers = new Dictionary<object, EventHandler?>();
-            }
+            ArgumentNullException.ThrowIfNull(component);
+            ArgumentNullException.ThrowIfNull(handler);
 
-            EventHandler? h = _valueChangedHandlers.GetValueOrDefault(component, defaultValue: null);
-            _valueChangedHandlers[component] = (EventHandler?)Delegate.Combine(h, handler);
+            lock (SyncObject)
+            {
+                _valueChangedHandlers ??= new ConcurrentDictionary<object, EventHandler?>(concurrencyLevel: 1, capacity: 0);
+                _valueChangedHandlers.AddOrUpdate(component, handler, (k, v) => (EventHandler?)Delegate.Combine(v, handler));
+            }
         }
 
         /// <summary>
@@ -236,7 +280,7 @@ namespace System.ComponentModel
         /// <summary>
         /// Gets an editor of the specified type.
         /// </summary>
-        [RequiresUnreferencedCode(TypeDescriptor.EditorRequiresUnreferencedCode + " " + PropertyDescriptorPropertyTypeMessage)]
+        [RequiresUnreferencedCode(TypeDescriptor.DesignTimeAttributeTrimmed + " " + PropertyDescriptorPropertyTypeMessage)]
         public virtual object? GetEditor(Type editorBaseType)
         {
             object? editor = null;
@@ -282,10 +326,7 @@ namespace System.ComponentModel
 
                 // Now, if we failed to find it in our own attributes, go to the
                 // component descriptor.
-                if (editor == null)
-                {
-                    editor = TypeDescriptor.GetEditor(PropertyType, editorBaseType);
-                }
+                editor ??= TypeDescriptor.GetEditor(PropertyType, editorBaseType);
 
                 // Now, another slot in our editor cache for next time
                 if (_editorTypes == null)
@@ -342,7 +383,7 @@ namespace System.ComponentModel
         protected Type? GetTypeFromName(
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] string? typeName)
         {
-            if (typeName == null || typeName.Length == 0)
+            if (string.IsNullOrEmpty(typeName))
             {
                 return null;
             }
@@ -391,19 +432,25 @@ namespace System.ComponentModel
         /// <summary>
         /// Allows interested objects to be notified when this property changes.
         /// </summary>
-        public virtual void RemoveValueChanged(object component!!, EventHandler handler!!)
+        public virtual void RemoveValueChanged(object component, EventHandler handler)
         {
+            ArgumentNullException.ThrowIfNull(component);
+            ArgumentNullException.ThrowIfNull(handler);
+
             if (_valueChangedHandlers != null)
             {
-                EventHandler? h = _valueChangedHandlers.GetValueOrDefault(component, defaultValue: null);
-                h = (EventHandler?)Delegate.Remove(h, handler);
-                if (h != null)
+                lock (SyncObject)
                 {
-                    _valueChangedHandlers[component] = h;
-                }
-                else
-                {
-                    _valueChangedHandlers.Remove(component);
+                    EventHandler? h = _valueChangedHandlers.GetValueOrDefault(component, defaultValue: null);
+                    h = (EventHandler?)Delegate.Remove(h, handler);
+                    if (h != null)
+                    {
+                        _valueChangedHandlers[component] = h;
+                    }
+                    else
+                    {
+                        _valueChangedHandlers.Remove(component, out EventHandler? _);
+                    }
                 }
             }
         }

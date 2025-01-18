@@ -9,9 +9,17 @@ using Xunit;
 
 namespace System.Security.Cryptography.Tests
 {
-    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
-    public class HmacMD5Tests : Rfc2202HmacTests
+    [ConditionalClass(typeof(HmacMD5Tests.Traits), nameof(HmacMD5Tests.Traits.IsSupported))]
+    public class HmacMD5Tests : Rfc2202HmacTests<HmacMD5Tests.Traits>
     {
+        public sealed class Traits : IHmacTrait
+        {
+            public static bool IsSupported => !PlatformDetection.IsAzureLinux && !PlatformDetection.IsBrowser;
+            public static int HashSizeInBytes => HMACMD5.HashSizeInBytes;
+        }
+
+        protected override HashAlgorithmName HashAlgorithm => HashAlgorithmName.MD5;
+
         private static readonly byte[][] s_testKeys2202 =
         {
             null,
@@ -45,6 +53,7 @@ namespace System.Security.Cryptography.Tests
         protected override int MacSize => HMACMD5.HashSizeInBytes;
 
         protected override HMAC Create() => new HMACMD5();
+        protected override HMAC Create(byte[] key) => new HMACMD5(key);
         protected override HashAlgorithm CreateHashAlgorithm() => MD5.Create();
         protected override byte[] HashDataOneShot(byte[] key, byte[] source) =>
             HMACMD5.HashData(key, source);
@@ -138,9 +147,19 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
+        public void HMacMD5_EmptyKey()
+        {
+            VerifyRepeating(
+                input: "Crypto is fun!",
+                1,
+                hexKey: "",
+                output: "7554A8C4641CBA36BE2AC20CACEA1136");
+        }
+
+        [Fact]
         public void HmacMD5_Stream_MultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -152,7 +171,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacMD5_Stream_NotMultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -164,7 +183,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacMD5_Stream_Empty()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "",
@@ -176,7 +195,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacMD5_Stream_MultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -188,7 +207,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacMD5_Stream_NotMultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -200,13 +219,20 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacMD5_Stream_Empty_Async()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl md5 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "",
                 0,
                 hexKey: "000102030405060708090A0B0C0D0E0F",
                 output: "C91E40247251F39BDFE6A7B72A5857F9");
+        }
+
+        [Fact]
+        public void HmacMD5_HashSizes()
+        {
+            Assert.Equal(128, HMACMD5.HashSizeInBits);
+            Assert.Equal(16, HMACMD5.HashSizeInBytes);
         }
     }
 }

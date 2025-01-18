@@ -9,18 +9,16 @@ namespace System.Text.Json.Serialization.Tests
 {
     public static partial class WriteValueTests
     {
-        public static bool IsX64 { get; } = IntPtr.Size >= 8;
-
         [Fact]
         public static void NullWriterThrows()
         {
             ArgumentNullException ex;
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize(writer: null, 1));
-            Assert.Contains("writer", ex.ToString());
+            Assert.Contains("writer", ex.Message);
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize(writer: null, 1, typeof(int)));
-            Assert.Contains("writer", ex.ToString());
+            Assert.Contains("writer", ex.Message);
         }
 
         [Fact]
@@ -30,19 +28,19 @@ namespace System.Text.Json.Serialization.Tests
             Utf8JsonWriter writer = new Utf8JsonWriter(new MemoryStream());
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize(writer: writer, value: null, inputType: null));
-            Assert.Contains("inputType", ex.ToString());
+            Assert.Contains("inputType", ex.Message);
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize(writer, value: null, inputType: null));
-            Assert.Contains("inputType", ex.ToString());
+            Assert.Contains("inputType", ex.Message);
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.Serialize(1, inputType: null));
-            Assert.Contains("inputType", ex.ToString());
+            Assert.Contains("inputType", ex.Message);
 
             ex = Assert.Throws<ArgumentNullException>(() => JsonSerializer.SerializeToUtf8Bytes(null, inputType: null));
-            Assert.Contains("inputType", ex.ToString());
+            Assert.Contains("inputType", ex.Message);
 
             ex = await Assert.ThrowsAsync<ArgumentNullException>(async () => await JsonSerializer.SerializeAsync(new MemoryStream(), null, inputType: null));
-            Assert.Contains("inputType", ex.ToString());
+            Assert.Contains("inputType", ex.Message);
         }
 
         [Fact]
@@ -52,22 +50,22 @@ namespace System.Text.Json.Serialization.Tests
 
             Utf8JsonWriter writer = new Utf8JsonWriter(new MemoryStream());
             ex = Assert.Throws<JsonException>(() => JsonSerializer.Serialize(writer: writer, value: null, inputType: typeof(int)));
-            Assert.Contains(typeof(int).ToString(), ex.ToString());
+            Assert.Contains(typeof(int).ToString(), ex.Message);
 
             ex = Assert.Throws<JsonException>(() => JsonSerializer.Serialize(value: null, inputType: typeof(int)));
-            Assert.Contains(typeof(int).ToString(), ex.ToString());
+            Assert.Contains(typeof(int).ToString(), ex.Message);
 
             ex = Assert.Throws<JsonException>(() => JsonSerializer.SerializeToUtf8Bytes(value: null, inputType: typeof(int)));
-            Assert.Contains(typeof(int).ToString(), ex.ToString());
+            Assert.Contains(typeof(int).ToString(), ex.Message);
 
             ex = await Assert.ThrowsAsync<JsonException>(async () => await JsonSerializer.SerializeAsync(new MemoryStream(), value: null, inputType: typeof(int)));
-            Assert.Contains(typeof(int).ToString(), ex.ToString());
+            Assert.Contains(typeof(int).ToString(), ex.Message);
         }
 
         [Fact]
         public async static void NullValueWithNullableSuccess()
         {
-            byte[] nullUtf8Literal = Encoding.UTF8.GetBytes("null");
+            byte[] nullUtf8Literal = "null"u8.ToArray();
 
             var stream = new MemoryStream();
             Utf8JsonWriter writer = new Utf8JsonWriter(stream);
@@ -385,7 +383,7 @@ namespace System.Text.Json.Serialization.Tests
         //       succeed even if there is not enough memory but then the test may get killed by the OOM killer at the 
         //       time the memory is accessed which triggers the full memory allocation. 
         [PlatformSpecific(TestPlatforms.Windows | TestPlatforms.OSX)]
-        [ConditionalFact(nameof(IsX64))]
+        [ConditionalFact(typeof(Environment), nameof(Environment.Is64BitProcess))]
         [OuterLoop]
         public static void SerializeExceedMaximumBufferSize()
         {

@@ -55,7 +55,7 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             string cookieName,
             string cookieValue)
         {
-            Uri uri = System.Net.Test.Common.Configuration.Http.RemoteHttp11Server.RedirectUriForDestinationUri(302, System.Net.Test.Common.Configuration.Http.RemoteEchoServer, 1);
+            Uri uri = System.Net.Test.Common.Configuration.Http.RemoteSecureHttp11Server.RedirectUriForDestinationUri(302, System.Net.Test.Common.Configuration.Http.SecureRemoteEchoServer, 1);
             var handler = new WinHttpHandler();
             handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
             handler.CookieUsePolicy = cookieUsePolicy;
@@ -80,7 +80,6 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
 
         [OuterLoop]
         [Fact]
-        [OuterLoop]
         public async Task SendAsync_SlowServerAndCancel_ThrowsTaskCanceledException()
         {
             var handler = new WinHttpHandler();
@@ -97,20 +96,30 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             }
         }
 
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/20675")]
         [OuterLoop]
         [Fact]
-        [OuterLoop]
-        public void SendAsync_SlowServerRespondsAfterDefaultReceiveTimeout_ThrowsHttpRequestException()
+        public async Task SendAsync_SlowServerRespondsAfterDefaultReceiveTimeout_ThrowsHttpRequestException()
         {
-            var handler = new WinHttpHandler();
-            using (var client = new HttpClient(handler))
+            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+            await LoopbackServer.CreateClientAndServerAsync(async uri =>
             {
-                Task<HttpResponseMessage> t = client.GetAsync(SlowServer);
-
-                AggregateException ag = Assert.Throws<AggregateException>(() => t.Wait());
-                Assert.IsType<HttpRequestException>(ag.InnerException);
-            }
+                using var client = new HttpClient(new WinHttpHandler());
+                HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAsync(uri));
+                _output.WriteLine($"Exception: {ex}");
+                Assert.IsType<IOException>(ex.InnerException);
+                Assert.NotNull(ex.InnerException.InnerException);
+                Assert.Contains("The operation timed out", ex.InnerException.InnerException.Message);
+                tcs.TrySetResult(true);
+            },
+            async server =>
+            {
+                await server.AcceptConnectionAsync(async connection =>
+                {
+                    await connection.ReadRequestDataAsync();
+                    await connection.SendResponseAsync(LoopbackServer.GetHttpResponseHeaders(contentLength: 1000));
+                    await tcs.Task;
+                });
+            });
         }
 
         [Fact]
@@ -128,7 +137,7 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             using (HttpClient client = new HttpClient(handler))
             {
                 HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.SendAsync(request));
-                _output.WriteLine(ex.ToString());
+                _output.WriteLine($"Ignored exception:{Environment.NewLine}{ex}");
             }
         }
 
@@ -236,7 +245,7 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             _output.WriteLine(responseContent);
 
             // Uncomment this to observe an exchange of "TCP Keep-Alive" and "TCP Keep-Alive ACK" packets:
-            // await Task.Delay(5000); 
+            // await Task.Delay(5000);
         }
 
         private async Task VerifyResponse(Task<HttpResponseMessage> task, string payloadText)

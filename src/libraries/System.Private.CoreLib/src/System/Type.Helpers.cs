@@ -10,6 +10,7 @@ namespace System
     // This file collects the longer methods of Type to make the main Type class more readable.
     public abstract partial class Type : MemberInfo, IReflect
     {
+        [Obsolete(Obsoletions.LegacyFormatterMessage, DiagnosticId = Obsoletions.LegacyFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public virtual bool IsSerializable
         {
             get
@@ -115,8 +116,10 @@ namespace System
         }
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
-        public virtual Type[] FindInterfaces(TypeFilter filter!!, object? filterCriteria)
+        public virtual Type[] FindInterfaces(TypeFilter filter, object? filterCriteria)
         {
+            ArgumentNullException.ThrowIfNull(filter);
+
             Type?[] c = GetInterfaces();
             int cnt = 0;
             for (int i = 0; i < c.Length; i++)
@@ -139,7 +142,7 @@ namespace System
             return ret;
         }
 
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
+        [DynamicallyAccessedMembers(GetAllMembers)]
         public virtual MemberInfo[] FindMembers(MemberTypes memberType, BindingFlags bindingAttr, MemberFilter? filter, object? filterCriteria)
         {
             // Define the work arrays
@@ -371,17 +374,19 @@ namespace System
             Justification = "The GetInterfaces technically requires all interfaces to be preserved" +
                 "But this method only compares the result against the passed in ifaceType." +
                 "So if ifaceType exists, then trimming should have kept it implemented on any type.")]
-        // IL2075 is produced due to the BaseType not returning annotated value and used in effectively this.BaseType.GetInterfaces()
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2075:UnrecognizedReflectionPattern",
-            Justification = "The GetInterfaces technically requires all interfaces to be preserved" +
-                "But this method only compares the result against the passed in ifaceType." +
-                "So if ifaceType exists, then trimming should have kept it implemented on any type.")]
         internal bool ImplementInterface(Type ifaceType)
         {
             Type? t = this;
             while (t != null)
             {
+                // IL2075 is produced due to the BaseType not returning annotated value and used in effectively this.BaseType.GetInterfaces()
+                // The GetInterfaces technically requires all interfaces to be preserved
+                // But this method only compares the result against the passed in ifaceType.
+                // So if ifaceType exists, then trimming should have kept it implemented on any type.
+                // The warning is currently analyzer only.
+#pragma warning disable IL2075
                 Type[] interfaces = t.GetInterfaces();
+#pragma warning restore IL2075
                 if (interfaces != null)
                 {
                     for (int i = 0; i < interfaces.Length; i++)
@@ -468,8 +473,10 @@ namespace System
                             return false;
                         if (((criteria & FieldAttributes.Literal) != 0) && (attr & FieldAttributes.Literal) == 0)
                             return false;
+#pragma warning disable SYSLIB0050 // Legacy serialization infrastructure is obsolete
                         if (((criteria & FieldAttributes.NotSerialized) != 0) && (attr & FieldAttributes.NotSerialized) == 0)
                             return false;
+#pragma warning restore SYSLIB0050
                         if (((criteria & FieldAttributes.PinvokeImpl) != 0) && (attr & FieldAttributes.PinvokeImpl) == 0)
                             return false;
                         return true;
@@ -486,7 +493,7 @@ namespace System
         private static bool FilterNameImpl(MemberInfo m, object filterCriteria, StringComparison comparison)
         {
             // Check that the criteria object is a String object
-            if (!(filterCriteria is string filterCriteriaString))
+            if (filterCriteria is not string filterCriteriaString)
             {
                 throw new InvalidFilterCriteriaException(SR.InvalidFilterCriteriaException_CritString);
             }
@@ -501,7 +508,7 @@ namespace System
             }
 
             // Check to see if this is a prefix or exact match requirement
-            if (str.Length > 0 && str[str.Length - 1] == '*')
+            if (str.EndsWith('*'))
             {
                 str = str.Slice(0, str.Length - 1);
                 return name.StartsWith(str, comparison);

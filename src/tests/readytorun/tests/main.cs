@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Reflection;
 using System.IO;
+using Xunit;
 
 class InstanceFieldTest : MyClass
 {
@@ -37,6 +38,8 @@ class InheritingFromGrowingBase : GrowingBase
     public int x;
 }
 
+struct LocallyDefinedStructure {}
+
 
 static class OpenClosedDelegateExtension
 {
@@ -46,7 +49,7 @@ static class OpenClosedDelegateExtension
     }
 }
 
-class Program
+public class Program
 {
     static void TestVirtualMethodCalls()
     {
@@ -63,8 +66,24 @@ class Program
             // Make sure the constrained call to ToString doesn't box
             var mystruct = new MyStructWithVirtuals();
             mystruct.ToString();
-            Assert.AreEqual(mystruct.X, "Overriden");
+            Assert.AreEqual(mystruct.X, "Overridden");
         }
+    }
+
+    static void TestThrowHelpers()
+    {
+        try
+        {
+            MyClass.ThrowIOE();
+            // JIT is not allowed to assume Throw() will always be "no-return"
+        }
+        catch (InvalidOperationException) {}
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static Func<string> GetChangedToNonVirtualDelegate(MyClass o)
+    {
+        return o.ChangedToNonVirtual;
     }
 
     static void TestMovedVirtualMethods()
@@ -73,6 +92,9 @@ class Program
 
         Assert.AreEqual(o.MovedToBaseClass(), "MovedToBaseClass");
         Assert.AreEqual(o.ChangedToVirtual(), "ChangedToVirtual");
+
+        // Test that changing a virtual to a non-virtual doesn't cause a crash. (Behavior is somewhat undefined, as this change is explicitly defined as a breaking change.)
+        Assert.AreEqual(GetChangedToNonVirtualDelegate(o)(), "ChangedToNonVirtual");
 
         o = null;
 
@@ -134,7 +156,7 @@ class Program
         MyClass.TestStaticFields();
 
 #if false // TODO: Enable once LDFTN is supported
-        Task.Run(() => { 
+        Task.Run(() => {
            MyClass.ThreadStaticStringField = "Garbage";
            MyClass.ThreadStaticIntField = 0xBAAD;
            MyClass.ThreadStaticDateTimeField = DateTime.Now;
@@ -172,12 +194,21 @@ class Program
             "System.StringSystem.ObjectProgramSystem.Collections.Generic.IEnumerable`1[System.String]");
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static Func<string> GetChangedToNonVirtualDelegate<TClass, TMethod>(MyGeneric<TClass, TClass> o)
+    {
+        return o.ChangedToNonVirtual<TMethod>;
+    }
+
     static void TestMovedGenericVirtualMethod()
     {
         var o = new MyChildGeneric<Object>();
 
         Assert.AreEqual(o.MovedToBaseClass<WeakReference>(), typeof(List<WeakReference>).ToString());
         Assert.AreEqual(o.ChangedToVirtual<WeakReference>(), typeof(List<WeakReference>).ToString());
+
+        // Test that changing a virtual to a non-virtual doesn't cause a crash. (Behavior is somewhat undefined, as this change is explicitly defined as a breaking change.)
+        Assert.AreEqual(GetChangedToNonVirtualDelegate<object, WeakReference>(o)(), typeof(List<WeakReference>).ToString());
 
         o = null;
 
@@ -222,6 +253,9 @@ class Program
         var o2 = new MyChildGeneric<MyChangingStruct>();
         Assert.AreEqual(o2.MovedToBaseClass<MyGrowingStruct>(), typeof(List<MyGrowingStruct>).ToString());
         Assert.AreEqual(o2.ChangedToVirtual<MyGrowingStruct>(), typeof(List<MyGrowingStruct>).ToString());
+
+        // Test that changing a virtual to a non-virtual doesn't cause a crash. (Behavior is somewhat undefined, as this change is explicitly defined as a breaking change.)
+        Assert.AreEqual(GetChangedToNonVirtualDelegate<MyChangingStruct, MyGrowingStruct>(o2)(), typeof(List<MyGrowingStruct>).ToString());
     }
 
     static void TestInstanceFields()
@@ -330,7 +364,7 @@ class Program
 
         public void TestMultipleLoads()
         {
-            Assembly a = LoadFromAssemblyPath(Path.Combine(Directory.GetCurrentDirectory(), "test.ni.dll"));
+            Assembly a = LoadFromAssemblyPath(Path.Combine(Directory.GetCurrentDirectory(), "test.dll"));
             Assert.AreEqual(AssemblyLoadContext.GetLoadContext(a), this);
         }
 
@@ -357,7 +391,7 @@ class Program
 
     static void TestOpenClosedDelegate()
     {
-        // This test is verifying the the fixups for open vs. closed delegate created against the same target
+        // This test is verifying the fixups for open vs. closed delegate created against the same target
         // method are encoded correctly.
 
         Func<string, string, object> idOpen = OpenClosedDelegateExtension.OpenClosedDelegateTarget;
@@ -366,11 +400,11 @@ class Program
         Func<string, object> idClosed = "World".OpenClosedDelegateTarget;
         Assert.AreEqual(idClosed("hey"), "World, hey");
     }
-    
+
     static void GenericLdtokenFieldsTest()
     {
         Func<FieldInfo, string> FieldFullName = (fi) => fi.FieldType + " " + fi.DeclaringType.ToString() + "::" + fi.Name;
-        
+
         IFieldGetter getter1 = new FieldGetter<string>();
         IFieldGetter getter2 = new FieldGetter<object>();
         IFieldGetter getter3 = new FieldGetter<int>();
@@ -390,7 +424,7 @@ class Program
             string expectedDllField3 = "System.Collections.Generic.List`1[???] MyGeneric`2[???,???]::m_Field3".Replace("???", instArg.ToString());
             string expectedDllField4 = "System.Collections.Generic.KeyValuePair`2[???,System.Int32] MyGeneric`2[???,???]::m_Field4".Replace("???", instArg.ToString());
             string expectedDllField5 = "System.Int32 MyGeneric`2[???,???]::m_Field5".Replace("???", instArg.ToString());
-            
+
             Assert.AreEqual(expectedField1, FieldFullName(getter.GetGenT_Field1()));
             Assert.AreEqual(expectedField2, FieldFullName(getter.GetGenT_Field2()));
             Assert.AreEqual(expectedField3, FieldFullName(getter.GetGenT_Field3()));
@@ -412,79 +446,152 @@ class Program
             Assert.AreEqual(value[i], (byte)(9 - i));
     }
 
+    // public constructor, so we run something when loading from byte array in the test below
+    public Program()
+    {
+        // do something in the constructor to see if it works
+        TestVirtualMethodCalls();
+    }
+
     static void TestLoadR2RImageFromByteArray()
     {
         Assembly assembly1 = typeof(Program).Assembly;
-        
+
         byte[] array = File.ReadAllBytes(assembly1.Location);
         Assembly assembly2 = Assembly.Load(array);
-        
+
         Assert.AreEqual(assembly2.FullName, assembly1.FullName);
+
+        assembly2.CreateInstance("Program");
+    }
+
+    [MethodImplAttribute(MethodImplOptions.NoInlining)]
+    static void TestILBodyChange()
+    {
+        int actualMethodCallResult = (int)typeof(ILInliningTest).GetMethod("TestDifferentIntValue").Invoke(null, new object[]{});
+        Console.WriteLine(actualMethodCallResult);
+        Assert.AreEqual(ILInliningTest.TestDifferentIntValue(), actualMethodCallResult);
+    }
+
+    private class CallDefaultVsExactStaticVirtual<T> where T : IDefaultVsExactStaticVirtual
+    {
+        public static string CallMethodOnGenericType() => T.Method();
+    }
+
+    [MethodImplAttribute(MethodImplOptions.NoInlining)]
+    static void TestDefaultVsExactStaticVirtualMethodImplementation()
+    {
+        Assert.AreEqual(CallDefaultVsExactStaticVirtual<DefaultVsExactStaticVirtualClass>.CallMethodOnGenericType(), "DefaultVsExactStaticVirtualMethod");
+        // Naively one would expect that the following should do, however Roslyn fails to compile it claiming that the type DVESVC doesn't contain 'Method':
+        // Assert.AreEqual(DefaultVsExactStaticVirtualClass.Method(), "DefaultVsExactStaticVirtualMethod");
     }
 
     static void RunAllTests()
     {
+        Console.WriteLine("TestVirtualMethodCalls");
         TestVirtualMethodCalls();
+        Console.WriteLine("TestMovedVirtualMethod");
         TestMovedVirtualMethods();
 
+        Console.WriteLine("TestThrowHelpers");
+        TestThrowHelpers();
+
+        Console.WriteLine("TestConstrainedMethodCalls");
         TestConstrainedMethodCalls();
 
+        Console.WriteLine("TestConstrainedMethodCalls_Unsupported");
         TestConstrainedMethodCalls_Unsupported();
 
+        Console.WriteLine("TestInterop");
         TestInterop();
 
+        Console.WriteLine("TestStaticFields");
         TestStaticFields();
 
+        Console.WriteLine("TestPreInitializedArray");
         TestPreInitializedArray();
 
+        Console.WriteLine("TestMultiDimmArray");
         TestMultiDimmArray();
 
+        Console.WriteLine("TestGenericVirtualMethod");
         TestGenericVirtualMethod();
+        Console.WriteLine("TestMovedGenericVirtualMethod");
         TestMovedGenericVirtualMethod();
+        Console.WriteLine("TestGenericNonVirtualMethod");
         TestGenericNonVirtualMethod();
 
+        Console.WriteLine("TestGenericOverStruct");
         TestGenericOverStruct();
 
+        Console.WriteLine("TestInstanceFields");
         TestInstanceFields();
 
+        Console.WriteLine("TestInstanceFieldsWithLayout");
         TestInstanceFieldsWithLayout();
 
+        Console.WriteLine("TestInheritingFromGrowingBase");
         TestInheritingFromGrowingBase();
 
+        Console.WriteLine("TestGrowingStruct");
         TestGrowingStruct();
+        Console.WriteLine("TestChangingStruct");
         TestChangingStruct();
+        Console.WriteLine("TestChangingHFAStruct");
         TestChangingHFAStruct();
 
+        Console.WriteLine("TestGetType");
         TestGetType();
 
+        Console.WriteLine("TestMultipleLoads");
         TestMultipleLoads();
 
+        Console.WriteLine("TestFieldLayoutNGenMixAndMatch");
         TestFieldLayoutNGenMixAndMatch();
 
+        Console.WriteLine("TestStaticBaseCSE");
         TestStaticBaseCSE();
 
+        Console.WriteLine("TestIsInstCSE");
         TestIsInstCSE();
 
+        Console.WriteLine("TestCastClassCSE");
         TestCastClassCSE();
 
+        Console.WriteLine("TestRangeCheckElimination");
         TestRangeCheckElimination();
 
+        Console.WriteLine("TestOpenClosedDelegate");
         TestOpenClosedDelegate();
-        
+
+        Console.WriteLine("GenericLdtokenFieldsTest");
         GenericLdtokenFieldsTest();
 
+        Console.WriteLine("RVAFieldTest");
         RVAFieldTest();
-        
+
+        Console.WriteLine("TestLoadR2RImageFromByteArray");
         TestLoadR2RImageFromByteArray();
+
+        Console.WriteLine("TestILBodyChange");
+        TestILBodyChange();
+        
+        Console.WriteLine("TestDefaultVsExactStaticVirtualMethodImplementation");
+        TestDefaultVsExactStaticVirtualMethodImplementation();
+        
+        ILInliningVersioningTest<LocallyDefinedStructure>.RunAllTests(typeof(Program).Assembly);
     }
 
-    static int Main()
+    public static int Main()
     {
         // Run all tests 3x times to exercise both slow and fast paths work
         for (int i = 0; i < 3; i++)
            RunAllTests();
 
-        Console.WriteLine("PASSED");
+        if (!Assert.HasAssertFired)
+            Console.WriteLine("PASSED");
+        else
+            Console.WriteLine("FAILED");
         return Assert.HasAssertFired ? 1 : 100;
     }
 

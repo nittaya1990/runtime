@@ -6,16 +6,18 @@
  * An exception should be thrown for -1, but no other value
  *
  * Notes:
- *    -passes with complus_jitminops
+ *    -passes with DOTNET_jitminops
  *    -passes with debug
- *    -passes with complus_gcstress
+ *    -passes with DOTNET_gcstress
  */
 
 using System;
+using Xunit;
 
 public class Test_Collect_fail
 {
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int[] array = new int[25];
         bool passed = false;

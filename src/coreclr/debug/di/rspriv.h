@@ -50,6 +50,8 @@ struct MachineInfo;
 
 #include "eventchannel.h"
 
+#include <shash.h>
+
 #undef ASSERT
 #define CRASH(x)  _ASSERTE(!(x))
 #define ASSERT(x) _ASSERTE(x)
@@ -142,7 +144,7 @@ class CordbSafeHashTable;
 //
 // This is an encapsulation of the information necessary to connect to the debugger proxy on a remote machine.
 // It includes the IP address and the port number.  The IP address can be set via the env var
-// COMPlus_DbgTransportProxyAddress, and the port number is fixed when Mac debugging is configured.
+// DOTNET_DbgTransportProxyAddress, and the port number is fixed when Mac debugging is configured.
 //
 
 struct MachineInfo
@@ -230,7 +232,7 @@ public:
         m_cElements = 0;
     }
 
-    // Is the array emtpy?
+    // Is the array empty?
     bool IsEmpty() const
     {
         return (m_pArray == NULL);
@@ -280,7 +282,7 @@ public:
         m_cElements = 0;
     }
 
-    // Array lookup. Caller gaurantees this is in range.
+    // Array lookup. Caller guarantees this is in range.
     // Used for reading
     T* operator [] (unsigned int index) const
     {
@@ -299,7 +301,7 @@ public:
         m_pArray[index].Assign(pValue);
     }
 
-    // Get lenght of array in elements.
+    // Get length of array in elements.
     unsigned int Length() const
     {
         return m_cElements;
@@ -545,7 +547,7 @@ protected:
 
 
 //-----------------------------------------------------------------------------
-// Simple Holder for RS object intialization to cooperate with Neutering
+// Simple Holder for RS object initialization to cooperate with Neutering
 // semantics.
 // The ctor will do an addref.
 // The dtor (invoked in exception) will neuter and release the object. This
@@ -1193,17 +1195,6 @@ public:
     static LONG s_CordbObjectUID;    // Unique ID for each object.
     static LONG s_TotalObjectCount; // total number of outstanding objects.
 
-
-    void ValidateObject()
-    {
-        if( !IsValidObject() )
-        {
-            STRESS_LOG1(LF_ASSERT, LL_ALWAYS, "CordbCommonBase::IsValidObject() failed: %x\n", this);
-            _ASSERTE(!"CordbCommonBase::IsValidObject() failed");
-            FreeBuildDebugBreak();
-        }
-    }
-
     bool IsValidObject()
     {
         return (m_signature == CORDB_COMMON_BASE_SIGNATURE);
@@ -1221,7 +1212,7 @@ public:
 
     void init(UINT_PTR id, enumCordbDerived type)
     {
-        // To help us track object leaks, we want to log when we create & destory CordbBase objects.
+        // To help us track object leaks, we want to log when we create & destroy CordbBase objects.
 #ifdef _DEBUG
         InterlockedIncrement(&s_TotalObjectCount);
         InterlockedIncrement(&s_CordbObjectUID);
@@ -1262,7 +1253,7 @@ public:
         //    m_sdThis[m_type][m_dwInstance] = NULL;
         //}
 #endif
-        // To help us track object leaks, we want to log when we create & destory CordbBase objects.
+        // To help us track object leaks, we want to log when we create & destroy CordbBase objects.
         LOG((LF_CORDB, LL_EVERYTHING, "Memory: CordbBase object deleted: this=%p, id=%p, Refcount=0x%x\n", this, m_id, m_RefCount));
 
 #ifdef _DEBUG
@@ -1572,7 +1563,7 @@ _____Neuter_Status_Already_Marked = 0; \
 // 1) it means that we have no synchronization (can't take the Stop-Go lock)
 // 2) none of our backpointers are usable (they may be nulled out at anytime by another thread).
 //    - this also means we absolutely can't send IPC events (since that requires a CordbProcess)
-// 3) The only safe data are blittalbe embedded fields (eg, a pid or stack range)
+// 3) The only safe data are blittable embedded fields (eg, a pid or stack range)
 //
 // Any usage of this macro should clearly specify why this is safe.
 #define OK_IF_NEUTERED(pThis) \
@@ -2235,7 +2226,7 @@ public:
 #if defined(FEATURE_DBGIPC_TRANSPORT_DI)
     static COM_METHOD CreateObjectTelesto(REFIID id, void ** pObject);
 #endif // FEATURE_DBGIPC_TRANSPORT_DI
-    static COM_METHOD CreateObject(CorDebugInterfaceVersion iDebuggerVersion, DWORD pid, LPCWSTR lpApplicationGroupId, REFIID id, void **object);
+    static COM_METHOD CreateObject(CorDebugInterfaceVersion iDebuggerVersion, DWORD pid, LPCWSTR lpApplicationGroupId, LPCWSTR lpwstrDacModulePath, REFIID id, void** object);
 
     //-----------------------------------------------------------
     // ICorDebugRemote
@@ -2308,6 +2299,7 @@ public:
 
 private:
     Cordb(CorDebugInterfaceVersion iDebuggerVersion, const ProcessDescriptor& pd);
+    Cordb(CorDebugInterfaceVersion iDebuggerVersion, const ProcessDescriptor& pd, LPCWSTR dacModulePath);
 
     //-----------------------------------------------------------
     // Data members
@@ -2323,6 +2315,8 @@ public:
     CordbRCEventThread*         m_rcEventThread;
 
     CorDebugInterfaceVersion    GetDebuggerVersion() const;
+
+    PathString& GetDacModulePath() { return m_dacModulePath; }
 
     HMODULE GetTargetCLR() { return m_targetCLR; }
 
@@ -2344,6 +2338,8 @@ private:
 
     // Store information about the process to be debugged
     ProcessDescriptor m_pd;
+
+    PathString m_dacModulePath;
 
     HMODULE m_targetCLR;
 };
@@ -2885,6 +2881,14 @@ public:
     virtual void RequestSyncAtEvent()= 0;
 
     virtual bool IsThreadSuspendedOrHijacked(ICorDebugThread * pThread) = 0;
+
+#ifdef FEATURE_INTEROP_DEBUGGING
+    virtual bool IsUnmanagedThreadHijacked(ICorDebugThread * pICorDebugThread) = 0;
+#endif
+
+#ifdef OUT_OF_PROCESS_SETTHREADCONTEXT
+    virtual void HandleDebugEventForInPlaceStepping(const DEBUG_EVENT * pEvent) = 0;
+#endif
 };
 
 
@@ -2922,6 +2926,42 @@ public:
     CordbProcess *  m_pThis;
     VMPTR_AppDomain m_vmAppDomainDeleted;
 };
+
+#ifdef OUT_OF_PROCESS_SETTHREADCONTEXT
+class UnmanagedThreadTracker
+{
+    DWORD m_dwThreadId = (DWORD)-1;
+    HANDLE m_hThread = INVALID_HANDLE_VALUE;
+    CORDB_ADDRESS_TYPE *m_pPatchSkipAddress = NULL;
+    DWORD m_dwSuspendCount = 0;
+
+public:
+    UnmanagedThreadTracker(DWORD wThreadId, HANDLE hThread) : m_dwThreadId(wThreadId), m_hThread(hThread) {}
+
+    DWORD GetThreadId() const { return m_dwThreadId; }
+    HANDLE GetThreadHandle() const { return m_hThread; }
+    bool IsInPlaceStepping() const { return m_pPatchSkipAddress != NULL; }
+    void SetPatchSkipAddress(CORDB_ADDRESS_TYPE *pPatchSkipAddress) { m_pPatchSkipAddress = pPatchSkipAddress; }
+    CORDB_ADDRESS_TYPE *GetPatchSkipAddress() const { return m_pPatchSkipAddress; }
+    void ClearPatchSkipAddress() { m_pPatchSkipAddress = NULL; }
+    void Suspend();
+    void Resume();
+    void Close();
+};
+
+class EMPTY_BASES_DECL CUnmanagedThreadSHashTraits : public DefaultSHashTraits<UnmanagedThreadTracker*>
+{
+    public:
+        typedef DWORD key_t;
+
+        static key_t GetKey(const element_t &e) { return e->GetThreadId(); }
+        static BOOL Equals(const key_t &e, const key_t &f) { return e == f; }
+        static count_t Hash(const key_t &e) { return (count_t)(e ^ (e >> 16) * 0x45D9F43); }
+};
+
+typedef SHash<CUnmanagedThreadSHashTraits> CUnmanagedThreadHashTableImpl;
+typedef SHash<CUnmanagedThreadSHashTraits>::Iterator CUnmanagedThreadHashTableIterator;
+#endif // OUT_OF_PROCESS_SETTHREADCONTEXT
 
 class CordbProcess :
     public CordbBase,
@@ -2969,11 +3009,10 @@ public:
     //-----------------------------------------------------------
     // IMetaDataLookup
     // -----------------------------------------------------------
-    IMDInternalImport * LookupMetaData(VMPTR_PEAssembly vmPEAssembly, bool &isILMetaDataForNGENImage);
+    IMDInternalImport * LookupMetaData(VMPTR_PEAssembly vmPEAssembly);
 
     // Helper functions for LookupMetaData implementation
     IMDInternalImport * LookupMetaDataFromDebugger(VMPTR_PEAssembly vmPEAssembly,
-                                                   bool &isILMetaDataForNGENImage,
                                                    CordbModule * pModule);
 
     IMDInternalImport * LookupMetaDataFromDebuggerForSingleFile(CordbModule * pModule,
@@ -3286,6 +3325,11 @@ public:
 #endif
     }
 
+#ifdef OUT_OF_PROCESS_SETTHREADCONTEXT
+    void HandleSetThreadContextNeeded(DWORD dwThreadId);
+    bool HandleInPlaceSingleStep(DWORD dwThreadId, PVOID pExceptionAddress);
+#endif
+
     //
     // Shim  callbacks to simulate fake attach events.
     //
@@ -3464,6 +3508,8 @@ public:
         _ASSERTE(ThreadHoldsProcessLock());
         return m_unmanagedThreads.GetBase(dwThreadId);
     }
+
+    virtual bool IsUnmanagedThreadHijacked(ICorDebugThread * pICorDebugThread);
 #endif // FEATURE_INTEROP_DEBUGGING
 
     /*
@@ -3477,7 +3523,7 @@ public:
      * are passed in, while going through the table we'll undo patches
      * in buffer at the same time
      */
-    HRESULT RefreshPatchTable(CORDB_ADDRESS address = NULL, SIZE_T size = NULL, BYTE buffer[] = NULL);
+    HRESULT RefreshPatchTable(CORDB_ADDRESS address = 0, SIZE_T size = 0, BYTE buffer[] = NULL);
 
     // Find if a patch exists at a given address.
     HRESULT FindPatchByAddress(CORDB_ADDRESS address, bool *patchFound, bool *patchIsUnmanaged);
@@ -3952,7 +3998,7 @@ public:
 
     // The array of entries. (The patchtable is a hash implemented as a single-array)
     // This array includes empty entries.
-    // There is an auxillary bucket structure used to map hash codes to array indices.
+    // There is an auxiliary bucket structure used to map hash codes to array indices.
     // We traverse the array, and we recognize an empty slot
     // if DebuggerControllerPatch::opcode == 0.
     // If we haven't gotten the table, then m_pPatchTable is NULL
@@ -3973,13 +4019,13 @@ public:
     ULONG               *m_rgNextPatch;
 
     // This has m_cPatch elements.
-    PRD_TYPE             *m_rgUncommitedOpcode;
+    PRD_TYPE             *m_rgUncommittedOpcode;
 
     // CORDB_ADDRESS's are UINT_PTR's (64 bit under HOST_64BIT, 32 bit otherwise)
 #if defined(TARGET_64BIT)
-#define MAX_ADDRESS     (_UI64_MAX)
+#define MAX_ADDRESS     (UINT64_MAX)
 #else
-#define MAX_ADDRESS     (_UI32_MAX)
+#define MAX_ADDRESS     (UINT32_MAX)
 #endif
 #define MIN_ADDRESS     (0x0)
     CORDB_ADDRESS       m_minPatchAddr; //smallest patch in table
@@ -4085,7 +4131,7 @@ private:
     // DAC
     //
 
-    // Try to initalize DAC, may fail
+    // Try to initialize DAC, may fail
     BOOL TryInitializeDac();
 
     // Expect DAC initialize to succeed.
@@ -4121,6 +4167,14 @@ private:
     WriteableMetadataUpdateMode m_writableMetadataUpdateMode;
 
     COM_METHOD GetObjectInternal(CORDB_ADDRESS addr, CordbAppDomain* pAppDomainOverride, ICorDebugObjectValue **pObject);
+
+#ifdef OUT_OF_PROCESS_SETTHREADCONTEXT
+    CUnmanagedThreadHashTableImpl m_unmanagedThreadHashTable;
+    DWORD m_dwOutOfProcessStepping;
+public:
+    void HandleDebugEventForInPlaceStepping(const DEBUG_EVENT * pEvent);
+#endif // OUT_OF_PROCESS_SETTHREADCONTEXT
+
 };
 
 // Some IMDArocess APIs are supported as interop-only.
@@ -4346,8 +4400,6 @@ public:
     // Get the module filename, or NULL if none.  Throws on error.
     const WCHAR * GetModulePath();
 
-    const WCHAR * GetNGenImagePath();
-
     const VMPTR_DomainAssembly GetRuntimeDomainAssembly ()
     {
         return m_vmDomainAssembly;
@@ -4405,10 +4457,6 @@ private:
 
     // Full path to module's image, if any.  Empty if none, NULL if not yet set.
     StringCopyHolder m_strModulePath;
-
-    // Full path to the ngen file. Empty if not ngenned, NULL if not yet set.
-    // This isn't exposed publicly, but we may use it internally for loading metadata.
-    StringCopyHolder m_strNGenImagePath;
 
     // "Global" class for this module. Global functions + vars exist in this class.
     RSSmartPtr<CordbClass> m_pClass;
@@ -4691,7 +4739,7 @@ public:
 // This lets us reuse the existing hash table scheme to build
 // up instantiated types of arbitrary size.
 //
-// Array types are similar, excpet that they start with a head type
+// Array types are similar, excepet that they start with a head type
 // for the "type constructor", e.g. "_ []" is a type constructor with rank 1
 // and m_elementType = ELEMENT_TYPE_SZARRAY.  These head constructors are
 // stored in the m_sharedtypes table in the appdomain.  The actual instantiations
@@ -4823,7 +4871,7 @@ public:
                                              CordbClass * tycon,
                                              CordbType ** pRes);
 
-    // Prepare data to send back to left-side during Init() and FuncEval.  Fail if the the exact
+    // Prepare data to send back to left-side during Init() and FuncEval.  Fail if the exact
     // type data is requested but was not fetched correctly during Init()
     HRESULT TypeToBasicTypeData(DebuggerIPCE_BasicTypeData *data);
     void TypeToExpandedTypeData(DebuggerIPCE_ExpandedTypeData *data);
@@ -5102,10 +5150,6 @@ private:
 
 public:
 
-    // set or clear the custom notifications flag to control whether we ignore custom debugger notifications
-    void SetCustomNotifications(BOOL fEnable) { m_fCustomNotificationsEnabled = fEnable; }
-    BOOL CustomNotificationsEnabled () { return m_fCustomNotificationsEnabled; }
-
     HRESULT GetFieldInfo(mdFieldDef fldToken, FieldData ** ppFieldData);
 
     // If you want to force the init to happen even if we think the class
@@ -5122,13 +5166,13 @@ public:
                                mdFieldDef fieldDef);
     mdTypeDef GetTypeDef() { return (mdTypeDef)m_id; }
 
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     // when we get an added field or method, mark the class to force re-init when we access it
     void MakeOld()
     {
         m_loadLevel = Constructed;
     }
-#endif // EnC_SUPPORTED
+#endif // FEATURE_METADATA_UPDATER
 
     //-----------------------------------------------------------
     // Data members
@@ -5179,9 +5223,6 @@ private:
     // if we add static fields with EnC after this class is loaded (in the debuggee),
     // their value will be hung off the FieldDesc.  Hold information about such fields here.
     CordbHangingFieldTable   m_hangingFieldsStatic;
-
-    // this indicates whether we should send custom debugger notifications
-    BOOL                    m_fCustomNotificationsEnabled;
 
 };
 
@@ -5351,7 +5392,8 @@ class CordbFunction : public CordbBase,
                       public ICorDebugFunction,
                       public ICorDebugFunction2,
                       public ICorDebugFunction3,
-                      public ICorDebugFunction4
+                      public ICorDebugFunction4,
+                      public ICorDebugFunction5
 {
 public:
     //-----------------------------------------------------------
@@ -5415,6 +5457,12 @@ public:
     COM_METHOD CreateNativeBreakpoint(ICorDebugFunctionBreakpoint **ppBreakpoint);
 
     //-----------------------------------------------------------
+    // ICorDebugFunction5
+    //-----------------------------------------------------------
+    COM_METHOD AreOptimizationsDisabled(BOOL *pOptimizationsDisabled);
+    COM_METHOD DisableOptimizations();
+
+    //-----------------------------------------------------------
     // Internal members
     //-----------------------------------------------------------
 protected:
@@ -5453,7 +5501,7 @@ public:
                                       CordbReJitILCode** ppILCode);
 
 
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     void MakeOld();
 #endif
 
@@ -5750,9 +5798,9 @@ public:
     // get total size of the IL code
     ULONG32 GetSize() { return m_codeRegionInfo.cbSize; }
 
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     void MakeOld();
-#endif // EnC_SUPPORTED
+#endif // FEATURE_METADATA_UPDATER
 
     HRESULT GetLocalVarSig(SigParser *pLocalsSigParser, ULONG *pLocalVarCount);
     HRESULT GetLocalVariableType(DWORD dwIndex, const Instantiation * pInst, CordbType ** ppResultType);
@@ -5770,7 +5818,7 @@ private:
     //-----------------------------------------------------------
 
 private:
-#ifdef EnC_SUPPORTED
+#ifdef FEATURE_METADATA_UPDATER
     UINT m_fIsOld : 1;           // marks this instance as an old EnC version
     bool m_encBreakpointsApplied;
 #endif
@@ -5929,7 +5977,7 @@ public:
     ULONG32 GetColdSize();
 
     // Return true if the Code is split into hot + cold regions.
-    bool HasColdRegion() { return m_rgCodeRegions[kCold].pAddress != NULL; }
+    bool HasColdRegion() { return m_rgCodeRegions[kCold].pAddress != (CORDB_ADDRESS)NULL; }
 
     // Get the number of fixed arguments for this function (the "this"
     // but not varargs)
@@ -7320,7 +7368,8 @@ public:
                     GENERICS_TYPE_TOKEN   exactGenericArgsToken,
                     DWORD                 dwExactGenericArgsTokenIndex,
                     bool                  fVarArgFnx,
-                    CordbReJitILCode *    pReJitCode);
+                    CordbReJitILCode *    pReJitCode,
+                    bool                  fAdjustedIP);
     HRESULT Init();
     virtual ~CordbJITILFrame();
     virtual void Neuter();
@@ -7431,6 +7480,7 @@ public:
 
     CordbILCode* GetOriginalILCode();
     CordbReJitILCode* GetReJitILCode();
+    void AdjustIPAfterException();
 
 private:
     void    RefreshCachedVarArgSigParserIfNeeded();
@@ -7498,6 +7548,7 @@ public:
 
     // if this frame is instrumented with rejit, this will point to the instrumented IL code
     RSSmartPtr<CordbReJitILCode> m_pReJitCode;
+    BOOL m_adjustedIP;
 };
 
 /* ------------------------------------------------------------------------- *
@@ -8398,7 +8449,7 @@ public:
 
     // gets the remote address for the value or returns NULL if none exists
     virtual
-    CORDB_ADDRESS GetAddress() { return NULL; };
+    CORDB_ADDRESS GetAddress() { return (CORDB_ADDRESS)NULL; };
 
     // Gets a value and returns it in dest
     virtual
@@ -8917,7 +8968,7 @@ public:
         FAIL_IF_NEUTERED(this);
         VALIDATE_POINTER_TO_OBJECT_OR_NULL(pAddress, CORDB_ADDRESS *);
 
-        *pAddress = m_pValueHome ? m_pValueHome->GetAddress() : NULL;
+        *pAddress = m_pValueHome ? m_pValueHome->GetAddress() : (CORDB_ADDRESS)NULL;
         return (S_OK);
     }
 
@@ -9162,6 +9213,7 @@ class CordbObjectValue : public CordbValue,
                          public ICorDebugHeapValue3,
                          public ICorDebugHeapValue4,
                          public ICorDebugExceptionObjectValue,
+                         public ICorDebugExceptionObjectValue2,
                          public ICorDebugComObjectValue,
                          public ICorDebugDelegateObjectValue
 {
@@ -9283,6 +9335,11 @@ public:
     // ICorDebugExceptionObjectValue
     //-----------------------------------------------------------
     COM_METHOD EnumerateExceptionCallStack(ICorDebugExceptionObjectCallStackEnum** ppCallStackEnum);
+
+    //-----------------------------------------------------------
+    // ICorDebugExceptionObjectValue2
+    //-----------------------------------------------------------
+    COM_METHOD ForceCatchHandlerFoundEvents(BOOL enableEvents);
 
     //-----------------------------------------------------------
     // ICorDebugComObjectValue
@@ -9724,7 +9781,7 @@ public:
     COM_METHOD GetRank(ULONG32 * pnRank);
     COM_METHOD GetCount(ULONG32 * pnCount);
     COM_METHOD GetDimensions(ULONG32 cdim, ULONG32 dims[]);
-    COM_METHOD HasBaseIndicies(BOOL * pbHasBaseIndices);
+    COM_METHOD HasBaseIndicies(BOOL * pbHasBaseIndicies);
     COM_METHOD GetBaseIndicies(ULONG32 cdim, ULONG32 indices[]);
     COM_METHOD GetElement(ULONG32 cdim, ULONG32 indices[], ICorDebugValue ** ppValue);
     COM_METHOD GetElementAtPosition(ULONG32 nIndex, ICorDebugValue ** ppValue);
@@ -9886,7 +9943,7 @@ private:
     // EE object handle pointer. Can be casted to OBJECTHANDLE when go to LS
     // This instance owns the handle object and must call into the VM to release
     // it.
-    // If this is non-null, then we increment code:CordbProces::IncrementOutstandingHandles.
+    // If this is non-null, then we increment code:CordbProcess::IncrementOutstandingHandles.
     // Once it goes null, we should decrement the count.
     // Use AssignHandle, ClearHandle to keep this in sync.
     VMPTR_OBJECTHANDLE  m_vmHandle;
@@ -10064,7 +10121,7 @@ public:
     VMPTR_OBJECTHANDLE  m_vmThreadOldExceptionHandle; // object handle for thread's managed exception object.
 
 #ifdef _DEBUG
-    // Func-eval should perturb the the thread's current appdomain. So we remember it at start
+    // Func-eval should perturb the thread's current appdomain. So we remember it at start
     // and then ensure that the func-eval complete restores it.
     CordbAppDomain *           m_DbgAppDomainStarted;
 #endif
@@ -11209,7 +11266,7 @@ public:
     void NotifyTakeLock(RSLock * pLock);
     void NotifyReleaseLock(RSLock * pLock);
 
-    // Used to map other resources (like thread access) into the lock hierachy.
+    // Used to map other resources (like thread access) into the lock hierarchy.
     // Note this only effects lock leveling checks and doesn't effect HoldsAnyLock().
     void TakeVirtualLock(RSLock::ERSLockLevel level);
     void ReleaseVirtualLock(RSLock::ERSLockLevel level);

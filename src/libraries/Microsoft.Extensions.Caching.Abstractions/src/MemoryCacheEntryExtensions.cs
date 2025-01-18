@@ -6,6 +6,9 @@ using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.Extensions.Caching.Memory
 {
+    /// <summary>
+    /// Provide extensions methods for <see cref="MemoryCacheEntryOptions"/> operations.
+    /// </summary>
     public static class MemoryCacheEntryExtensions
     {
         /// <summary>
@@ -42,15 +45,17 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// <summary>
-        /// Expire the cache entry if the given <see cref="IChangeToken"/> expires.
+        /// Expires the cache entry if the given <see cref="IChangeToken"/> expires.
         /// </summary>
         /// <param name="options">The <see cref="MemoryCacheEntryOptions"/>.</param>
         /// <param name="expirationToken">The <see cref="IChangeToken"/> that causes the cache entry to expire.</param>
         /// <returns>The <see cref="MemoryCacheEntryOptions"/> so that additional calls can be chained.</returns>
         public static MemoryCacheEntryOptions AddExpirationToken(
             this MemoryCacheEntryOptions options,
-            IChangeToken expirationToken!!)
+            IChangeToken expirationToken)
         {
+            ThrowHelper.ThrowIfNull(expirationToken);
+
             options.ExpirationTokens.Add(expirationToken);
             return options;
         }
@@ -99,20 +104,22 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// <summary>
-        /// The given callback will be fired after the cache entry is evicted from the cache.
+        /// Fires the given callback after the cache entry is evicted from the cache.
         /// </summary>
         /// <param name="options">The <see cref="MemoryCacheEntryOptions"/>.</param>
         /// <param name="callback">The callback to register for calling after an entry is evicted.</param>
         /// <returns>The <see cref="MemoryCacheEntryOptions"/> so that additional calls can be chained.</returns>
         public static MemoryCacheEntryOptions RegisterPostEvictionCallback(
             this MemoryCacheEntryOptions options,
-            PostEvictionDelegate callback!!)
+            PostEvictionDelegate callback)
         {
+            ThrowHelper.ThrowIfNull(callback);
+
             return options.RegisterPostEvictionCallback(callback, state: null);
         }
 
         /// <summary>
-        /// The given callback will be fired after the cache entry is evicted from the cache.
+        /// Fires the given callback after the cache entry is evicted from the cache.
         /// </summary>
         /// <param name="options">The <see cref="MemoryCacheEntryOptions"/>.</param>
         /// <param name="callback">The callback to register for calling after an entry is evicted.</param>
@@ -120,9 +127,11 @@ namespace Microsoft.Extensions.Caching.Memory
         /// <returns>The <see cref="MemoryCacheEntryOptions"/> so that additional calls can be chained.</returns>
         public static MemoryCacheEntryOptions RegisterPostEvictionCallback(
             this MemoryCacheEntryOptions options,
-            PostEvictionDelegate callback!!,
+            PostEvictionDelegate callback,
             object? state)
         {
+            ThrowHelper.ThrowIfNull(callback);
+
             options.PostEvictionCallbacks.Add(new PostEvictionCallbackRegistration()
             {
                 EvictionCallback = callback,

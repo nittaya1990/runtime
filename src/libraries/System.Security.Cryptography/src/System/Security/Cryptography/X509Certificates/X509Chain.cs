@@ -37,24 +37,11 @@ namespace System.Security.Cryptography.X509Certificates
             return new X509Chain();
         }
 
-        public X509ChainElementCollection ChainElements
-        {
-            get
-            {
-                if (_chainElements == null)
-                    _chainElements = new X509ChainElementCollection();
-                return _chainElements;
-            }
-        }
+        public X509ChainElementCollection ChainElements => _chainElements ??= new X509ChainElementCollection();
 
         public X509ChainPolicy ChainPolicy
         {
-            get
-            {
-                if (_chainPolicy == null)
-                    _chainPolicy = new X509ChainPolicy();
-                return _chainPolicy;
-            }
+            get => _chainPolicy ??= new X509ChainPolicy();
             set
             {
                 ArgumentNullException.ThrowIfNull(value);
@@ -67,10 +54,7 @@ namespace System.Security.Cryptography.X509Certificates
             get
             {
                 // We give the user a reference to the array since we'll never access it.
-                X509ChainStatus[]? chainStatus = _lazyChainStatus;
-                if (chainStatus == null)
-                    chainStatus = _lazyChainStatus = (_pal == null ? Array.Empty<X509ChainStatus>() : _pal.ChainStatus!);
-                return chainStatus;
+                return _lazyChainStatus ??= (_pal == null ? Array.Empty<X509ChainStatus>() : _pal.ChainStatus!);
             }
         }
 
@@ -114,17 +98,25 @@ namespace System.Security.Cryptography.X509Certificates
                 if (certificate == null || certificate.Pal == null)
                     throw new ArgumentException(SR.Cryptography_InvalidContextHandle, nameof(certificate));
 
-                if (_chainPolicy != null && _chainPolicy.CustomTrustStore != null)
+                if (_chainPolicy != null)
                 {
-                    if (_chainPolicy.TrustMode == X509ChainTrustMode.System && _chainPolicy.CustomTrustStore.Count > 0)
-                        throw new CryptographicException(SR.Cryptography_CustomTrustCertsInSystemMode);
-
-                    foreach (X509Certificate2 customCertificate in _chainPolicy.CustomTrustStore)
+                    if (_chainPolicy._customTrustStore != null)
                     {
-                        if (customCertificate == null || customCertificate.Handle == IntPtr.Zero)
+                        if (_chainPolicy.TrustMode == X509ChainTrustMode.System && _chainPolicy.CustomTrustStore.Count > 0)
+                            throw new CryptographicException(SR.Cryptography_CustomTrustCertsInSystemMode);
+
+                        foreach (X509Certificate2 customCertificate in _chainPolicy.CustomTrustStore)
                         {
-                            throw new CryptographicException(SR.Cryptography_InvalidTrustCertificate);
+                            if (customCertificate == null || customCertificate.Handle == IntPtr.Zero)
+                            {
+                                throw new CryptographicException(SR.Cryptography_InvalidTrustCertificate);
+                            }
                         }
+                    }
+
+                    if (_chainPolicy.TrustMode == X509ChainTrustMode.CustomRootTrust && _chainPolicy._customTrustStore == null)
+                    {
+                        _chainPolicy._customTrustStore = new X509Certificate2Collection();
                     }
                 }
 
@@ -141,30 +133,61 @@ namespace System.Security.Cryptography.X509Certificates
                     chainPolicy.RevocationFlag,
                     chainPolicy._customTrustStore,
                     chainPolicy.TrustMode,
-                    chainPolicy.VerificationTime,
+                    chainPolicy.VerificationTimeIgnored ? DateTime.Now : chainPolicy.VerificationTime,
                     chainPolicy.UrlRetrievalTimeout,
                     chainPolicy.DisableCertificateDownloads);
 
-                if (_pal == null)
-                    return false;
-
-                _chainElements = new X509ChainElementCollection(_pal.ChainElements!);
-
-                Exception? verificationException;
-                bool? verified = _pal.Verify(chainPolicy.VerificationFlags, out verificationException);
-                if (!verified.HasValue)
+                bool success = false;
+                if (_pal is not null)
                 {
-                    if (throwOnException)
+                    _chainElements = new X509ChainElementCollection(_pal.ChainElements!);
+
+                    Exception? verificationException;
+                    bool? verified = _pal.Verify(chainPolicy.VerificationFlags, out verificationException);
+                    if (!verified.HasValue)
                     {
-                        throw verificationException!;
+                        if (throwOnException)
+                        {
+                            throw verificationException!;
+                        }
+                        else
+                        {
+                            verified = false;
+                        }
                     }
-                    else
-                    {
-                        verified = false;
-                    }
+
+                    success = verified.Value;
                 }
 
-                return verified.Value;
+                // There are two reasons success might be false here.
+                //
+                // The most common reason is that we built the chain but the chain appears to run
+                // afoul of policy. This is represented by BuildChain returning a non-null object
+                // and storing potential policy violations in the chain structure. The public Build
+                // method returns false to the caller, and the caller can inspect the ChainStatus
+                // and ChainElements properties and evaluate the failure reason against app-level
+                // policies. If the caller does not care about these policy violations, they can
+                // choose to ignore them and to treat chain building as successful.
+                //
+                // The other type of failure is that BuildChain simply can't build the chain at all.
+                // Perhaps something within the certificate is not valid or is unsupported, or perhaps
+                // there's an internal failure within the OS layer we're invoking, etc. Whatever the
+                // reason, we're not meaningfully able to initialize the ChainStatus property, which
+                // means callers may observe a non-empty list of policy violations. Depending on the
+                // caller's logic, they might incorrectly interpret this as there being no policy
+                // violations at all, which means they might treat this condition as success.
+                //
+                // To avoid callers misinterpreting this latter condition as success, we'll throw an
+                // exception, which matches general .NET API behavior when a method cannot complete
+                // its objective. If throwOnException is false, it means the caller explicitly wants
+                // to suppress exceptions and normalize them to a false return value.
+
+                if (!success && throwOnException && _pal?.ChainStatus is not { Length: > 0 })
+                {
+                    throw new CryptographicException(SR.Cryptography_X509_ChainBuildingFailed);
+                }
+
+                return success;
             }
         }
 
@@ -190,9 +213,11 @@ namespace System.Security.Cryptography.X509Certificates
             _useMachineContext = false;
 
             IChainPal? pal = _pal;
-            _pal = null;
             if (pal != null)
+            {
+                _pal = null;
                 pal.Dispose();
+            }
         }
     }
 }

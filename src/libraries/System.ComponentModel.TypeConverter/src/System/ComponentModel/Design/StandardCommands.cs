@@ -534,7 +534,7 @@ namespace System.ComponentModel.Design
             internal const int cmdidCollapse = 188; // Collapse links
             internal const int cmdidRefresh = 189; // Refresh Webscope diagram
             internal const int cmdidLayout = 190; // Layout websope diagram
-            internal const int cmdidShowResources = 191; // Show resouce objects in webscope diagram
+            internal const int cmdidShowResources = 191; // Show resource objects in webscope diagram
             internal const int cmdidInsertHTMLWizard = 192; // Insert HTML using a Wizard
             internal const int cmdidShowDownloads = 193; // Show download objects in webscope diagram
             internal const int cmdidShowExternals = 194; // Show external objects in webscope diagram
@@ -1346,7 +1346,7 @@ namespace System.ComponentModel.Design
             internal static readonly Guid guidDsdCmdId = new Guid("{1F0FD094-8e53-11d2-8f9c-0060089fc486}");
             internal static readonly Guid SID_SOleComponentUIManager = new Guid("{5efc7974-14bc-11cf-9b2b-00aa00573819}");
             internal static readonly Guid GUID_VSTASKCATEGORY_DATADESIGNER = new Guid("{6B32EAED-13BB-11d3-A64F-00C04F683820}");
-            internal static readonly Guid GUID_PropertyBrowserToolWindow = new Guid(unchecked((int)0xeefa5220), unchecked((short)0xe298), unchecked((short)0x11d0), new byte[] { 0x8f, 0x78, 0x0, 0xa0, 0xc9, 0x11, 0x0, 0x57 });
+            internal static readonly Guid GUID_PropertyBrowserToolWindow = new Guid(0xeefa5220, 0xe298, 0x11d0, 0x8f, 0x78, 0x0, 0xa0, 0xc9, 0x11, 0x0, 0x57);
         }
     }
 }

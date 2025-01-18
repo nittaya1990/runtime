@@ -65,8 +65,13 @@ namespace System.Configuration
             foreach (string key in allKeys) Remove(key);
         }
 
-        public void CopyTo(ConfigurationSectionGroup[] array!!, int index)
+        public void CopyTo(ConfigurationSectionGroup[] array, int index)
         {
+            if (array is null)
+            {
+                throw new ArgumentNullException(nameof(array));
+            }
+
             int c = Count;
             if (array.Length < c + index) throw new ArgumentOutOfRangeException(nameof(index));
 
@@ -87,7 +92,7 @@ namespace System.Configuration
                 throw ExceptionUtil.ParameterNullOrEmpty(nameof(name));
 
             // prevent GetConfig from returning config not in this collection
-#if NETCOREAPP
+#if NET
             if (name.Contains('/'))
 #else
             if (name.IndexOf('/') >= 0)

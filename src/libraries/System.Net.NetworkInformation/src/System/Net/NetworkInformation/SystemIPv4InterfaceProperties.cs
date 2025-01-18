@@ -1,9 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
-
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Net.NetworkInformation
 {
@@ -18,10 +17,10 @@ namespace System.Net.NetworkInformation
         private bool _autoConfigEnabled;
         private bool _autoConfigActive;
 
-        internal SystemIPv4InterfaceProperties(Interop.IpHlpApi.FIXED_INFO fixedInfo, Interop.IpHlpApi.IpAdapterAddresses ipAdapterAddresses)
+        internal SystemIPv4InterfaceProperties(in Interop.IpHlpApi.IpAdapterAddresses ipAdapterAddresses)
         {
             _index = ipAdapterAddresses.index;
-            _routingEnabled = fixedInfo.enableRouting;
+            _routingEnabled = HostInformationPal.GetEnableRouting();
             _dhcpEnabled = ((ipAdapterAddresses.flags & Interop.IpHlpApi.AdapterFlags.DhcpEnabled) != 0);
             _haveWins = (ipAdapterAddresses.firstWinsServerAddress != IntPtr.Zero);
 
@@ -91,11 +90,10 @@ namespace System.Net.NetworkInformation
                         result = Interop.IpHlpApi.GetPerAdapterInfo(index, buffer, &size);
                         if (result == Interop.IpHlpApi.ERROR_SUCCESS)
                         {
-                            Interop.IpHlpApi.IpPerAdapterInfo ipPerAdapterInfo =
-                                Marshal.PtrToStructure<Interop.IpHlpApi.IpPerAdapterInfo>(buffer);
+                            Interop.IpHlpApi.IpPerAdapterInfo* ipPerAdapterInfo = (Interop.IpHlpApi.IpPerAdapterInfo*)buffer;
 
-                            _autoConfigEnabled = ipPerAdapterInfo.autoconfigEnabled;
-                            _autoConfigActive = ipPerAdapterInfo.autoconfigActive;
+                            _autoConfigEnabled = ipPerAdapterInfo->autoconfigEnabled != 0;
+                            _autoConfigActive = ipPerAdapterInfo->autoconfigActive != 0;
                         }
                     }
                     finally

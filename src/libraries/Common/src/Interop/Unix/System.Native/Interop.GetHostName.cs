@@ -14,6 +14,11 @@ internal static partial class Interop
 
         internal static unsafe string GetHostName()
         {
+            if (OperatingSystem.IsWasi())
+            {
+                return "localhost";
+            }
+
             const int HOST_NAME_MAX = 255;
             const int ArrLength = HOST_NAME_MAX + 1;
 
@@ -33,7 +38,7 @@ internal static partial class Interop
             // If the hostname is truncated, it is unspecified whether the returned buffer includes a terminating null byte.
             name[ArrLength - 1] = 0;
 
-            return Marshal.PtrToStringAnsi((IntPtr)name)!;
+            return Marshal.PtrToStringUTF8((IntPtr)name)!;
         }
     }
 }

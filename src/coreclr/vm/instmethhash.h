@@ -26,7 +26,7 @@ class AllocMemTracker;
 // Each persisted Module has an InstMethodHashTable used for such methods that
 // were ngen'ed into that module. See ceeload.hpp for more information about ngen modules.
 //
-// Methods created at runtime are placed in an InstMethHashTable in BaseDomain.
+// Methods created at runtime are placed in an InstMethHashTable in Module.
 //
 // Keys are always derivable from the data stored in the table (MethodDesc)
 //
@@ -81,8 +81,8 @@ private:
 public:
     void            InitUnseal() { LIMITED_METHOD_CONTRACT; m_dwSealCount = 0; }
     bool            IsUnsealed() { LIMITED_METHOD_CONTRACT; return (m_dwSealCount == 0); }
-    void            Seal()   { LIMITED_METHOD_CONTRACT; FastInterlockIncrement(&m_dwSealCount); }
-    void            Unseal() { LIMITED_METHOD_CONTRACT; FastInterlockDecrement(&m_dwSealCount); }
+    void            Seal()   { LIMITED_METHOD_CONTRACT; InterlockedIncrement(&m_dwSealCount); }
+    void            Unseal() { LIMITED_METHOD_CONTRACT; InterlockedDecrement(&m_dwSealCount); }
 #endif  // _DEBUG
 
 private:

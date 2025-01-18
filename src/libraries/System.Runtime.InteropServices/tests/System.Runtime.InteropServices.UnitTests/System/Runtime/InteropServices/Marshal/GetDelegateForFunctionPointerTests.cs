@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.Tests.Common;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace System.Runtime.InteropServices.Tests
     [ActiveIssue("https://github.com/dotnet/runtime/issues/39187", TestPlatforms.Browser)]
     public class GetDelegateForFunctionPointerTests
     {
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))]
         [InlineData(typeof(NonGenericDelegate))]
         [InlineData(typeof(MulticastDelegate))]
         [InlineData(typeof(OtherNonGenericDelegate))]
@@ -28,7 +29,7 @@ namespace System.Runtime.InteropServices.Tests
             VerifyDelegate(functionDelegate, targetMethod);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void GetDelegateForFunctionPointer_CollectibleType_ReturnsExpected()
         {
             MethodInfo targetMethod = typeof(GetDelegateForFunctionPointerTests).GetMethod(nameof(Method), BindingFlags.NonPublic | BindingFlags.Static);
@@ -51,7 +52,7 @@ namespace System.Runtime.InteropServices.Tests
             VerifyDelegate(functionDelegate, targetMethod);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))]
         public void GetDelegateForFunctionPointer_Generic_ReturnsExpected()
         {
             MethodInfo targetMethod = typeof(GetDelegateForFunctionPointerTests).GetMethod(nameof(Method), BindingFlags.NonPublic | BindingFlags.Static);
@@ -63,7 +64,7 @@ namespace System.Runtime.InteropServices.Tests
             VerifyDelegate(functionDelegate, targetMethod);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))]
         public void GetDelegateForFunctionPointer_GenericInvalidType_ReturnsExpected()
         {
             MethodInfo targetMethod = typeof(GetDelegateForFunctionPointerTests).GetMethod(nameof(Method), BindingFlags.NonPublic | BindingFlags.Static);
@@ -122,10 +123,13 @@ namespace System.Runtime.InteropServices.Tests
 
             yield return new object[] { typeof(GenericClass<>).GetTypeInfo().GenericTypeParameters[0] };
 
-            AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Assembly"), AssemblyBuilderAccess.Run);
-            ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("Module");
-            TypeBuilder typeBuilder = moduleBuilder.DefineType("Type");
-            yield return new object[] { typeBuilder };
+            if (PlatformDetection.IsReflectionEmitSupported)
+            {
+                AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Assembly"), AssemblyBuilderAccess.Run);
+                ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("Module");
+                TypeBuilder typeBuilder = moduleBuilder.DefineType("Type");
+                yield return new object[] { typeBuilder };
+            }
 
             yield return new object[] { typeof(Delegate) };
             yield return new object[] { typeof(GenericDelegate<>) };
@@ -139,7 +143,7 @@ namespace System.Runtime.InteropServices.Tests
             AssertExtensions.Throws<ArgumentException>("t", () => Marshal.GetDelegateForFunctionPointer((IntPtr)1, t));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))]
         public void GetDelegateForFunctionPointer_CantCast_ThrowsInvalidCastException()
         {
             MethodInfo targetMethod = typeof(GetDelegateForFunctionPointerTests).GetMethod(nameof(Method), BindingFlags.NonPublic | BindingFlags.Static);
@@ -148,6 +152,66 @@ namespace System.Runtime.InteropServices.Tests
 
             Assert.Throws<InvalidCastException>(() => Marshal.GetDelegateForFunctionPointer<OtherNonGenericDelegate>(ptr));
             GC.KeepAlive(d);
+        }
+
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/99478", TestRuntimes.Mono)]
+        public void GetDelegateForFunctionPointer_Resurrection()
+        {
+            GCHandle handle = Alloc();
+
+            if (PlatformDetection.IsPreciseGcSupported)
+            {
+                while (!IsNullTarget(handle))
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+            }
+
+            handle.Free();
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            static GCHandle Alloc()
+            {
+                GCHandle gcHandle = default;
+                gcHandle = GCHandle.Alloc(new FreachableObject(), GCHandleType.WeakTrackResurrection);
+                return gcHandle;
+            }
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            static bool IsNullTarget(GCHandle handle)
+            {
+                return handle.Target is null;
+            }
+        }
+
+        private class FreachableObject
+        {
+            private readonly Action _del;
+            private readonly IntPtr _fnptr;
+            private int _count;
+
+            internal FreachableObject()
+            {
+                _del = new Action(SomeFunction);
+                _fnptr = Marshal.GetFunctionPointerForDelegate(_del);
+            }
+
+            // Note: This method cannot be replaced by a lambda for the test to trigger the delegate resurrection
+            private void SomeFunction()
+            {
+            }
+
+            ~FreachableObject()
+            {
+                Assert.Same(Marshal.GetDelegateForFunctionPointer<Action>(_fnptr), _del);
+
+                if (_count++ < 3)
+                {
+                    GC.ReRegisterForFinalize(this);
+                }
+            }
         }
 
         public delegate void GenericDelegate<T>(T t);

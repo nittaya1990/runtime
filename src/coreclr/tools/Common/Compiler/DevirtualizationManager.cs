@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using Internal.TypeSystem;
 using CORINFO_DEVIRTUALIZATION_DETAIL = Internal.JitInterface.CORINFO_DEVIRTUALIZATION_DETAIL;
 using Debug = System.Diagnostics.Debug;
@@ -38,7 +37,7 @@ namespace ILCompiler
         }
 
         /// <summary>
-        /// Returns true if <paramref name="method"/> cannot be overriden by any other method.
+        /// Returns true if <paramref name="method"/> cannot be overridden by any other method.
         /// </summary>
         public virtual bool IsEffectivelySealed(MethodDesc method)
         {
@@ -107,11 +106,10 @@ namespace ILCompiler
                 }
                 else
                 {
-                    MethodDesc dimMethod = null;
                     // This isn't the correct lookup algorithm for variant default interface methods
                     // but as we will drop any results we find in any case, it doesn't matter much.
                     // Non-variant dispatch can simply use ResolveInterfaceMethodToDefaultImplementationOnType
-                    // but that implemenation currently cannot handle variance.
+                    // but that implementation currently cannot handle variance.
 
                     MethodDesc defaultInterfaceDispatchDeclMethod = null;
                     foreach (TypeDesc iface in implType.RuntimeInterfaces)
@@ -130,6 +128,7 @@ namespace ILCompiler
 
                     if (defaultInterfaceDispatchDeclMethod != null)
                     {
+                        MethodDesc dimMethod;
                         switch (implType.ResolveInterfaceMethodToDefaultImplementationOnType(defaultInterfaceDispatchDeclMethod, out dimMethod))
                         {
                             case DefaultInterfaceMethodResolution.Diamond:
@@ -159,15 +158,15 @@ namespace ILCompiler
             }
             else
             {
-                // The derived class should be a subclass of the the base class.
-                // this check is perfomed via typedef checking instead of casting, as we accept canon methods calling exact types
+                // The derived class should be a subclass of the base class.
+                // this check is performed via typedef checking instead of casting, as we accept canon methods calling exact types
                 TypeDesc checkType;
                 for (checkType = implType; checkType != null && !checkType.HasSameTypeDefinition(declMethod.OwningType); checkType = checkType.BaseType)
                 { }
 
                 if ((checkType == null) || (checkType.ConvertToCanonForm(CanonicalFormKind.Specific) != declMethod.OwningType.ConvertToCanonForm(CanonicalFormKind.Specific)))
                 {
-                    // The derived class should be a subclass of the the base class.
+                    // The derived class should be a subclass of the base class.
                     devirtualizationDetail = CORINFO_DEVIRTUALIZATION_DETAIL.CORINFO_DEVIRTUALIZATION_FAILED_SUBCLASS;
                     return null;
                 }
@@ -204,13 +203,19 @@ namespace ILCompiler
 
 #if !READYTORUN
         /// <summary>
-        /// Gets a value indicating whether it might be possible to obtain a constructed type data structure for the given type.
+        /// Gets a value indicating whether it might be possible to obtain a constructed type data structure for the given type
+        /// in this compilation (i.e. is it possible to reference a constructed MethodTable symbol for this).
         /// </summary>
-        /// <remarks>
-        /// This is a bit of a hack, but devirtualization manager has a global view of all allocated types
-        /// so it can answer this question.
-        /// </remarks>
-        public virtual bool CanConstructType(TypeDesc type) => true;
+        public virtual bool CanReferenceConstructedMethodTable(TypeDesc type) => true;
+
+        /// <summary>
+        /// Gets a value indicating whether a (potentially canonically-equlivalent) constructed MethodTable could
+        /// exist. This is similar to <see cref="CanReferenceConstructedMethodTable"/>, but will return true
+        /// for List&lt;__Canon&gt; if a constructed MethodTable for List&lt;object&gt; exists.
+        /// </summary>
+        public virtual bool CanReferenceConstructedTypeOrCanonicalFormOfType(TypeDesc type) => true;
+
+        public virtual TypeDesc[] GetImplementingClasses(TypeDesc type) => null;
 #endif
     }
 }

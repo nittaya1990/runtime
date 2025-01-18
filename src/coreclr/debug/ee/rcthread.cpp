@@ -11,13 +11,6 @@
 
 #include "stdafx.h"
 #include "threadsuspend.h"
-#ifndef TARGET_UNIX
-
-#include "securitywrapper.h"
-#endif
-#include <aclapi.h>
-
-#include "eemessagebox.h"
 
 #ifndef SM_REMOTESESSION
 #define SM_REMOTESESSION 0x1000
@@ -109,28 +102,6 @@ void DebuggerRCThread::CloseIPCHandles()
 }
 
 //-----------------------------------------------------------------------------
-// Helper to get the proper decorated name
-// Caller ensures that pBufSize is large enough. We'll assert just to check,
-// but no runtime failure.
-// pBuf - the output buffer to write the decorated name in
-// cBufSizeInChars - the size of the buffer in characters, including the null.
-// pPrefx - The undecorated name of the event.
-//-----------------------------------------------------------------------------
-void GetPidDecoratedName(_Out_writes_(cBufSizeInChars) WCHAR * pBuf,
-                         int cBufSizeInChars,
-                         const WCHAR * pPrefix)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    DWORD pid = GetCurrentProcessId();
-
-    GetPidDecoratedName(pBuf, cBufSizeInChars, pPrefix, pid);
-}
-
-
-
-
-//-----------------------------------------------------------------------------
 // Simple wrapper to create win32 events.
 // This helps make DebuggerRCThread::Init pretty, beccause we
 // create lots of events there.
@@ -155,7 +126,7 @@ HANDLE CreateWin32EventOrThrow(
     CONTRACT_END;
 
     HANDLE h = NULL;
-    h = WszCreateEvent(lpEventAttributes, (BOOL) eType, bInitialState, NULL);
+    h = CreateEvent(lpEventAttributes, (BOOL) eType, bInitialState, NULL);
 
     if (h == NULL)
         ThrowLastError();
@@ -180,7 +151,7 @@ HANDLE OpenWin32EventOrThrow(
     }
     CONTRACT_END;
 
-    HANDLE h = WszOpenEvent(
+    HANDLE h = OpenEvent(
         dwDesiredAccess,
         bInheritHandle,
         lpName
@@ -374,7 +345,7 @@ HRESULT DebuggerRCThread::Init(void)
     // We will not fail out if CreateEvent fails for RSEA or RSER. Because
     // the worst case is that debugger cannot attach to debuggee.
     //
-    HandleHolder rightSideEventAvailable(WszCreateEvent(NULL, (BOOL) kAutoResetEvent, FALSE, NULL));
+    HandleHolder rightSideEventAvailable(CreateEvent(NULL, (BOOL) kAutoResetEvent, FALSE, NULL));
 
     // Security fix:
     // We need to check the last error to see if the event was precreated or not
@@ -387,7 +358,7 @@ HRESULT DebuggerRCThread::Init(void)
         rightSideEventAvailable.Clear();
     }
 
-    HandleHolder rightSideEventRead(WszCreateEvent(NULL, (BOOL) kAutoResetEvent, FALSE, NULL));
+    HandleHolder rightSideEventRead(CreateEvent(NULL, (BOOL) kAutoResetEvent, FALSE, NULL));
 
     // Security fix:
     // We need to check the last error to see if the event was precreated or not
@@ -428,7 +399,7 @@ HRESULT DebuggerRCThread::Init(void)
     if(m_pDCB)
     {
         // We have to ensure that most of the runtime offsets for the out-of-proc DCB are initialized right away. This is
-        // needed to support certian races during an interop attach. Since we can't know whether an interop attach will ever
+        // needed to support certain races during an interop attach. Since we can't know whether an interop attach will ever
         // happen or not, we are forced to do this now. Note: this is really too early, as some data structures haven't been
         // initialized yet!
         hr = EnsureRuntimeOffsetsInit(IPC_TARGET_OUTOFPROC);
@@ -505,7 +476,7 @@ HRESULT DebuggerRCThread::SetupRuntimeOffsets(DebuggerIPCControlBlock * pDebugge
     // Fill out the struct.
 #ifdef FEATURE_INTEROP_DEBUGGING
     pDebuggerRuntimeOffsets->m_genericHijackFuncAddr = Debugger::GenericHijackFunc;
-    // Set flares - these only exist for interop debugging.
+    // the following 6 flares only exist for interop debugging.
     pDebuggerRuntimeOffsets->m_signalHijackStartedBPAddr = (void*) SignalHijackStartedFlare;
     pDebuggerRuntimeOffsets->m_excepForRuntimeHandoffStartBPAddr = (void*) ExceptionForRuntimeHandoffStartFlare;
     pDebuggerRuntimeOffsets->m_excepForRuntimeHandoffCompleteBPAddr = (void*) ExceptionForRuntimeHandoffCompleteFlare;
@@ -514,6 +485,16 @@ HRESULT DebuggerRCThread::SetupRuntimeOffsets(DebuggerIPCControlBlock * pDebugge
     pDebuggerRuntimeOffsets->m_notifyRSOfSyncCompleteBPAddr = (void*) NotifyRightSideOfSyncCompleteFlare;
     pDebuggerRuntimeOffsets->m_debuggerWordTLSIndex = g_debuggerWordTLSIndex;
 #endif // FEATURE_INTEROP_DEBUGGING
+
+#ifdef OUT_OF_PROCESS_SETTHREADCONTEXT
+#ifdef TARGET_WINDOWS
+    pDebuggerRuntimeOffsets->m_setThreadContextNeededAddr = (void*) SetThreadContextNeededFlare;
+#else
+    #error Platform not supported
+#endif
+#else
+    pDebuggerRuntimeOffsets->m_setThreadContextNeededAddr = NULL;
+#endif
 
     pDebuggerRuntimeOffsets->m_pPatches = DebuggerController::GetPatchTable();
     pDebuggerRuntimeOffsets->m_pPatchTableValid = (BOOL*)DebuggerController::GetPatchTableValidAddr();
@@ -577,13 +558,12 @@ static LONG _debugFilter(LPEXCEPTION_POINTERS ep, PVOID pv)
         // We can't really use SStrings on the helper thread; though if we're at this point, we've already died.
         // So go ahead and risk it and use them anyways.
         SString sStack;
-        StackScratchBuffer buffer;
         GetStackTraceAtContext(sStack, ep->ContextRecord);
         const CHAR *string = NULL;
 
         EX_TRY
         {
-            string = sStack.GetANSI(buffer);
+            string = sStack.GetUTF8();
         }
         EX_CATCH
         {
@@ -630,7 +610,7 @@ void DebuggerRCThread::ThreadProc(void)
     // This message actually serves a purpose (which is why it is always run)
     // The Stress log is run during hijacking, when other threads can be suspended
     // at arbitrary locations (including when holding a lock that NT uses to serialize
-    // all memory allocations).  By sending a message now, we insure that the stress
+    // all memory allocations).  By sending a message now, we ensure that the stress
     // log will not allocate memory at these critical times an avoid deadlock.
     {
         SUPPRESS_ALLOCATION_ASSERTS_IN_THIS_SCOPE;
@@ -823,7 +803,7 @@ bool DebuggerRCThread::HandleRSEA()
     memcpy(e, GetIPCEventReceiveBuffer(), CorDBIPC_BUFFER_SIZE);
 #else
     // Be sure to fetch the event into the official receive buffer since some event handlers assume it's there
-    // regardless of the the event buffer pointer passed to them.
+    // regardless of the event buffer pointer passed to them.
     e = GetIPCEventReceiveBuffer();
     g_pDbgTransport->GetNextEvent(e, CorDBIPC_BUFFER_SIZE);
 #endif // !FEATURE_DBGIPC_TRANSPOPRT
@@ -878,7 +858,7 @@ void DebuggerRCThread::MainLoop()
         PRECONDITION(m_thread != NULL);
         PRECONDITION(ThisIsHelperThreadWorker());
         PRECONDITION(IsDbgHelperSpecialThread());   // Can only be called on native debugger helper thread
-        PRECONDITION((!ThreadStore::HoldingThreadStore()) || g_fProcessDetach);
+        PRECONDITION((!ThreadStore::HoldingThreadStore()) || IsAtProcessExit());
     }
     CONTRACTL_END;
 
@@ -953,7 +933,7 @@ void DebuggerRCThread::MainLoop()
         if (dwWaitResult == WAIT_OBJECT_0 + DRCT_DEBUGGER_EVENT)
         {
             // If the handle of the right side process is signaled, then we've lost our controlling debugger. We
-            // terminate this process immediatley in such a case.
+            // terminate this process immediately in such a case.
             LOG((LF_CORDB, LL_INFO1000, "DRCT::ML: terminating this process. Right Side has exited.\n"));
             SUPPRESS_ALLOCATION_ASSERTS_IN_THIS_SCOPE;
             EEPOLICY_HANDLE_FATAL_ERROR(0);
@@ -980,12 +960,12 @@ void DebuggerRCThread::MainLoop()
             {
 
                 // If they called continue, then we must have released the TSL.
-                _ASSERTE(!ThreadStore::HoldingThreadStore() || g_fProcessDetach);
+                _ASSERTE(!ThreadStore::HoldingThreadStore() || IsAtProcessExit());
 
                 // Let's release the lock here since runtime is resumed.
                 debugLockHolderSuspended.Release();
 
-                // This debugger thread shoud not be holding debugger locks anymore
+                // This debugger thread should not be holding debugger locks anymore
                 _ASSERTE(!g_pDebugger->ThreadHoldsLock());
 #ifdef _DEBUG
                 // Always reset the syncSpinCount to 0 on a continue so that we have the maximum number of possible
@@ -1082,7 +1062,7 @@ LWaitTimedOut:
                 // We also hold debugger lock the whole time that Runtime is stopped. We will release the debugger lock
                 // when we receive the Continue event that resumes the runtime.
 
-                _ASSERTE(ThreadStore::HoldingThreadStore() || g_fProcessDetach);
+                _ASSERTE(ThreadStore::HoldingThreadStore() || IsAtProcessExit());
             }
             else
             {
@@ -1112,7 +1092,7 @@ LWaitTimedOut:
 //     that we are waiting for will trigger the corresponding release.
 //
 //     IMPORTANT!!! READ ME!!!!
-//     This MainLoop is similiar to MainLoop function above but simplified to deal with only
+//     This MainLoop is similar to MainLoop function above but simplified to deal with only
 //     some scenario. So if you change here, you should look at MainLoop to see if same change is
 //     required.
 //---------------------------------------------------------------------------------------
@@ -1127,7 +1107,7 @@ void DebuggerRCThread::TemporaryHelperThreadMainLoop()
         // It should be holding the debugger lock!!!
         //
         PRECONDITION(m_debugger->ThreadHoldsLock());
-        PRECONDITION((ThreadStore::HoldingThreadStore()) || g_fProcessDetach);
+        PRECONDITION((ThreadStore::HoldingThreadStore()) || IsAtProcessExit());
         PRECONDITION(ThisIsTempHelperThread());
     }
     CONTRACTL_END;
@@ -1173,7 +1153,7 @@ void DebuggerRCThread::TemporaryHelperThreadMainLoop()
         if (dwWaitResult == WAIT_OBJECT_0 + DRCT_DEBUGGER_EVENT)
         {
             // If the handle of the right side process is signaled, then we've lost our controlling debugger. We
-            // terminate this process immediatley in such a case.
+            // terminate this process immediately in such a case.
             LOG((LF_CORDB, LL_INFO1000, "DRCT::THTML: terminating this process. Right Side has exited.\n"));
 
             TerminateProcess(GetCurrentProcess(), 0);
@@ -1197,7 +1177,7 @@ void DebuggerRCThread::TemporaryHelperThreadMainLoop()
             if (fWasContinue)
             {
                 // If they called continue, then we must have released the TSL.
-                _ASSERTE(!ThreadStore::HoldingThreadStore() || g_fProcessDetach);
+                _ASSERTE(!ThreadStore::HoldingThreadStore() || IsAtProcessExit());
 
 #ifdef _DEBUG
                 // Always reset the syncSpinCount to 0 on a continue so that we have the maximum number of possible
@@ -1261,7 +1241,7 @@ LWaitTimedOut:
             dwWaitTimeout = INFINITE;
 
             // Note: we hold the thread store lock now and debugger lock...
-            _ASSERTE(ThreadStore::HoldingThreadStore() || g_fProcessDetach);
+            _ASSERTE(ThreadStore::HoldingThreadStore() || IsAtProcessExit());
 
         }
     }
@@ -1331,6 +1311,11 @@ LExit:
 
     DebuggerRCThread* t = (DebuggerRCThread*)g_pRCThread;
 
+    if (FAILED(SetThreadName(t->m_thread, W(".NET Debugger"))))
+    {
+        LOG((LF_CORDB, LL_INFO10000, "DebuggerRCThread name set failed\n"));
+    }
+
     t->ThreadProc(); // this thread is local, go and become the helper
 
     return 0;
@@ -1386,7 +1371,6 @@ HRESULT DebuggerRCThread::Start(void)
         {
             LOG((LF_CORDB, LL_EVERYTHING, "DebuggerRCThread failed, err=%d\n", GetLastError()));
             hr = HRESULT_FROM_GetLastError();
-
         }
         else
         {
@@ -1483,7 +1467,7 @@ HRESULT inline DebuggerRCThread::EnsureRuntimeOffsetsInit(IpcTarget ipcTarget)
 }
 
 //
-// Call this function to tell the rc thread that we need the runtime offsets re-initialized at the next avaliable time.
+// Call this function to tell the rc thread that we need the runtime offsets re-initialized at the next available time.
 //
 void DebuggerRCThread::NeedRuntimeOffsetsReInit(IpcTarget i)
 {
@@ -1549,7 +1533,7 @@ HRESULT DebuggerRCThread::SendIPCEvent()
                 // or mode-preemptive!
                 // If we're the helper thread, we're only sending events while we're stopped.
                 // Our callers will be mode-cooperative, so call this mode_cooperative to avoid a bunch
-                // of unncessary contract violations.
+                // of unnecessary contract violations.
                 MODE_COOPERATIVE;
             }
             else
@@ -1611,7 +1595,7 @@ bool DebuggerRCThread::IsRCThreadReady()
     // leaving the threadid still non-0. So check the actual thread object
     // and make sure it's still around.
     int ret = WaitForSingleObject(m_thread, 0);
-    LOG((LF_CORDB, LL_EVERYTHING, "DRCT::IsReady - wait(0x%p)=%d, GetLastError() = %d\n", m_thread, ret, GetLastError()));
+    LOG((LF_CORDB, LL_EVERYTHING, "DRCT::IsReady - wait(%p)=0x%x, GetLastError() = 0x%x\n", m_thread, ret, GetLastError()));
 
     if (ret != WAIT_TIMEOUT)
     {

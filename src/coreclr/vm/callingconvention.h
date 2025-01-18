@@ -41,6 +41,9 @@ struct ArgLocDesc
 
     int     m_byteStackIndex;     // Stack offset in bytes (or -1)
     int     m_byteStackSize;      // Stack size in bytes
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+    FpStructInRegistersInfo m_structFields; // Struct field info when using floating-point register(s)
+#endif
 
 #if defined(UNIX_AMD64_ABI)
 
@@ -93,6 +96,9 @@ struct ArgLocDesc
 #if defined(TARGET_ARM64)
         m_hfaFieldSize = 0;
 #endif // defined(TARGET_ARM64)
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        m_structFields = {};
+#endif
 #if defined(UNIX_AMD64_ABI)
         m_eeClass = NULL;
 #endif
@@ -137,6 +143,49 @@ struct TransitionBlock
     };
     TADDR padding; // Keep size of TransitionBlock as multiple of 16-byte. Simplifies code in PROLOG_WITH_TRANSITION_BLOCK
     INT64 m_x8RetBuffReg;
+    ArgumentRegisters       m_argumentRegisters;
+#elif defined(TARGET_LOONGARCH64)
+    union {
+        CalleeSavedRegisters m_calleeSavedRegisters;
+        struct {
+            INT64 fp; // frame pointer
+            TADDR m_ReturnAddress;
+            INT64 s0;
+            INT64 s1;
+            INT64 s2;
+            INT64 s3;
+            INT64 s4;
+            INT64 s5;
+            INT64 s6;
+            INT64 s7;
+            INT64 s8;
+            INT64 tp;
+        };
+    };
+    //TADDR padding; // Keep size of TransitionBlock as multiple of 16-byte. Simplifies code in PROLOG_WITH_TRANSITION_BLOCK
+    ArgumentRegisters       m_argumentRegisters;
+#elif defined(TARGET_RISCV64)
+    union {
+        CalleeSavedRegisters m_calleeSavedRegisters;
+        struct {
+            INT64 fp; // frame pointer
+            TADDR m_ReturnAddress;
+            INT64 s1;
+            INT64 s2;
+            INT64 s3;
+            INT64 s4;
+            INT64 s5;
+            INT64 s6;
+            INT64 s7;
+            INT64 s8;
+            INT64 s9;
+            INT64 s10;
+            INT64 s11;
+            INT64 tp;
+            INT64 gp;
+        };
+    };
+    TADDR padding; // Keep size of TransitionBlock as multiple of 16-byte. Simplifies code in PROLOG_WITH_TRANSITION_BLOCK
     ArgumentRegisters       m_argumentRegisters;
 #else
     PORTABILITY_ASSERT("TransitionBlock");
@@ -259,6 +308,11 @@ struct TransitionBlock
         {
             return argLocDescForStructInRegs->m_cFloatReg > 0;
         }
+    #elif defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        if (argLocDescForStructInRegs != NULL)
+        {
+            return argLocDescForStructInRegs->m_cFloatReg > 0;
+        }
     #endif
         return offset < 0;
     }
@@ -320,6 +374,10 @@ public:
     {
         WRAPPER_NO_CONTRACT;
         m_dwFlags = 0;
+#if defined(TARGET_RISCV64) || defined(TARGET_LOONGARCH64)
+        m_returnedFpFieldOffsets[0] = 0;
+        m_returnedFpFieldOffsets[1] = 0;
+#endif
     }
 
     UINT SizeOfArgStack()
@@ -381,6 +439,21 @@ public:
             ComputeReturnFlags();
         return m_dwFlags >> RETURN_FP_SIZE_SHIFT;
     }
+
+#if defined(TARGET_RISCV64) || defined(TARGET_LOONGARCH64)
+    FpStructInRegistersInfo GetReturnFpStructInRegistersInfo()
+    {
+        WRAPPER_NO_CONTRACT;
+        if (!(m_dwFlags & RETURN_FLAGS_COMPUTED))
+            ComputeReturnFlags();
+
+        return {
+            FpStruct::Flags(m_dwFlags >> RETURN_FP_SIZE_SHIFT),
+            m_returnedFpFieldOffsets[0],
+            m_returnedFpFieldOffsets[1],
+        };
+    }
+#endif // defined(TARGET_RISCV64) || defined(TARGET_LOONGARCH64)
 
 #ifdef TARGET_X86
     //=========================================================================
@@ -476,6 +549,11 @@ public:
 #elif defined(TARGET_ARM64)
         // Composites greater than 16 bytes are passed by reference
         return ((size > ENREGISTERED_PARAMTYPE_MAXSIZE) && !th.IsHFA());
+#elif defined(TARGET_LOONGARCH64)
+        // Composites greater than 16 bytes are passed by reference
+        return (size > ENREGISTERED_PARAMTYPE_MAXSIZE);
+#elif defined(TARGET_RISCV64)
+        return (size > ENREGISTERED_PARAMTYPE_MAXSIZE);
 #else
         PORTABILITY_ASSERT("ArgIteratorTemplate::IsArgPassedByRef");
         return FALSE;
@@ -530,6 +608,13 @@ public:
             return ((m_argSize > ENREGISTERED_PARAMTYPE_MAXSIZE) && (!m_argTypeHandle.IsHFA() || this->IsVarArg()));
         }
         return FALSE;
+#elif defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        if (m_argType == ELEMENT_TYPE_VALUETYPE)
+        {
+            _ASSERTE(!m_argTypeHandle.IsNull());
+            return (m_argSize > ENREGISTERED_PARAMTYPE_MAXSIZE);
+        }
+        return FALSE;
 #else
         PORTABILITY_ASSERT("ArgIteratorTemplate::IsArgPassedByRef");
         return FALSE;
@@ -557,7 +642,7 @@ public:
     //------------------------------------------------------------
     int GetNextOffset();
 
-    CorElementType GetArgType(TypeHandle *pTypeHandle = NULL)
+    CorElementType GetArgType(TypeHandle *pTypeHandle = NULL) const
     {
         LIMITED_METHOD_CONTRACT;
         if (pTypeHandle != NULL)
@@ -567,7 +652,7 @@ public:
         return m_argType;
     }
 
-    int GetArgSize()
+    int GetArgSize() const
     {
         LIMITED_METHOD_CONTRACT;
         return m_argSize;
@@ -591,7 +676,7 @@ public:
 
     ArgLocDesc* GetArgLocDescForStructInRegs()
     {
-#if defined(UNIX_AMD64_ABI) || defined (TARGET_ARM64)
+#if defined(UNIX_AMD64_ABI) || defined (TARGET_ARM64) || defined(TARGET_LOONGARCH64) || defined (TARGET_RISCV64)
         return m_hasArgLocDescForStructInRegs ? &m_argLocDescForStructInRegs : NULL;
 #else
         return NULL;
@@ -788,9 +873,66 @@ public:
     }
 #endif // TARGET_AMD64
 
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+    // Get layout information for the argument that the ArgIterator is currently visiting.
+    // TODO-RISCV64: support SIMD.
+    void GetArgLoc(int argOffset, ArgLocDesc *pLoc)
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        pLoc->Init();
+
+        if (m_hasArgLocDescForStructInRegs)
+        {
+            *pLoc = m_argLocDescForStructInRegs;
+            return;
+        }
+
+        if (TransitionBlock::IsFloatArgumentRegisterOffset(argOffset))
+        {
+            // Dividing by 8 as size of each register in FloatArgumentRegisters is 8 bytes.
+            const int floatRegOfsInBytes = argOffset - TransitionBlock::GetOffsetOfFloatArgumentRegisters();
+            _ASSERTE((floatRegOfsInBytes % FLOAT_REGISTER_SIZE) == 0);
+
+            pLoc->m_idxFloatReg = floatRegOfsInBytes / FLOAT_REGISTER_SIZE;
+
+            pLoc->m_cFloatReg = 1;
+
+            return;
+        }
+
+        int cSlots = (GetArgSize() + 7)/ 8;
+
+        // Composites greater than 16bytes are passed by reference
+        if (IsArgPassedByRef())
+        {
+            cSlots = 1;
+        }
+
+        if (!TransitionBlock::IsStackArgumentOffset(argOffset))
+        {
+            // At least one used integer register passed.
+            pLoc->m_idxGenReg = TransitionBlock::GetArgumentIndexFromOffset(argOffset);
+            pLoc->m_cGenReg = cSlots;
+        }
+        else
+        {
+            pLoc->m_byteStackIndex = TransitionBlock::GetStackArgumentByteIndexFromOffset(argOffset);
+            pLoc->m_byteStackSize = cSlots << 3;
+        }
+
+        return;
+    }
+
+#endif // TARGET_LOONGARCH64 || TARGET_RISCV64
 protected:
     DWORD               m_dwFlags;              // Cached flags
     int                 m_nSizeOfArgStack;      // Cached value of SizeOfArgStack
+#if defined(TARGET_RISCV64) || defined(TARGET_LOONGARCH64)
+    // Cached offsets of struct fields returned according to hardware floating-point calling convention
+    // (FpStruct::Flags are packed in m_dwFlags)
+    unsigned m_returnedFpFieldOffsets[ENREGISTERED_RETURNTYPE_MAXSIZE / sizeof(ARG_SLOT)];
+#endif
 
     DWORD               m_argNum;
 
@@ -798,18 +940,15 @@ protected:
     CorElementType      m_argType;
     int                 m_argSize;
     TypeHandle          m_argTypeHandle;
-#if (defined(TARGET_AMD64) && defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if (defined(TARGET_AMD64) && defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64) || defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
     ArgLocDesc          m_argLocDescForStructInRegs;
     bool                m_hasArgLocDescForStructInRegs;
-#endif // (TARGET_AMD64 && UNIX_AMD64_ABI) || TARGET_ARM64
+#endif // (TARGET_AMD64 && UNIX_AMD64_ABI) || TARGET_ARM64 || TARGET_LOONGARCH64 || TARGET_RISCV64
 
     int                 m_ofsStack;           // Current position of the stack iterator, in bytes
 
 #ifdef TARGET_X86
     int                 m_numRegistersUsed;
-#ifdef FEATURE_INTERPRETER
-    bool                m_fUnmanagedCallConv;
-#endif
 #endif
 
 #ifdef UNIX_AMD64_ABI
@@ -826,6 +965,18 @@ protected:
 
 #ifdef TARGET_ARM64
     int             m_idxGenReg;        // Next general register to be assigned a value
+    int             m_idxFPReg;         // Next FP register to be assigned a value
+#endif
+
+#ifdef TARGET_LOONGARCH64
+    int             m_idxGenReg;        // Next general register to be assigned a value
+    int             m_idxStack;         // Next stack slot to be assigned a value
+    int             m_idxFPReg;         // Next FP register to be assigned a value
+#endif
+
+#ifdef TARGET_RISCV64
+    int             m_idxGenReg;        // Next general register to be assigned a value
+    int             m_idxStack;         // Next stack slot to be assigned a value
     int             m_idxFPReg;         // Next FP register to be assigned a value
 #endif
 
@@ -1028,31 +1179,8 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
             numRegistersUsed = NUM_ARGUMENT_REGISTERS; // Nothing else gets passed in registers for varargs
         }
 
-#ifdef FEATURE_INTERPRETER
-        BYTE callconv = CallConv();
-        switch (callconv)
-        {
-        case IMAGE_CEE_CS_CALLCONV_C:
-        case IMAGE_CEE_CS_CALLCONV_STDCALL:
-            m_numRegistersUsed = NUM_ARGUMENT_REGISTERS;
-            m_ofsStack = TransitionBlock::GetOffsetOfArgs() + numRegistersUsed * sizeof(void *);
-            m_fUnmanagedCallConv = true;
-            break;
-
-        case IMAGE_CEE_CS_CALLCONV_THISCALL:
-        case IMAGE_CEE_CS_CALLCONV_FASTCALL:
-            _ASSERTE_MSG(false, "Unsupported calling convention.");
-
-        default:
-            m_fUnmanagedCallConv = false;
-            m_numRegistersUsed = numRegistersUsed;
-            m_ofsStack = TransitionBlock::GetOffsetOfArgs() + SizeOfArgStack();
-            break;
-        }
-#else
         m_numRegistersUsed = numRegistersUsed;
         m_ofsStack = TransitionBlock::GetOffsetOfArgs() + SizeOfArgStack();
-#endif
 
 #elif defined(TARGET_AMD64)
 #ifdef UNIX_AMD64_ABI
@@ -1072,6 +1200,10 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
         m_ofsStack = 0;
 
         m_idxFPReg = 0;
+#elif defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        m_idxGenReg = numRegistersUsed;
+        m_ofsStack = 0;
+        m_idxFPReg = 0;
 #else
         PORTABILITY_ASSERT("ArgIteratorTemplate::GetNextOffset");
 #endif
@@ -1088,25 +1220,24 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
     TypeHandle thValueType;
     CorElementType argType = this->GetNextArgumentType(m_argNum++, &thValueType);
 
+    // TypedReference behaves like a valuetype
+    if (argType == ELEMENT_TYPE_TYPEDBYREF)
+    {
+        argType = ELEMENT_TYPE_VALUETYPE;
+        thValueType = TypeHandle(g_TypedReferenceMT);
+    }
+
     int argSize = MetaSig::GetElemSize(argType, thValueType);
 
     m_argType = argType;
     m_argSize = argSize;
     m_argTypeHandle = thValueType;
 
-#if defined(UNIX_AMD64_ABI) || defined (TARGET_ARM64)
+#if defined(UNIX_AMD64_ABI) || defined (TARGET_ARM64) || defined (TARGET_LOONGARCH64) || defined (TARGET_RISCV64)
     m_hasArgLocDescForStructInRegs = false;
 #endif
 
 #ifdef TARGET_X86
-#ifdef FEATURE_INTERPRETER
-    if (m_fUnmanagedCallConv)
-    {
-        int argOfs = m_ofsStack;
-        m_ofsStack += StackElemSize(argSize);
-        return argOfs;
-    }
-#endif
     if (IsArgumentInRegister(&m_numRegistersUsed, argType, thValueType))
     {
         return TransitionBlock::GetOffsetOfArgumentRegisters() + (NUM_ARGUMENT_REGISTERS - m_numRegistersUsed) * sizeof(void *);
@@ -1522,6 +1653,129 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
     int argOfs = TransitionBlock::GetOffsetOfArgs() + m_ofsStack;
     m_ofsStack += cbArg;
     return argOfs;
+#elif defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+    assert(!this->IsVarArg()); // Varargs on RISC-V and LoongArch not supported yet
+    int cFPRegs = 0;
+    FpStructInRegistersInfo info = {};
+
+    switch (argType)
+    {
+    case ELEMENT_TYPE_R4:
+    case ELEMENT_TYPE_R8:
+        // Floating point argument
+        cFPRegs = 1;
+        break;
+
+    case ELEMENT_TYPE_VALUETYPE:
+    {
+        // Handle struct which containing floats or doubles that can be passed
+        // in FP registers if possible.
+
+        // Composite greater than 16bytes should be passed by reference
+        if (argSize > ENREGISTERED_PARAMTYPE_MAXSIZE)
+        {
+            argSize = sizeof(TADDR);
+        }
+        else
+        {
+            info = MethodTable::GetFpStructInRegistersInfo(thValueType);
+            if (info.flags != FpStruct::UseIntCallConv)
+            {
+                cFPRegs = (info.flags & FpStruct::BothFloat) ? 2 : 1;
+            }
+        }
+
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    const bool isValueType = (argType == ELEMENT_TYPE_VALUETYPE);
+    const bool isFloatHfa = thValueType.IsFloatHfa();
+    const int cbArg = StackElemSize(argSize, isValueType, isFloatHfa);
+
+    if (cFPRegs > 0 && !this->IsVarArg())
+    {
+        // If there's enough free registers, pass according to hardware floating-point calling convention
+
+        if (info.flags & (FpStruct::FloatInt | FpStruct::IntFloat))
+        {
+            assert(cFPRegs == 1);
+            assert((info.flags & (FpStruct::OnlyOne | FpStruct::BothFloat)) == 0);
+
+            if ((1 + m_idxFPReg <= NUM_ARGUMENT_REGISTERS) && (1 + m_idxGenReg <= NUM_ARGUMENT_REGISTERS))
+            {
+                m_argLocDescForStructInRegs.Init();
+                m_argLocDescForStructInRegs.m_idxFloatReg = m_idxFPReg;
+                m_argLocDescForStructInRegs.m_cFloatReg = 1;
+
+                m_argLocDescForStructInRegs.m_structFields = info;
+
+                m_argLocDescForStructInRegs.m_idxGenReg = m_idxGenReg;
+                m_argLocDescForStructInRegs.m_cGenReg = 1;
+
+                m_hasArgLocDescForStructInRegs = true;
+
+                int argOfs = (info.flags & FpStruct::IntFloat)
+                    ? TransitionBlock::GetOffsetOfArgumentRegisters() + m_idxGenReg * TARGET_POINTER_SIZE
+                    : TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_idxFPReg * FLOAT_REGISTER_SIZE;
+
+                m_idxFPReg++;
+                m_idxGenReg++;
+                return argOfs;
+            }
+        }
+        else if (cFPRegs + m_idxFPReg <= NUM_ARGUMENT_REGISTERS)
+        {
+            int argOfs = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_idxFPReg * FLOAT_REGISTER_SIZE;
+            if (info.flags != FpStruct::UseIntCallConv)
+            {
+                assert(info.flags & (FpStruct::OnlyOne | FpStruct::BothFloat));
+                m_argLocDescForStructInRegs.Init();
+                m_hasArgLocDescForStructInRegs = true;
+                m_argLocDescForStructInRegs.m_idxFloatReg = m_idxFPReg;
+                m_argLocDescForStructInRegs.m_cFloatReg = cFPRegs;
+                m_argLocDescForStructInRegs.m_structFields = info;
+            }
+            m_idxFPReg += cFPRegs;
+            return argOfs;
+        }
+    }
+
+    {
+        // Pass according to integer calling convention
+        assert((cbArg % TARGET_POINTER_SIZE) == 0);
+
+        const int regSlots = ALIGN_UP(cbArg, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE;
+        if (m_idxGenReg + regSlots <= NUM_ARGUMENT_REGISTERS)
+        {
+            // The entirety of the arg fits in the register slots.
+            int argOfs = TransitionBlock::GetOffsetOfArgumentRegisters() + m_idxGenReg * TARGET_POINTER_SIZE;
+            m_idxGenReg += regSlots;
+            return argOfs;
+        }
+        else if (m_idxGenReg < NUM_ARGUMENT_REGISTERS)
+        {
+            // Split argument
+            assert(regSlots == 2);
+            static const int lastReg = NUM_ARGUMENT_REGISTERS - 1;
+            assert(m_idxGenReg == lastReg); // pass head in last register
+            assert(m_ofsStack == 0); // pass tail in first stack slot
+
+            int argOfs = TransitionBlock::GetOffsetOfArgumentRegisters() + lastReg * TARGET_POINTER_SIZE;
+            m_idxGenReg = NUM_ARGUMENT_REGISTERS;
+            m_ofsStack = TARGET_POINTER_SIZE;
+            return argOfs;
+        }
+    }
+
+    // Pass argument entirely on stack
+    int argOfs = TransitionBlock::GetOffsetOfArgs() + m_ofsStack;
+    m_ofsStack += ALIGN_UP(cbArg, TARGET_POINTER_SIZE);
+
+    return argOfs;
 #else
     PORTABILITY_ASSERT("ArgIteratorTemplate::GetNextOffset");
     return TransitionBlock::InvalidOffset;
@@ -1557,14 +1811,22 @@ void ArgIteratorTemplate<ARGITERATOR_BASE>::ComputeReturnFlags()
         break;
 
     case ELEMENT_TYPE_R4:
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        flags |= (FpStruct::OnlyOne | (2 << FpStruct::PosSizeShift1st)) << RETURN_FP_SIZE_SHIFT;
+#else
 #ifndef ARM_SOFTFP
         flags |= sizeof(float) << RETURN_FP_SIZE_SHIFT;
+#endif
 #endif
         break;
 
     case ELEMENT_TYPE_R8:
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+        flags |= (FpStruct::OnlyOne | (3 << FpStruct::PosSizeShift1st)) << RETURN_FP_SIZE_SHIFT;
+#else
 #ifndef ARM_SOFTFP
         flags |= sizeof(double) << RETURN_FP_SIZE_SHIFT;
+#endif
 #endif
         break;
 
@@ -1629,8 +1891,20 @@ void ArgIteratorTemplate<ARGITERATOR_BASE>::ComputeReturnFlags()
             }
 #endif // defined(TARGET_X86) || defined(TARGET_AMD64)
 
+#if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
+            if  (size <= ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE)
+            {
+                assert(!thValueType.IsTypeDesc());
+                FpStructInRegistersInfo info = MethodTable::GetFpStructInRegistersInfo(thValueType);
+                flags |= info.flags << RETURN_FP_SIZE_SHIFT;
+                m_returnedFpFieldOffsets[0] = info.offset1st;
+                m_returnedFpFieldOffsets[1] = info.offset2nd;
+                break;
+            }
+#else
             if  (size <= ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE)
                 break;
+#endif
 #endif // UNIX_AMD64_ABI
         }
 #endif // ENREGISTERED_RETURNTYPE_INTEGER_MAXSIZE
@@ -1681,24 +1955,6 @@ void ArgIteratorTemplate<ARGITERATOR_BASE>::ForceSigWalk()
         nSizeOfArgStack += sizeof(void *);
         numRegistersUsed = NUM_ARGUMENT_REGISTERS; // Nothing else gets passed in registers for varargs
     }
-
-#ifdef FEATURE_INTERPRETER
-    BYTE callconv = CallConv();
-    switch (callconv)
-    {
-    case IMAGE_CEE_CS_CALLCONV_C:
-    case IMAGE_CEE_CS_CALLCONV_STDCALL:
-        numRegistersUsed = NUM_ARGUMENT_REGISTERS;
-        nSizeOfArgStack = TransitionBlock::GetOffsetOfArgs() + numRegistersUsed * sizeof(void *);
-        break;
-
-    case IMAGE_CEE_CS_CALLCONV_THISCALL:
-    case IMAGE_CEE_CS_CALLCONV_FASTCALL:
-        _ASSERTE_MSG(false, "Unsupported calling convention.");
-    default:
-        break;
-    }
-#endif // FEATURE_INTERPRETER
 
     DWORD nArgs = this->NumFixedArgs();
     for (DWORD i = 0; i < nArgs; i++)
@@ -1878,13 +2134,6 @@ public:
         LIMITED_METHOD_CONTRACT;
         return m_pSig->NumFixedArgs();
     }
-
-#ifdef FEATURE_INTERPRETER
-    BYTE CallConv()
-    {
-        return m_pSig->GetCallingConvention();
-    }
-#endif // FEATURE_INTERPRETER
 
     //
     // The following is used by the profiler to dig into the iterator for

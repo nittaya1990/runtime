@@ -27,8 +27,11 @@ else(CLR_CMAKE_TARGET_WIN32)
     set_exports_linker_option(${EXPORTS_FILE})
 endif(CLR_CMAKE_TARGET_WIN32)
 
-include(../../lib.cmake)
-include(../../lib_static.cmake)
+add_compile_definitions(EXPORT_SHARED_API)
+
+add_library(hostfxr SHARED ${SOURCES})
+
+add_version_info_to_target(hostfxr)
 
 if(CLR_CMAKE_HOST_UNIX)
     add_custom_target(hostfxr_exports DEPENDS ${EXPORTS_FILE})
@@ -38,25 +41,11 @@ if(CLR_CMAKE_HOST_UNIX)
     set_property(TARGET hostfxr APPEND_STRING PROPERTY LINK_DEPENDS ${EXPORTS_FILE})
 endif(CLR_CMAKE_HOST_UNIX)
 
-# Copy static lib PDB to the project output directory
-if (WIN32)
-    set_target_properties(libhostfxr PROPERTIES
-        COMPILE_PDB_NAME "libhostfxr"
-        COMPILE_PDB_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}"
-    )
-endif(WIN32)
-
 install_with_stripped_symbols(hostfxr TARGETS corehost)
 
-# Only Windows creates a symbols file for static libs.
-if (WIN32)
-    install_with_stripped_symbols(libhostfxr TARGETS corehost)
-else()
-    install(TARGETS libhostfxr DESTINATION corehost)
-endif(WIN32)
+target_link_libraries(hostfxr PRIVATE libhostcommon)
 
-target_link_libraries(hostfxr libhostcommon)
-
-if (CLR_CMAKE_TARGET_ARCH_ARMV6)
-    target_link_libraries(${DOTNET_PROJECT_NAME} atomic)
+if(CLR_CMAKE_TARGET_ARCH_ARM OR CLR_CMAKE_TARGET_ARCH_ARMV6)
+    target_link_libraries(hostfxr PRIVATE 
+        $<$<BOOL:${ATOMIC_SUPPORT_LIB}>:${ATOMIC_SUPPORT_LIB}>)
 endif()

@@ -25,7 +25,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
             _sourceModule = sourceModule;
         }
 
-        public override ObjectNodeSection Section => ObjectNodeSection.TextSection;
+        public override ObjectNodeSection GetSection(NodeFactory factory) => ObjectNodeSection.TextSection;
 
         public override bool IsShareable => false;
 
@@ -148,7 +148,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append(nameMangler.CompilationUnitPrefix);
-            sb.Append("__MetadataBlob");
+            sb.Append("__MetadataBlob"u8);
         }
 
         public override int CompareToImpl(ISortableNode other, CompilerComparer comparer)

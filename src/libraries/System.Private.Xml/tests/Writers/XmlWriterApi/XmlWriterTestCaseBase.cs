@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using OLEDB.Test.ModuleCore;
 using System.IO;
+using OLEDB.Test.ModuleCore;
 using XmlCoreTest.Common;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlWriterApiTests
 {
     public class XmlWriterUtils
     {
@@ -19,7 +19,7 @@ namespace System.Xml.Tests
 
         public XmlWriterUtils(WriterType writerType, bool async)
         {
-            WriterFactory = new WriterFactory(writerType);
+            WriterFactory = new WriterFactory(writerType, true, async);
             Async = async;
         }
 

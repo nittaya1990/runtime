@@ -4,8 +4,6 @@
 
 Note that this document focuses on coreclr testing in `dotnet/runtime`.
 
-https://github.com/dotnet/runtime/issues/702 was opened as a way to simply view in one place all issues that are affecting `dotnet/runtime`'s CI.
-
 ## TOC
 
 1. [Terminology](#Terminology)
@@ -15,7 +13,7 @@ https://github.com/dotnet/runtime/issues/702 was opened as a way to simply view 
 
 #### Terminology
 
-In order to follow some of the terminology used, there is an expected familiarity of Azure DevOps required. For an in depth guide with Azure DevOps pipeline definitions, please see: https://docs.microsoft.com/en-us/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema.
+In order to follow some of the terminology used, there is an expected familiarity of Azure DevOps required. For an in depth guide with Azure DevOps pipeline definitions, please see: https://learn.microsoft.com/azure/devops/pipelines/yaml-schema?view=azure-devops&tabs=schema.
 
 The most common terminology and most important are the different containers work happens in.
 
@@ -111,7 +109,7 @@ The **Failure Trend** graph attempts to show what is failing in bar graph and gi
 
 The **Failed Runs** graph is the most interesting for finding specific issues. As of writing the `Top 10 failing tasks` are:
 
-*Note* that any one of these buckets can include random one off infrastructure failures or systimatic Azure Dev Ops failures. For example the build bucket can include issues like:
+*Note* that any one of these buckets can include random one off infrastructure failures or systematic Azure Dev Ops failures. For example the build bucket can include issues like:
 
 >  fips.c(143): OpenSSL internal error
 

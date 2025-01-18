@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection.Metadata;
 
 namespace System.Reflection
 {
@@ -129,6 +130,11 @@ namespace System.Reflection
             return assemblyName;
         }
 
+        internal static RuntimeAssemblyName FromAssemblyNameInfo(AssemblyNameInfo source)
+        {
+            return new(source.Name, source.Version, source.CultureName, source._flags, source.PublicKeyOrToken);
+        }
+
         //
         // Copies a RuntimeAssemblyName into a freshly allocated AssemblyName with no data aliasing to any other object.
         //
@@ -142,18 +148,17 @@ namespace System.Reflection
 
             // Our "Flags" contain both the classic flags and the ProcessorArchitecture + ContentType bits. The public AssemblyName has separate properties for
             // these. The setters for these properties quietly mask out any bits intended for the other one, so we needn't do that ourselves..
-            blank.Flags = this.Flags.ExtractAssemblyNameFlags();
-            blank.ContentType = this.Flags.ExtractAssemblyContentType();
+            blank.Flags = AssemblyNameInfo.ExtractAssemblyNameFlags(this.Flags);
+            blank.ContentType = AssemblyNameInfo.ExtractAssemblyContentType(this.Flags);
 #pragma warning disable SYSLIB0037 // AssemblyName.ProcessorArchitecture is obsolete
-            blank.ProcessorArchitecture = ExtractProcessorArchitecture(this.Flags);
+            blank.ProcessorArchitecture = AssemblyNameInfo.ExtractProcessorArchitecture(this.Flags);
 #pragma warning restore SYSLIB0037
 
             if (this.PublicKeyOrToken != null)
             {
                 // We must not hand out our own copy of the PKT to AssemblyName as AssemblyName is amazingly trusting and gives untrusted callers
                 // full freedom to scribble on its PKT array. (As do we but we only have trusted callers!)
-                byte[] pkCopy = new byte[this.PublicKeyOrToken.Length];
-                ((ICollection<byte>)(this.PublicKeyOrToken)).CopyTo(pkCopy, 0);
+                var pkCopy = (byte[])this.PublicKeyOrToken.Clone();
 
                 if (0 != (this.Flags & AssemblyNameFlags.PublicKey))
                     blank.SetPublicKey(pkCopy);
@@ -169,13 +174,8 @@ namespace System.Reflection
             get
             {
                 byte[]? pkt = (0 != (Flags & AssemblyNameFlags.PublicKey)) ? AssemblyNameHelpers.ComputePublicKeyToken(PublicKeyOrToken) : PublicKeyOrToken;
-                return AssemblyNameFormatter.ComputeDisplayName(Name, Version, CultureName, pkt, Flags.ExtractAssemblyNameFlags(), Flags.ExtractAssemblyContentType());
+                return AssemblyNameFormatter.ComputeDisplayName(Name, Version, CultureName, pkt, AssemblyNameInfo.ExtractAssemblyNameFlags(Flags), AssemblyNameInfo.ExtractAssemblyContentType(Flags));
             }
-        }
-
-        internal static ProcessorArchitecture ExtractProcessorArchitecture(AssemblyNameFlags flags)
-        {
-            return (ProcessorArchitecture)((((int)flags) >> 4) & 0x7);
         }
     }
 }

@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
-using System.Runtime.InteropServices;
 
 using ILCompiler.DependencyAnalysis;
 using ILCompiler.DependencyAnalysisFramework;
@@ -26,7 +25,6 @@ namespace ILCompiler
         protected readonly NodeFactory _nodeFactory;
         protected readonly Logger _logger;
         protected readonly DebugInformationProvider _debugInformationProvider;
-        protected readonly DevirtualizationManager _devirtualizationManager;
         private readonly IInliningPolicy _inliningPolicy;
 
         public NameMangler NameMangler => _nodeFactory.NameMangler;
@@ -45,7 +43,6 @@ namespace ILCompiler
             IEnumerable<ICompilationRootProvider> compilationRoots,
             ILProvider ilProvider,
             DebugInformationProvider debugInformationProvider,
-            DevirtualizationManager devirtualizationManager,
             IInliningPolicy inliningPolicy,
             Logger logger)
         {
@@ -53,7 +50,6 @@ namespace ILCompiler
             _nodeFactory = nodeFactory;
             _logger = logger;
             _debugInformationProvider = debugInformationProvider;
-            _devirtualizationManager = devirtualizationManager;
             _inliningPolicy = inliningPolicy;
 
             _dependencyGraph.ComputeDependencyRoutine += ComputeDependencyNodeDependencies;
@@ -107,23 +103,28 @@ namespace ILCompiler
             return _inliningPolicy.CanInline(caller, callee);
         }
 
-        public bool CanConstructType(TypeDesc type)
+        public bool CanReferenceConstructedMethodTable(TypeDesc type)
         {
-            return _devirtualizationManager.CanConstructType(type);
+            return NodeFactory.DevirtualizationManager.CanReferenceConstructedMethodTable(type.NormalizeInstantiation());
         }
 
-        public DelegateCreationInfo GetDelegateCtor(TypeDesc delegateType, MethodDesc target, bool followVirtualDispatch)
+        public bool CanReferenceConstructedTypeOrCanonicalFormOfType(TypeDesc type)
         {
-            // If we're creating a delegate to a virtual method that cannot be overriden, devirtualize.
+            return NodeFactory.DevirtualizationManager.CanReferenceConstructedTypeOrCanonicalFormOfType(type.NormalizeInstantiation());
+        }
+
+        public DelegateCreationInfo GetDelegateCtor(TypeDesc delegateType, MethodDesc target, TypeDesc constrainedType, bool followVirtualDispatch)
+        {
+            // If we're creating a delegate to a virtual method that cannot be overridden, devirtualize.
             // This is not just an optimization - it's required for correctness in the presence of sealed
             // vtable slots.
-            if (followVirtualDispatch && (target.IsFinal || target.OwningType.IsSealed()))
+            if (followVirtualDispatch && NodeFactory.DevirtualizationManager.IsEffectivelySealed(target))
                 followVirtualDispatch = false;
 
             if (followVirtualDispatch)
                 target = MetadataVirtualMethodAlgorithm.FindSlotDefiningMethodForVirtualMethod(target);
 
-            return DelegateCreationInfo.Create(delegateType, target, NodeFactory, followVirtualDispatch);
+            return DelegateCreationInfo.Create(delegateType, target, constrainedType, NodeFactory, followVirtualDispatch);
         }
 
         /// <summary>
@@ -137,15 +138,12 @@ namespace ILCompiler
             }
             else if (field is ExternSymbolMappedField externField)
             {
-                return NodeFactory.ExternSymbol(externField.SymbolName);
+                return NodeFactory.ExternVariable(externField.SymbolName);
             }
             else
             {
                 // Use the typical field definition in case this is an instantiated generic type
-                field = field.GetTypicalFieldDefinition();
-                int fieldTypePack = (field.FieldType as MetadataType)?.GetClassLayout().PackingSize ?? 1;
-                return NodeFactory.ReadOnlyDataBlob(NameMangler.GetMangledFieldName(field),
-                    ((EcmaField)field).GetFieldRvaData(), Math.Max(NodeFactory.Target.PointerSize, fieldTypePack));
+                return NodeFactory.FieldRvaData((EcmaField)field.GetTypicalFieldDefinition());
             }
         }
 
@@ -212,24 +210,29 @@ namespace ILCompiler
             return intrinsicMethod;
         }
 
-        public bool HasFixedSlotVTable(TypeDesc type)
+        public bool NeedsSlotUseTracking(TypeDesc type)
         {
-            return NodeFactory.VTable(type).HasFixedSlots;
+            return !NodeFactory.VTable(type).HasKnownVirtualMethodUse;
         }
 
         public bool IsEffectivelySealed(TypeDesc type)
         {
-            return _devirtualizationManager.IsEffectivelySealed(type);
+            return NodeFactory.DevirtualizationManager.IsEffectivelySealed(type);
+        }
+
+        public TypeDesc[] GetImplementingClasses(TypeDesc type)
+        {
+            return NodeFactory.DevirtualizationManager.GetImplementingClasses(type);
         }
 
         public bool IsEffectivelySealed(MethodDesc method)
         {
-            return _devirtualizationManager.IsEffectivelySealed(method);
+            return NodeFactory.DevirtualizationManager.IsEffectivelySealed(method);
         }
 
         public MethodDesc ResolveVirtualMethod(MethodDesc declMethod, TypeDesc implType, out CORINFO_DEVIRTUALIZATION_DETAIL devirtualizationDetail)
         {
-            return _devirtualizationManager.ResolveVirtualMethod(declMethod, implType, out devirtualizationDetail);
+            return NodeFactory.DevirtualizationManager.ResolveVirtualMethod(declMethod, implType, out devirtualizationDetail);
         }
 
         public bool NeedsRuntimeLookup(ReadyToRunHelperId lookupKind, object targetOfLookup)
@@ -263,8 +266,7 @@ namespace ILCompiler
 
         public ReadyToRunHelperId GetLdTokenHelperForType(TypeDesc type)
         {
-            bool canConstructPerWholeProgramAnalysis = _devirtualizationManager == null ? true : _devirtualizationManager.CanConstructType(type);
-            return canConstructPerWholeProgramAnalysis & DependencyAnalysis.ConstructedEETypeNode.CreationAllowed(type)
+            return (ConstructedEETypeNode.CreationAllowed(type) && NodeFactory.DevirtualizationManager.CanReferenceConstructedMethodTable(type.NormalizeInstantiation()))
                 ? ReadyToRunHelperId.TypeHandle
                 : ReadyToRunHelperId.NecessaryTypeHandle;
         }
@@ -299,9 +301,16 @@ namespace ILCompiler
                 case ReadyToRunHelperId.TypeHandleForCasting:
                     {
                         var type = (TypeDesc)targetOfLookup;
+
+                        // We counter-intuitively ask for a constructed type symbol. This is needed due to IDynamicInterfaceCastable.
+                        // If this cast happens with an object that implements IDynamicIntefaceCastable, user code will
+                        // see a RuntimeTypeHandle representing this interface.
+                        if (type.IsInterface)
+                            return NodeFactory.MaximallyConstructableType(type);
+
                         if (type.IsNullable)
-                            targetOfLookup = type.Instantiation[0];
-                        return NecessaryTypeSymbolIfPossible((TypeDesc)targetOfLookup);
+                            type = type.Instantiation[0];
+                        return NecessaryTypeSymbolIfPossible(type);
                     }
                 case ReadyToRunHelperId.MethodDictionary:
                     return NodeFactory.MethodGenericDictionary((MethodDesc)targetOfLookup);
@@ -315,7 +324,7 @@ namespace ILCompiler
                     {
                         var type = (TypeDesc)targetOfLookup;
                         MethodDesc ctor = GetConstructorForCreateInstanceIntrinsic(type);
-                        return NodeFactory.CanonicalEntrypoint(ctor);
+                        return type.IsValueType ? NodeFactory.ExactCallableAddress(ctor) : NodeFactory.CanonicalEntrypoint(ctor);
                     }
                 case ReadyToRunHelperId.ObjectAllocator:
                     {
@@ -377,41 +386,36 @@ namespace ILCompiler
                 lookupKind = ReadyToRunHelperId.TypeHandle;
             }
 
-            // Can we do a fixed lookup? Start by checking if we can get to the dictionary.
-            // Context source having a vtable with fixed slots is a prerequisite.
-            if (contextSource == GenericContextSource.MethodParameter
-                || HasFixedSlotVTable(contextMethod.OwningType))
+            DictionaryLayoutNode dictionaryLayout;
+            if (contextSource == GenericContextSource.MethodParameter)
+                dictionaryLayout = _nodeFactory.GenericDictionaryLayout(contextMethod);
+            else
+                dictionaryLayout = _nodeFactory.GenericDictionaryLayout(contextMethod.OwningType);
+
+            // If the dictionary layout has fixed slots, we can compute the lookup now. Otherwise defer to helper.
+            if (dictionaryLayout.HasFixedSlots)
             {
-                DictionaryLayoutNode dictionaryLayout;
-                if (contextSource == GenericContextSource.MethodParameter)
-                    dictionaryLayout = _nodeFactory.GenericDictionaryLayout(contextMethod);
-                else
-                    dictionaryLayout = _nodeFactory.GenericDictionaryLayout(contextMethod.OwningType);
+                int pointerSize = _nodeFactory.Target.PointerSize;
 
-                // If the dictionary layout has fixed slots, we can compute the lookup now. Otherwise defer to helper.
-                if (dictionaryLayout.HasFixedSlots)
+                GenericLookupResult lookup = ReadyToRunGenericHelperNode.GetLookupSignature(_nodeFactory, lookupKind, targetOfLookup);
+                if (dictionaryLayout.TryGetSlotForEntry(lookup, out int dictionarySlot))
                 {
-                    int pointerSize = _nodeFactory.Target.PointerSize;
+                    int dictionaryOffset = dictionarySlot * pointerSize;
 
-                    GenericLookupResult lookup = ReadyToRunGenericHelperNode.GetLookupSignature(_nodeFactory, lookupKind, targetOfLookup);
-                    int dictionarySlot = dictionaryLayout.GetSlotForFixedEntry(lookup);
-                    if (dictionarySlot != -1)
+                    if (contextSource == GenericContextSource.MethodParameter)
                     {
-                        int dictionaryOffset = dictionarySlot * pointerSize;
-
-                        bool indirectLastOffset = lookup.LookupResultReferenceType(_nodeFactory) == GenericLookupResultReferenceType.Indirect;
-
-                        if (contextSource == GenericContextSource.MethodParameter)
-                        {
-                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset, indirectLastOffset: indirectLastOffset);
-                        }
-                        else
-                        {
-                            int vtableSlot = VirtualMethodSlotHelper.GetGenericDictionarySlot(_nodeFactory, contextMethod.OwningType);
-                            int vtableOffset = EETypeNode.GetVTableOffset(pointerSize) + vtableSlot * pointerSize;
-                            return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset, indirectLastOffset: indirectLastOffset);
-                        }
+                        return GenericDictionaryLookup.CreateFixedLookup(contextSource, dictionaryOffset);
                     }
+                    else
+                    {
+                        int vtableSlot = VirtualMethodSlotHelper.GetGenericDictionarySlot(_nodeFactory, contextMethod.OwningType);
+                        int vtableOffset = EETypeNode.GetVTableOffset(pointerSize) + vtableSlot * pointerSize;
+                        return GenericDictionaryLookup.CreateFixedLookup(contextSource, vtableOffset, dictionaryOffset);
+                    }
+                }
+                else
+                {
+                    return GenericDictionaryLookup.CreateNullLookup(contextSource);
                 }
             }
 
@@ -440,7 +444,7 @@ namespace ILCompiler
         }
 
         /// <summary>
-        /// Retreives method whose runtime handle is suitable for use with GVMLookupForSlot.
+        /// Retrieves method whose runtime handle is suitable for use with GVMLookupForSlot.
         /// </summary>
         public MethodDesc GetTargetOfGenericVirtualMethodCall(MethodDesc calledMethod)
         {
@@ -462,7 +466,7 @@ namespace ILCompiler
             }
 
             // Normalize to the slot defining method
-            MethodDesc slotNormalizedMethod = TypeSystemContext.GetInstantiatedMethod(
+            InstantiatedMethod slotNormalizedMethod = TypeSystemContext.GetInstantiatedMethod(
                 slotNormalizedMethodDefinition,
                 targetMethod.Instantiation);
 
@@ -490,7 +494,7 @@ namespace ILCompiler
 
                 while (!slotNormalizedMethod.OwningType.HasSameTypeDefinition(runtimeDeterminedOwningType))
                 {
-                    TypeDesc runtimeDeterminedBaseTypeDefinition = runtimeDeterminedOwningType.GetTypeDefinition().BaseType;
+                    DefType runtimeDeterminedBaseTypeDefinition = runtimeDeterminedOwningType.GetTypeDefinition().BaseType;
                     if (runtimeDeterminedBaseTypeDefinition.HasInstantiation)
                     {
                         runtimeDeterminedOwningType = runtimeDeterminedBaseTypeDefinition.InstantiateSignature(runtimeDeterminedOwningType.Instantiation, default);
@@ -513,17 +517,11 @@ namespace ILCompiler
 
         CompilationResults ICompilation.Compile(string outputFile, ObjectDumper dumper)
         {
-            if (dumper != null)
-            {
-                dumper.Begin();
-            }
+            dumper?.Begin();
 
             CompileInternal(outputFile, dumper);
 
-            if (dumper != null)
-            {
-                dumper.End();
-            }
+            dumper?.End();
 
             return new CompilationResults(_dependencyGraph, _nodeFactory);
         }
@@ -547,18 +545,18 @@ namespace ILCompiler
             }
             protected override bool CompareKeyToValue(MethodDesc key, MethodILData value)
             {
-                return Object.ReferenceEquals(key, value.Method);
+                return ReferenceEquals(key, value.Method);
             }
             protected override bool CompareValueToValue(MethodILData value1, MethodILData value2)
             {
-                return Object.ReferenceEquals(value1.Method, value2.Method);
+                return ReferenceEquals(value1.Method, value2.Method);
             }
             protected override MethodILData CreateValueFromKey(MethodDesc key)
             {
                 return new MethodILData() { Method = key, MethodIL = ILProvider.GetMethodIL(key) };
             }
 
-            internal class MethodILData
+            internal sealed class MethodILData
             {
                 public MethodDesc Method;
                 public MethodIL MethodIL;
@@ -627,8 +625,8 @@ namespace ILCompiler
             {
                 foreach (var node in MarkedNodes)
                 {
-                    if (node is IMethodBodyNode)
-                        yield return ((IMethodBodyNode)node).Method;
+                    if (node is IMethodBodyNode methodBodyNode)
+                        yield return methodBodyNode.Method;
                 }
             }
         }
@@ -640,9 +638,31 @@ namespace ILCompiler
                 foreach (var node in MarkedNodes)
                 {
                     if (node is ConstructedEETypeNode || node is CanonicalEETypeNode)
-                    {
                         yield return ((IEETypeNode)node).Type;
-                    }
+                }
+            }
+        }
+
+        public IEnumerable<TypeDesc> AllEETypes
+        {
+            get
+            {
+                foreach (var node in MarkedNodes)
+                {
+                    if (node is IEETypeNode typeNode)
+                        yield return typeNode.Type;
+                }
+            }
+        }
+
+        public IEnumerable<MethodDesc> ReflectedMethods
+        {
+            get
+            {
+                foreach (var node in MarkedNodes)
+                {
+                    if (node is ReflectedMethodNode reflectedMethod)
+                        yield return reflectedMethod.Method;
                 }
             }
         }
@@ -654,5 +674,18 @@ namespace ILCompiler
         public readonly MethodDesc Method;
         public ConstrainedCallInfo(TypeDesc constrainedType, MethodDesc method)
             => (ConstrainedType, Method) = (constrainedType, method);
+        public int CompareTo(ConstrainedCallInfo other, TypeSystemComparer comparer)
+        {
+            int result = comparer.Compare(ConstrainedType, other.ConstrainedType);
+            if (result == 0)
+                result = comparer.Compare(Method, other.Method);
+            return result;
+        }
+        public override bool Equals(object obj) =>
+            obj is ConstrainedCallInfo other
+            && ConstrainedType == other.ConstrainedType
+            && Method == other.Method;
+
+        public override int GetHashCode() => HashCode.Combine(ConstrainedType, Method);
     }
 }

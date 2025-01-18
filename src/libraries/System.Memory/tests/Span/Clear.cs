@@ -180,7 +180,7 @@ namespace System.SpanTests
 
             var span = new Span<string>(actual);
             span.Clear();
-            Assert.Equal<string>(expected, actual);
+            Assert.Equal(expected, actual);
         }
 
         [Fact]
@@ -195,7 +195,7 @@ namespace System.SpanTests
 
             var span = new Span<string>(actual);
             span.Clear();
-            Assert.Equal<string>(expected, actual);
+            Assert.Equal(expected, actual);
         }
 
         [Fact]
@@ -263,7 +263,7 @@ namespace System.SpanTests
             if (sizeof(IntPtr) == sizeof(long))
             {
                 // Arrange
-                IntPtr bytes = (IntPtr)(((long)int.MaxValue) * sizeof(int));
+                nint bytes = unchecked((nint)(((long)int.MaxValue) * sizeof(int)));
                 int length = (int)(((long)bytes) / sizeof(int));
 
                 if (!AllocationHelper.TryAllocNative(bytes, out IntPtr memory))

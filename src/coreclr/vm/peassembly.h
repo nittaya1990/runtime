@@ -26,7 +26,6 @@
 #include "ex.h"
 #include "assemblyspecbase.h"
 #include "eecontract.h"
-#include "metadatatracker.h"
 #include "stackwalktypes.h"
 #include <specstrings.h>
 #include "slist.h"
@@ -117,10 +116,11 @@ public:
     const SString& GetPath();
     const SString& GetIdentityPath();
 
-#ifdef DACCESS_COMPILE
-    // This is the metadata module name. Used as a hint as file name.
+    // This is the module file name. Used as a hint as file name.
+    // For assemblies loaded from a path or single-file bundle, this is the file name portion of the path
+    // For assemblies loaded from memory, this is the module file name from metadata
+    // For reflection emitted assemblies, this is an empty string
     const SString &GetModuleFileNameHint();
-#endif // DACCESS_COMPILE
 
     LPCWSTR GetPathForErrorMessages();
 
@@ -137,8 +137,8 @@ public:
 
 #ifdef LOGGING
     // This is useful for log messages
-    LPCWSTR GetDebugName();
-#endif
+    LPCUTF8 GetDebugName();
+#endif // LOGGING
 
     // ------------------------------------------------------------
     // Checks
@@ -152,7 +152,7 @@ public:
     // ------------------------------------------------------------
 
     BOOL IsSystem() const;
-    BOOL IsDynamic() const;
+    BOOL IsReflectionEmit() const;
 
     // ------------------------------------------------------------
     // Metadata access
@@ -205,10 +205,9 @@ public:
     void *GetVTable(RVA rva);
 
     BOOL GetResource(LPCSTR szName, DWORD *cbResource,
-                     PBYTE *pbInMemoryResource, DomainAssembly** pAssemblyRef,
+                     PBYTE *pbInMemoryResource, Assembly** pAssemblyRef,
                      LPCSTR *szFileName, DWORD *dwLocation,
-                     BOOL fSkipRaiseResolveEvent, DomainAssembly* pDomainAssembly,
-                     AppDomain* pAppDomain);
+                     Assembly* pAssembly);
 
 #ifndef DACCESS_COMPILE
     PTR_CVOID GetMetadata(COUNT_T *pSize);
@@ -261,7 +260,7 @@ public:
 
     BOOL IsLoaded()
     {
-        return IsDynamic() || HasLoadedPEImage();
+        return IsReflectionEmit() || HasLoadedPEImage();
     }
 
     BOOL IsPtrInPEImage(PTR_CVOID data);
@@ -321,8 +320,6 @@ public:
     }
 
 #endif //!DACCESS_COMPILE
-
-    ULONG HashIdentity();
 
     PTR_AssemblyBinder GetFallbackBinder()
     {
@@ -392,10 +389,10 @@ private:
  // Instance fields
  // ------------------------------------------------------------
 
-#ifdef _DEBUG
-    LPCWSTR                 m_pDebugName;
+#ifdef LOGGING
+    LPCUTF8                 m_pDebugName;
     SString                 m_debugName;
-#endif
+#endif // LOGGING
 
     // IL image, NULL if dynamic
     PTR_PEImage              m_PEImage;
@@ -412,7 +409,7 @@ private:
 #else
         // NB: m_pMDImport_UseAccessor appears to be never assigned a value, but its purpose is just
         //     to be a placeholder that has the same type and offset as m_pMDImport.
-        // 
+        //
         //     The field has a different name so it would be an error to use directly.
         //     Only GetMDInternalRWAddress is supposed to use it via (TADDR)m_pMDImport_UseAccessor,
         //     which at that point will match the m_pMDImport on the debuggee side.
@@ -437,7 +434,6 @@ private:
     // assembly that created the dynamic assembly. If the creator assembly is dynamic itself, then its fallback
     // load context would be propagated to the assembly being dynamically generated.
     PTR_AssemblyBinder m_pFallbackBinder;
-
 };  // class PEAssembly
 
 typedef ReleaseHolder<PEAssembly> PEAssemblyHolder;

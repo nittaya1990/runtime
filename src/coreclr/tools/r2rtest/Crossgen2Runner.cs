@@ -24,15 +24,19 @@ namespace R2RTest
     class Crossgen2Runner : CompilerRunner
     {
         private Crossgen2RunnerOptions Crossgen2RunnerOptions;
+        private bool IsAssembly => _options.Crossgen2Path != null && _options.Crossgen2Path.FullName.EndsWith(".dll");
+
+        // Crossgen2 runs as a standalone binary
+        protected override string CompilerRelativePath => "";
+        protected override string CompilerFileName => "";
+
+        protected override string CompilerPath => IsAssembly ? _options.DotNetCli : _options.Crossgen2Path?.FullName
+            ?? Path.Combine(_options.CoreRootDirectory.FullName, "crossgen2", RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "crossgen2.exe" : "crossgen2");
+
         public override CompilerIndex Index => CompilerIndex.CPAOT;
 
-        // Crossgen2 runs on top of corerun.
-        protected override string CompilerRelativePath => "";
+        protected readonly List<string> _referenceFiles = new();
 
-        protected override string CompilerFileName => _options.DotNetCli;
-        protected readonly List<string> _referenceFiles = new List<string>();
-
-        private string Crossgen2Path => _options.Crossgen2Path != null ? _options.Crossgen2Path.FullName : Path.Combine(_options.CoreRootDirectory.FullName, "crossgen2", "crossgen2.dll");
         private bool CompositeMode => Crossgen2RunnerOptions != null ? Crossgen2RunnerOptions.Composite : _options.Composite;
 
         public Crossgen2Runner(BuildOptions options, Crossgen2RunnerOptions crossgen2RunnerOptions, IEnumerable<string> references, string overrideOutputPath = null)
@@ -64,18 +68,28 @@ namespace R2RTest
         public override ProcessParameters CompilationProcess(string outputFileName, IEnumerable<string> inputAssemblyFileNames)
         {
             ProcessParameters processParameters = base.CompilationProcess(outputFileName, inputAssemblyFileNames);
-            processParameters.Arguments = $"{Crossgen2Path} {processParameters.Arguments}";
+            if (IsAssembly)
+                processParameters.Arguments = $"{_options.Crossgen2Path.FullName} {processParameters.Arguments}";
+
+            // DOTNET_ variables
+            processParameters.EnvironmentOverrides["DOTNET_GCStress"] = "";
+            processParameters.EnvironmentOverrides["DOTNET_HeapVerify"] = "";
+            processParameters.EnvironmentOverrides["DOTNET_ReadyToRun"] = "";
+            processParameters.EnvironmentOverrides["DOTNET_GCName"] = "";
+
+            // COMPlus_ variables
             processParameters.EnvironmentOverrides["COMPlus_GCStress"] = "";
             processParameters.EnvironmentOverrides["COMPlus_HeapVerify"] = "";
             processParameters.EnvironmentOverrides["COMPlus_ReadyToRun"] = "";
             processParameters.EnvironmentOverrides["COMPlus_GCName"] = "";
+
             return processParameters;
         }
 
         protected override ProcessParameters ExecutionProcess(IEnumerable<string> modules, IEnumerable<string> folders, bool noEtw)
         {
             ProcessParameters processParameters = base.ExecutionProcess(modules, folders, noEtw);
-            processParameters.EnvironmentOverrides["COMPLUS_ReadyToRun"] = "1";
+            processParameters.EnvironmentOverrides["DOTNET_ReadyToRun"] = "1";
             return processParameters;
         }
 

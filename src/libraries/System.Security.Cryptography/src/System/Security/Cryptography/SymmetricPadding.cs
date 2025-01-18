@@ -12,7 +12,7 @@ namespace System.Security.Cryptography
         {
             Debug.Assert(plaintextLength >= 0);
 
-             //divisor and factor are same and won't overflow.
+            //divisor and factor are same and won't overflow.
             int wholeBlocks = Math.DivRem(plaintextLength, paddingSizeInBytes, out int remainder) * paddingSizeInBytes;
 
             switch (paddingMode)
@@ -164,12 +164,9 @@ namespace System.Security.Cryptography
                     }
 
                     // Verify that all the padding bytes are 0s
-                    for (int i = block.Length - padBytes; i < block.Length - 1; i++)
+                    if (block.Slice(block.Length - padBytes, padBytes - 1).ContainsAnyExcept((byte)0))
                     {
-                        if (block[i] != 0)
-                        {
-                            throw new CryptographicException(SR.Cryptography_InvalidPadding);
-                        }
+                        throw new CryptographicException(SR.Cryptography_InvalidPadding);
                     }
 
                     break;

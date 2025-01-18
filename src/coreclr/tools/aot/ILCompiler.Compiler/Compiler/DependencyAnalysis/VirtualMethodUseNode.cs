@@ -13,20 +13,21 @@ using Debug = System.Diagnostics.Debug;
 namespace ILCompiler.DependencyAnalysis
 {
     // This node represents the concept of a virtual method being used.
-    // It has no direct depedencies, but may be referred to by conditional static 
+    // It has no direct dependencies, but may be referred to by conditional static
     // dependencies, or static dependencies from elsewhere.
     //
     // It is used to keep track of uses of virtual methods to ensure that the
     // vtables are properly constructed
-    internal class VirtualMethodUseNode : DependencyNodeCore<NodeFactory>
+    internal sealed class VirtualMethodUseNode : DependencyNodeCore<NodeFactory>
     {
         private readonly MethodDesc _decl;
+
+        public MethodDesc Method => _decl;
 
         public VirtualMethodUseNode(MethodDesc decl)
         {
             Debug.Assert(!decl.IsRuntimeDeterminedExactMethod);
             Debug.Assert(decl.IsVirtual);
-            Debug.Assert(!decl.Signature.IsStatic);
 
             // Virtual method use always represents the slot defining method of the virtual.
             // Places that might see virtual methods being used through an override need to normalize
@@ -39,15 +40,14 @@ namespace ILCompiler.DependencyAnalysis
             _decl = decl;
         }
 
-        protected override string GetName(NodeFactory factory) => $"VirtualMethodUse {_decl.ToString()}";
+        protected override string GetName(NodeFactory factory) => $"VirtualMethodUse {_decl}";
 
         protected override void OnMarked(NodeFactory factory)
         {
             // If the VTable slice is getting built on demand, the fact that the virtual method is used means
             // that the slot is used.
             var lazyVTableSlice = factory.VTable(_decl.OwningType) as LazilyBuiltVTableSliceNode;
-            if (lazyVTableSlice != null)
-                lazyVTableSlice.AddEntry(factory, _decl);
+            lazyVTableSlice?.AddEntry(_decl);
         }
 
         public override bool HasConditionalStaticDependencies => _decl.Context.SupportsUniversalCanon && _decl.OwningType.HasInstantiation && !_decl.OwningType.IsInterface;
@@ -85,7 +85,7 @@ namespace ILCompiler.DependencyAnalysis
             DefType universalCanonicalOwningType = (DefType)_decl.OwningType.ConvertToCanonForm(CanonicalFormKind.Universal);
             Debug.Assert(universalCanonicalOwningType.IsCanonicalSubtype(CanonicalFormKind.Universal));
 
-            if (!factory.VTable(universalCanonicalOwningType).HasFixedSlots)
+            if (!factory.VTable(universalCanonicalOwningType).HasKnownVirtualMethodUse)
             {
                 // This code ensures that in cases where we don't structurally force all universal canonical instantiations
                 // to have full vtables, that we ensure that all vtables are equivalently shaped between universal and non-universal types

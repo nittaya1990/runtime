@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 //*****************************************************************************
-// MetaModelRO.cpp -- Read-only implementation of compressed COM+ metadata.
+// MetaModelRO.cpp -- Read-only implementation of compressed CLR metadata.
 //
 
 //
@@ -11,7 +11,6 @@
 #include "metamodelro.h"
 #include <posterror.h>
 #include <corerror.h>
-#include "metadatatracker.h"
 
 //*****************************************************************************
 // Set the pointers to consecutive areas of a large buffer.
@@ -42,12 +41,6 @@ CMiniMd::InitializeTables(
             return CLDB_E_FILE_CORRUPT;
         }
         _ASSERTE(cbTableSize.Value() == tableData.GetSize());
-
-        METADATATRACKER_ONLY(MetaDataTracker::NoteSection(
-            i,
-            tableData.GetDataPointer(),
-            tableData.GetSize(),
-            m_TableDefs[i].m_cbRec));
 
         IfFailRet(m_Tables[i].Initialize(
             m_TableDefs[i].m_cbRec,
@@ -116,14 +109,14 @@ CMiniMd::Impl_GetStringW(
 
     if (*szString == 0)
     {
-        // If emtpy string "", return pccBuffer 0
+        // If empty string "", return pccBuffer 0
         if ((szOut != NULL) && (cchBuffer != 0))
             szOut[0] = W('\0');
         if (pcchBuffer != NULL)
             *pcchBuffer = 0;
         goto ErrExit;
     }
-    iSize = ::WszMultiByteToWideChar(CP_UTF8, 0, szString, -1, szOut, cchBuffer);
+    iSize = ::MultiByteToWideChar(CP_UTF8, 0, szString, -1, szOut, cchBuffer);
     if (iSize == 0)
     {
         // What was the problem?
@@ -135,7 +128,7 @@ CMiniMd::Impl_GetStringW(
 
         // Truncation error; get the size required.
         if (pcchBuffer != NULL)
-            *pcchBuffer = ::WszMultiByteToWideChar(CP_UTF8, 0, szString, -1, NULL, 0);
+            *pcchBuffer = ::MultiByteToWideChar(CP_UTF8, 0, szString, -1, NULL, 0);
 
         if ((szOut != NULL) && (cchBuffer > 0))
         {   // null-terminate the truncated output string
@@ -271,12 +264,11 @@ CMiniMd::vSearchTable(
     {   // Look at the one in the middle.
         mid = (lo + hi) / 2;
         IfFailRet(getRow(ixTbl, mid, &pRow));
-        val = getIX_NoLogging(pRow, sColumn);
+        val = getIX(pRow, sColumn);
         // If equal to the target, done.
         if (val == ulTarget)
         {
             *pRid = mid;
-            METADATATRACKER_ONLY(MetaDataTracker::NoteSearch(pRow));
             return S_OK;
         }
         // If middle item is too small, search the top half.
@@ -288,7 +280,6 @@ CMiniMd::vSearchTable(
     // Didn't find anything that matched.
     *pRid = 0;
 
-    METADATATRACKER_ONLY(MetaDataTracker::NoteSearch(pRow));
     return S_OK;
 } // CMiniMd::vSearchTable
 
@@ -327,7 +318,7 @@ CMiniMd::vSearchTableNotGreater(
     {   // Look at the one in the middle.
         mid = (lo + hi) / 2;
         IfFailRet(getRow(ixTbl, mid, &pRow));
-        val = getIX_NoLogging(pRow, sColumn);
+        val = getIX(pRow, sColumn);
         // If equal to the target, done searching.
         if (val == ulTarget)
             break;
@@ -337,8 +328,6 @@ CMiniMd::vSearchTableNotGreater(
         else // but if middle is to big, search bottom half.
             hi = mid - 1;
     }
-
-    METADATATRACKER_ONLY(MetaDataTracker::NoteSearch(pRow));
 
     // May or may not have found anything that matched.  Mid will be close, but may
     //  be to high or too low.  It should point to the highest acceptable
@@ -422,7 +411,7 @@ CMiniMd::CommonGetCustomAttributeByNameEx(
                 IfFailGo(GetCustomAttributeRecord(ridStart, &pRec));
                 IfFailGo(getValueOfCustomAttribute(pRec, reinterpret_cast<const BYTE **>(ppData), pcbData));
                 if (ptkCA)
-                    *ptkCA = TokenFromRid(mdtCustomAttribute, ridStart);
+                    *ptkCA = TokenFromRid(ridStart, mdtCustomAttribute);
             }
             break;
         }

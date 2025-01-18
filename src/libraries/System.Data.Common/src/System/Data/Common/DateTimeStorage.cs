@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.Xml;
 
 namespace System.Data.Common
 {
@@ -207,16 +207,12 @@ namespace System.Data.Common
 
         public override void SetCapacity(int capacity)
         {
-            DateTime[] newValues = new DateTime[capacity];
-            if (null != _values)
-            {
-                Array.Copy(_values, newValues, Math.Min(capacity, _values.Length));
-            }
-            _values = newValues;
+            Array.Resize(ref _values, capacity);
             base.SetCapacity(capacity);
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override object ConvertXmlToObject(string s)
         {
             object retValue;
@@ -232,6 +228,7 @@ namespace System.Data.Common
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override string ConvertObjectToXml(object value)
         {
             string retValue;

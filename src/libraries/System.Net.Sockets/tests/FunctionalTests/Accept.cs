@@ -3,6 +3,7 @@
 
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 using Xunit.Abstractions;
 using Xunit.Sdk;
@@ -143,8 +144,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop]
-        [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/1483", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public async Task Accept_WithTargetSocket_Success()
         {
             if (!SupportsAcceptIntoExistingSocket)
@@ -166,9 +166,8 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/1483", TestPlatforms.AnyUnix)]
         [OuterLoop]
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public async Task Accept_WithTargetSocket_ReuseAfterDisconnect_Success(bool reuseSocket)
@@ -221,7 +220,6 @@ namespace System.Net.Sockets.Tests
 
         [OuterLoop]
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/1483", TestPlatforms.AnyUnix)]
         public async Task Accept_WithAlreadyBoundTargetSocket_Fails()
         {
             if (!SupportsAcceptIntoExistingSocket)
@@ -241,8 +239,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop]
-        [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/1483", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public async Task Accept_WithInUseTargetSocket_Fails()
         {
             if (!SupportsAcceptIntoExistingSocket)
@@ -290,23 +287,36 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        public static readonly TheoryData<IPAddress> AcceptGetsCanceledByDispose_Data = new TheoryData<IPAddress>
+        public static readonly TheoryData<IPAddress, bool> AcceptGetsCanceledByDispose_Data = new TheoryData<IPAddress, bool>
         {
-            { IPAddress.Loopback },
-            { IPAddress.IPv6Loopback },
-            { IPAddress.Loopback.MapToIPv6() }
+            { IPAddress.Loopback, true },
+            { IPAddress.IPv6Loopback, true },
+            { IPAddress.Loopback.MapToIPv6(), true },
+            { IPAddress.Loopback, false },
+            { IPAddress.IPv6Loopback, false },
+            { IPAddress.Loopback.MapToIPv6(), false }
         };
 
         [Theory]
         [MemberData(nameof(AcceptGetsCanceledByDispose_Data))]
-        public async Task AcceptGetsCanceledByDispose(IPAddress loopback)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/73536", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        public async Task AcceptGetsCanceledByDispose(IPAddress loopback, bool owning)
         {
+            // Aborting sync operations for non-owning handles is not supported on Unix.
+            if (!owning && UsesSync && !PlatformDetection.IsWindows)
+            {
+                return;
+            }
+
             // We try this a couple of times to deal with a timing race: if the Dispose happens
             // before the operation is started, we won't see a SocketException.
             int msDelay = 100;
             await RetryHelper.ExecuteAsync(async () =>
             {
                 var listener = new Socket(loopback.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                using SafeSocketHandle? owner = ReplaceWithNonOwning(ref listener, owning);
+
                 if (loopback.IsIPv4MappedToIPv6) listener.DualMode = true;
                 listener.Bind(new IPEndPoint(loopback, 0));
                 listener.Listen(1);
@@ -322,7 +332,7 @@ namespace System.Net.Sockets.Tests
                 await disposeTask;
 
                 SocketError? localSocketError = null;
-                bool disposedException = false;
+
                 try
                 {
                     await acceptTask;
@@ -331,17 +341,8 @@ namespace System.Net.Sockets.Tests
                 {
                     localSocketError = se.SocketErrorCode;
                 }
-                catch (ObjectDisposedException)
-                {
-                    disposedException = true;
-                }
 
-                if (UsesApm)
-                {
-                    Assert.Null(localSocketError);
-                    Assert.True(disposedException);
-                }
-                else if (UsesSync)
+                if (UsesSync)
                 {
                     Assert.Equal(SocketError.Interrupted, localSocketError);
                 }
@@ -352,7 +353,7 @@ namespace System.Net.Sockets.Tests
             }, maxAttempts: 10, retryWhen: e => e is XunitException);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public async Task AcceptReceive_Success()
         {
             if (!SupportsAcceptReceive)
@@ -377,19 +378,65 @@ namespace System.Net.Sockets.Tests
         }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class AcceptSync : Accept<SocketHelperArraySync>
     {
         public AcceptSync(ITestOutputHelper output) : base(output) {}
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class AcceptSyncForceNonBlocking : Accept<SocketHelperSyncForceNonBlocking>
     {
         public AcceptSyncForceNonBlocking(ITestOutputHelper output) : base(output) {}
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
     public sealed class AcceptApm : Accept<SocketHelperApm>
     {
         public AcceptApm(ITestOutputHelper output) : base(output) {}
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public async Task AbortedByDispose_LeaksNoUnobservedExceptions()
+        {
+            await RemoteExecutor.Invoke(static async () =>
+            {
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                socket.BindToAnonymousPort(IPAddress.Loopback);
+                socket.Listen(10);
+
+                bool unobservedThrown = false;
+                TaskScheduler.UnobservedTaskException += (_, __) => unobservedThrown = true;
+
+                await Task.Run(() =>
+                {
+                    socket.BeginAccept(asyncResult =>
+                    {
+                        try
+                        {
+                            socket.EndAccept(asyncResult);
+                        }
+                        catch
+                        {
+                        }
+                    }, socket);
+                });
+
+                // Give some time for the Accept operation to start
+                await Task.Delay(30);
+
+                // Close the socket aborting Accept
+                socket.Dispose();
+
+                // Wait for the internal AcceptAsync Task to complete with the exception.
+                await Task.Delay(30);
+
+                // Ensure that the internal TaskExceptionHolder is finalized and the exception published to UnobservedTaskException.
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                Assert.False(unobservedThrown);
+            }).DisposeAsync();   
+        }
     }
 
     public sealed class AcceptTask : Accept<SocketHelperTask>
@@ -421,6 +468,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public async Task AcceptAsync_CanceledDuringOperation_Throws()
         {
             using (Socket listen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))

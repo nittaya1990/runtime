@@ -10,57 +10,69 @@ namespace System.Linq
     {
         public static bool Any<TSource>(this IEnumerable<TSource> source)
         {
-            if (source == null)
+            if (source is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.source);
             }
 
-            if (source is ICollection<TSource> collectionoft)
+            if (source is ICollection<TSource> gc)
             {
-                return collectionoft.Count != 0;
+                return gc.Count != 0;
             }
-            else if (source is IIListProvider<TSource> listProv)
+
+#if !OPTIMIZE_FOR_SIZE
+            if (source is Iterator<TSource> iterator)
             {
-                // Note that this check differs from the corresponding check in
-                // Count (whereas otherwise this method parallels it).  If the count
-                // can't be retrieved cheaply, that likely means we'd need to iterate
-                // through the entire sequence in order to get the count, and in that
-                // case, we'll generally be better off falling through to the logic
-                // below that only enumerates at most a single element.
-                int count = listProv.GetCount(onlyIfCheap: true);
+                int count = iterator.GetCount(onlyIfCheap: true);
                 if (count >= 0)
                 {
                     return count != 0;
                 }
+
+                iterator.TryGetFirst(out bool found);
+                return found;
             }
-            else if (source is ICollection collection)
+#endif
+
+            if (source is ICollection ngc)
             {
-                return collection.Count != 0;
+                return ngc.Count != 0;
             }
 
-            using (IEnumerator<TSource> e = source.GetEnumerator())
-            {
-                return e.MoveNext();
-            }
+            using IEnumerator<TSource> e = source.GetEnumerator();
+            return e.MoveNext();
         }
 
         public static bool Any<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate)
         {
-            if (source == null)
+            if (source is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.source);
             }
 
-            if (predicate == null)
+            if (predicate is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.predicate);
             }
 
-            foreach (TSource element in source)
+            if (source.TryGetSpan(out ReadOnlySpan<TSource> span))
             {
-                if (predicate(element))
+                foreach (TSource element in span)
                 {
-                    return true;
+                    if (predicate(element))
+                    {
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                foreach (TSource element in source)
+                {
+                    if (predicate(element))
+                    {
+                        return true;
+                    }
                 }
             }
 
@@ -69,21 +81,34 @@ namespace System.Linq
 
         public static bool All<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate)
         {
-            if (source == null)
+            if (source is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.source);
             }
 
-            if (predicate == null)
+            if (predicate is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.predicate);
             }
 
-            foreach (TSource element in source)
+            if (source.TryGetSpan(out ReadOnlySpan<TSource> span))
             {
-                if (!predicate(element))
+                foreach (TSource element in span)
                 {
-                    return false;
+                    if (!predicate(element))
+                    {
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                foreach (TSource element in source)
+                {
+                    if (!predicate(element))
+                    {
+                        return false;
+                    }
                 }
             }
 

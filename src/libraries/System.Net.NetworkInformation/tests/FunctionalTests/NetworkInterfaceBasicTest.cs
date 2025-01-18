@@ -4,7 +4,7 @@
 using System.Net.Sockets;
 using System.Net.Test.Common;
 using System.Threading.Tasks;
-
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -22,6 +22,7 @@ namespace System.Net.NetworkInformation.Tests
         [Fact]
         public void BasicTest_GetNetworkInterfaces_AtLeastOne()
         {
+
             Assert.NotEqual<int>(0, NetworkInterface.GetAllNetworkInterfaces().Length);
         }
 
@@ -50,7 +51,8 @@ namespace System.Net.NetworkInformation.Tests
 
                 if (nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
                 {
-                    Assert.Equal(6, nic.GetPhysicalAddress().GetAddressBytes().Length);
+                    var physicalAddressLength = nic.GetPhysicalAddress().GetAddressBytes().Length;
+                    Assert.True(physicalAddressLength == 0 || physicalAddressLength == 6);
                 }
             }
         }
@@ -161,8 +163,8 @@ namespace System.Net.NetworkInformation.Tests
             _log.WriteLine("Loopback IPv4 index: " + NetworkInterface.LoopbackInterfaceIndex);
         }
 
-        [Fact]
         [Trait("IPv6", "true")]
+        [ConditionalFact(typeof(Socket), nameof(Socket.OSSupportsIPv6))]
         public void BasicTest_StaticIPv6LoopbackIndex_MatchesLoopbackNetworkInterface()
         {
             Assert.True(Capability.IPv6Support());
@@ -185,8 +187,8 @@ namespace System.Net.NetworkInformation.Tests
             }
         }
 
-        [Fact]
         [Trait("IPv6", "true")]
+        [ConditionalFact(typeof(Socket), nameof(Socket.OSSupportsIPv6))]
         public void BasicTest_StaticIPv6LoopbackIndex_ExceptionIfV6NotSupported()
         {
             Assert.True(Capability.IPv6Support());
@@ -219,6 +221,7 @@ namespace System.Net.NetworkInformation.Tests
 
         [Fact]
         [PlatformSpecific(TestPlatforms.Linux)]  // Some APIs are not supported on Linux
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "Bionic is not normal Linux, has no normal /proc")]
         public void BasicTest_GetIPInterfaceStatistics_Success_Linux()
         {
             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -272,14 +275,18 @@ namespace System.Net.NetworkInformation.Tests
             Assert.True(NetworkInterface.GetIsNetworkAvailable());
         }
 
-        [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34690", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [ConditionalTheory]
         [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD, "Expected behavior is different on OSX or FreeBSD")]
         [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.MacCatalyst | TestPlatforms.tvOS, "Not supported on Browser, iOS, MacCatalyst, or tvOS.")]
         [InlineData(false)]
         [InlineData(true)]
         public async Task NetworkInterface_LoopbackInterfaceIndex_MatchesReceivedPackets(bool ipv6)
         {
+            if (ipv6 && !Socket.OSSupportsIPv6)
+            {
+                throw new SkipTestException("IPv6 is not supported");
+            }
+
             using (var client = new Socket(SocketType.Dgram, ProtocolType.Udp))
             using (var server = new Socket(SocketType.Dgram, ProtocolType.Udp))
             {
@@ -297,6 +304,29 @@ namespace System.Net.NetworkInformation.Tests
                 Assert.Equal(
                     (await receivedTask).PacketInformation.Interface,
                     ipv6 ? NetworkInterface.IPv6LoopbackInterfaceIndex : NetworkInterface.LoopbackInterfaceIndex);
+            }
+        }
+
+        [ConditionalFact]
+        public void NetworkInterface_UnicastLLA_ScopeIdSet()
+        {
+            bool foundLla = false;
+            foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                IPInterfaceProperties prop = nic.GetIPProperties();
+                foreach (UnicastIPAddressInformation info in prop.UnicastAddresses)
+                {
+                    if (info.Address.IsIPv6LinkLocal)
+                    {
+                        foundLla = true;
+                        Assert.NotEqual(0, info.Address.ScopeId);
+                    }
+                }
+            }
+
+            if (!foundLla)
+            {
+                throw new SkipTestException("Did not find any LLA");
             }
         }
     }

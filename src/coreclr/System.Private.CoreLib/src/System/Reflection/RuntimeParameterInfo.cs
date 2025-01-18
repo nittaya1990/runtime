@@ -8,7 +8,7 @@ using MdToken = System.Reflection.MetadataToken;
 
 namespace System.Reflection
 {
-    internal sealed unsafe class RuntimeParameterInfo : ParameterInfo
+    internal sealed class RuntimeParameterInfo : ParameterInfo
     {
         #region Static Members
         internal static ParameterInfo[] GetParameters(IRuntimeMethodInfo method, MemberInfo member, Signature sig)
@@ -29,6 +29,11 @@ namespace System.Reflection
         private static ParameterInfo[] GetParameters(
             IRuntimeMethodInfo methodHandle, MemberInfo member, Signature sig, out ParameterInfo? returnParameter, bool fetchReturnParameter)
         {
+            // The lifetime rules for MetadataImport expect these two objects to be the same instance.
+            // See the lifetime of MetadataImport, acquired through IRuntimeMethodInfo, but extended
+            // through the MemberInfo instance.
+            Debug.Assert(ReferenceEquals(methodHandle, member));
+
             returnParameter = null;
             int sigArgCount = sig.Arguments.Length;
             ParameterInfo[] args =
@@ -43,7 +48,7 @@ namespace System.Reflection
             // are generated on the fly by the runtime.
             if (!MdToken.IsNullToken(tkMethodDef))
             {
-                MetadataImport scope = RuntimeTypeHandle.GetMetadataImport(RuntimeMethodHandle.GetDeclaringType(methodHandle));
+                MetadataImport scope = RuntimeMethodHandle.GetDeclaringType(methodHandle).GetRuntimeModule().MetadataImport;
 
                 scope.EnumParams(tkMethodDef, out MetadataEnumResult tkParamDefs);
 
@@ -73,7 +78,7 @@ namespace System.Reflection
                     }
                     else if (!fetchReturnParameter && position >= 0)
                     {
-                        // position beyong sigArgCount?
+                        // position beyond sigArgCount?
                         if (position >= sigArgCount)
                             throw new BadImageFormatException(SR.BadImageFormat_ParameterSignatureMismatch);
 
@@ -86,7 +91,7 @@ namespace System.Reflection
             // Fill in empty ParameterInfos for those without tokens
             if (fetchReturnParameter)
             {
-                returnParameter ??= new RuntimeParameterInfo(sig, MetadataImport.EmptyImport, 0, -1, (ParameterAttributes)0, member);
+                returnParameter ??= new RuntimeParameterInfo(sig, default, 0, -1, (ParameterAttributes)0, member);
             }
             else
             {
@@ -97,7 +102,7 @@ namespace System.Reflection
                         if (args[i] != null)
                             continue;
 
-                        args[i] = new RuntimeParameterInfo(sig, MetadataImport.EmptyImport, 0, i, (ParameterAttributes)0, member);
+                        args[i] = new RuntimeParameterInfo(sig, default, 0, i, (ParameterAttributes)0, member);
                     }
                 }
             }
@@ -106,19 +111,14 @@ namespace System.Reflection
         }
         #endregion
 
-        #region Private Statics
-        private static readonly Type s_DecimalConstantAttributeType = typeof(DecimalConstantAttribute);
-        private static readonly Type s_CustomConstantAttributeType = typeof(CustomConstantAttribute);
-        #endregion
-
         #region Private Data Members
-        private int m_tkParamDef;
-        private MetadataImport m_scope;
-        private Signature? m_signature;
+        private readonly int m_tkParamDef;
+        private readonly MetadataImport m_scope;
+        private readonly Signature? m_signature;
         private volatile bool m_nameIsCached;
         private readonly bool m_noMetadata;
         private bool m_noDefaultValue;
-        private MethodBase? m_originalMember;
+        private readonly MethodBase? m_originalMember;
         #endregion
 
         #region Internal Properties
@@ -170,7 +170,7 @@ namespace System.Reflection
             PositionImpl = accessor.Position;
             AttrsImpl = accessor.Attributes;
 
-            // Strictly speeking, property's don't contain paramter tokens
+            // Strictly speaking, properties don't contain parameter tokens
             // However we need this to make ca's work... oh well...
             m_tkParamDef = MdToken.IsNullToken(accessor.MetadataToken) ? (int)MetadataTokenType.ParamDef : accessor.MetadataToken;
             m_scope = accessor.m_scope;
@@ -181,7 +181,7 @@ namespace System.Reflection
             int position, ParameterAttributes attributes, MemberInfo member)
         {
             Debug.Assert(member != null);
-            Debug.Assert(MdToken.IsNullToken(tkParamDef) == scope.Equals(MetadataImport.EmptyImport));
+            Debug.Assert(MdToken.IsNullToken(tkParamDef) == scope.Equals((MetadataImport)default));
             Debug.Assert(MdToken.IsNullToken(tkParamDef) || MdToken.IsTokenOfType(tkParamDef, MetadataTokenType.ParamDef));
 
             PositionImpl = position;
@@ -206,7 +206,7 @@ namespace System.Reflection
             PositionImpl = position;
             AttrsImpl = ParameterAttributes.None;
             m_tkParamDef = (int)MetadataTokenType.ParamDef;
-            m_scope = MetadataImport.EmptyImport;
+            m_scope = default;
         }
         #endregion
 
@@ -244,6 +244,7 @@ namespace System.Reflection
                     if (!MdToken.IsNullToken(m_tkParamDef))
                     {
                         string name = m_scope.GetName(m_tkParamDef).ToString();
+                        GC.KeepAlive(this);
                         NameImpl = name;
                     }
 
@@ -264,9 +265,7 @@ namespace System.Reflection
                 if (m_noMetadata || m_noDefaultValue)
                     return false;
 
-                object? defaultValue = GetDefaultValueInternal(false);
-
-                return defaultValue != DBNull.Value;
+                return TryGetDefaultValueInternal(false, out _);
             }
         }
 
@@ -282,9 +281,7 @@ namespace System.Reflection
                 return null;
 
             // for dynamic method we pretend to have cached the value so we do not go to metadata
-            object? defaultValue = GetDefaultValueInternal(raw);
-
-            if (defaultValue == DBNull.Value)
+            if (!TryGetDefaultValueInternal(raw, out object? defaultValue))
             {
                 #region Handle case if no default value was found
                 if (IsOptional)
@@ -298,139 +295,100 @@ namespace System.Reflection
             return defaultValue;
         }
 
+        private object? GetDefaultValueFromCustomAttributeData()
+        {
+            foreach (CustomAttributeData attributeData in CustomAttributeData.GetCustomAttributes(this))
+            {
+                Type attributeType = attributeData.AttributeType;
+                if (attributeType == typeof(DecimalConstantAttribute))
+                {
+                    return GetRawDecimalConstant(attributeData);
+                }
+                else if (attributeType.IsSubclassOf(typeof(CustomConstantAttribute)))
+                {
+                    if (attributeType == typeof(DateTimeConstantAttribute))
+                    {
+                        return GetRawDateTimeConstant(attributeData);
+                    }
+                    return GetRawConstant(attributeData);
+                }
+            }
+            return DBNull.Value;
+        }
+
+        private object? GetDefaultValueFromCustomAttributes()
+        {
+            object[] customAttributes = GetCustomAttributes(typeof(CustomConstantAttribute), false);
+            if (customAttributes.Length != 0)
+                return ((CustomConstantAttribute)customAttributes[0]).Value;
+
+            customAttributes = GetCustomAttributes(typeof(DecimalConstantAttribute), false);
+            if (customAttributes.Length != 0)
+                return ((DecimalConstantAttribute)customAttributes[0]).Value;
+
+            return DBNull.Value;
+        }
+
         // returns DBNull.Value if the parameter doesn't have a default value
-        private object? GetDefaultValueInternal(bool raw)
+        private bool TryGetDefaultValueInternal(bool raw, out object? defaultValue)
         {
             Debug.Assert(!m_noMetadata);
 
-            if (m_noDefaultValue)
-                return DBNull.Value;
-
-            object? defaultValue = null;
-
-            // Why check the parameter type only for DateTime and only for the ctor arguments?
-            // No check on the parameter type is done for named args and for Decimal.
-
-            // We should move this after MdToken.IsNullToken(m_tkParamDef) and combine it
-            // with the other custom attribute logic. But will that be a breaking change?
-            // For a DateTime parameter on which both an md constant and a ca constant are set,
-            // which one should win?
-            if (ParameterType == typeof(DateTime))
+            if (m_noDefaultValue || MdToken.IsNullToken(m_tkParamDef))
             {
-                if (raw)
-                {
-                    CustomAttributeTypedArgument value =
-                        RuntimeCustomAttributeData.Filter(
-                            RuntimeCustomAttributeData.GetCustomAttributes(this), typeof(DateTimeConstantAttribute), 0);
-
-                    if (value.ArgumentType != null)
-                        return new DateTime((long)value.Value!);
-                }
-                else
-                {
-                    object[] dt = GetCustomAttributes(typeof(DateTimeConstantAttribute), false);
-                    if (dt != null && dt.Length != 0)
-                        return ((DateTimeConstantAttribute)dt[0]).Value;
-                }
-            }
-
-            #region Look for a default value in metadata
-            if (!MdToken.IsNullToken(m_tkParamDef))
-            {
-                // This will return DBNull.Value if no constant value is defined on m_tkParamDef in the metadata.
-                defaultValue = MdConstant.GetValue(m_scope, m_tkParamDef, ParameterType.TypeHandle, raw);
-            }
-            #endregion
-
-            if (defaultValue == DBNull.Value)
-            {
-                #region Look for a default value in the custom attributes
-                if (raw)
-                {
-                    foreach (CustomAttributeData attr in CustomAttributeData.GetCustomAttributes(this))
-                    {
-                        Type? attrType = attr.Constructor.DeclaringType;
-
-                        if (attrType == typeof(DateTimeConstantAttribute))
-                        {
-                            defaultValue = GetRawDateTimeConstant(attr);
-                        }
-                        else if (attrType == typeof(DecimalConstantAttribute))
-                        {
-                            defaultValue = GetRawDecimalConstant(attr);
-                        }
-                        else if (attrType!.IsSubclassOf(s_CustomConstantAttributeType))
-                        {
-                            defaultValue = GetRawConstant(attr);
-                        }
-                    }
-                }
-                else
-                {
-                    object[] CustomAttrs = GetCustomAttributes(s_CustomConstantAttributeType, false);
-                    if (CustomAttrs.Length != 0)
-                    {
-                        defaultValue = ((CustomConstantAttribute)CustomAttrs[0]).Value;
-                    }
-                    else
-                    {
-                        CustomAttrs = GetCustomAttributes(s_DecimalConstantAttributeType, false);
-                        if (CustomAttrs.Length != 0)
-                        {
-                            defaultValue = ((DecimalConstantAttribute)CustomAttrs[0]).Value;
-                        }
-                    }
-                }
-                #endregion
-            }
-
-            if (defaultValue == DBNull.Value)
+                defaultValue = DBNull.Value;
                 m_noDefaultValue = true;
+                return false;
+            }
 
-            return defaultValue;
+            // Prioritize metadata constant over custom attribute constant
+            #region Look for a default value in metadata
+            // This will return DBNull.Value if no constant value is defined on m_tkParamDef in the metadata.
+            defaultValue = MdConstant.GetValue(m_scope, m_tkParamDef, ParameterType.TypeHandle, raw);
+            GC.KeepAlive(this);
+
+            // If default value is not specified in metadata, look for it in custom attributes
+            if (defaultValue == DBNull.Value)
+            {
+                // The resolution of default value is done by following these rules:
+                // 1. For RawDefaultValue, we pick the first custom attribute holding the constant value
+                //  in the following order: DecimalConstantAttribute, DateTimeConstantAttribute, CustomConstantAttribute
+                // 2. For DefaultValue, we first look for CustomConstantAttribute and pick the first occurrence.
+                //  If none is found, then we repeat the same process searching for DecimalConstantAttribute.
+                // IMPORTANT: Please note that there is a subtle difference in order custom attributes are inspected for
+                //  RawDefaultValue and DefaultValue.
+                defaultValue = raw ? GetDefaultValueFromCustomAttributeData() : GetDefaultValueFromCustomAttributes();
+
+                if (defaultValue == DBNull.Value)
+                {
+                    m_noDefaultValue = true;
+                    return false;
+                }
+            }
+
+            return true;
+
+            #endregion
         }
 
         private static decimal GetRawDecimalConstant(CustomAttributeData attr)
         {
             Debug.Assert(attr.Constructor.DeclaringType == typeof(DecimalConstantAttribute));
-
-            foreach (CustomAttributeNamedArgument namedArgument in attr.NamedArguments)
-            {
-                if (namedArgument.MemberInfo.Name.Equals("Value"))
-                {
-                    // This is not possible because Decimal cannot be represented directly in the metadata.
-                    Debug.Fail("Decimal cannot be represented directly in the metadata.");
-                    return (decimal)namedArgument.TypedValue.Value!;
-                }
-            }
-
-            ParameterInfo[] parameters = attr.Constructor.GetParameters();
-            Debug.Assert(parameters.Length == 5);
-
-            System.Collections.Generic.IList<CustomAttributeTypedArgument> args = attr.ConstructorArguments;
+            IList<CustomAttributeTypedArgument> args = attr.ConstructorArguments;
             Debug.Assert(args.Count == 5);
 
-            if (parameters[2].ParameterType == typeof(uint))
-            {
-                // DecimalConstantAttribute(byte scale, byte sign, uint hi, uint mid, uint low)
-                int low = (int)(uint)args[4].Value!;
-                int mid = (int)(uint)args[3].Value!;
-                int hi = (int)(uint)args[2].Value!;
-                byte sign = (byte)args[1].Value!;
-                byte scale = (byte)args[0].Value!;
+            return new decimal(
+                lo: GetConstructorArgument(args, 4),
+                mid: GetConstructorArgument(args, 3),
+                hi: GetConstructorArgument(args, 2),
+                isNegative: ((byte)args[1].Value!) != 0,
+                scale: (byte)args[0].Value!);
 
-                return new decimal(low, mid, hi, sign != 0, scale);
-            }
-            else
+            static int GetConstructorArgument(IList<CustomAttributeTypedArgument> args, int index)
             {
-                // DecimalConstantAttribute(byte scale, byte sign, int hi, int mid, int low)
-                int low = (int)args[4].Value!;
-                int mid = (int)args[3].Value!;
-                int hi = (int)args[2].Value!;
-                byte sign = (byte)args[1].Value!;
-                byte scale = (byte)args[0].Value!;
-
-                return new decimal(low, mid, hi, sign != 0, scale);
+                // The constructor is overloaded to accept both signed and unsigned arguments
+                object obj = args[index].Value!;
+                return (obj is int value) ? value : (int)(uint)obj;
             }
         }
 
@@ -439,20 +397,12 @@ namespace System.Reflection
             Debug.Assert(attr.Constructor.DeclaringType == typeof(DateTimeConstantAttribute));
             Debug.Assert(attr.ConstructorArguments.Count == 1);
 
-            foreach (CustomAttributeNamedArgument namedArgument in attr.NamedArguments)
-            {
-                if (namedArgument.MemberInfo.Name.Equals("Value"))
-                {
-                    return new DateTime((long)namedArgument.TypedValue.Value!);
-                }
-            }
-
-            // Look at the ctor argument if the "Value" property was not explicitly defined.
             return new DateTime((long)attr.ConstructorArguments[0].Value!);
         }
 
         private static object? GetRawConstant(CustomAttributeData attr)
         {
+            // We are relying only on named arguments for historical reasons
             foreach (CustomAttributeNamedArgument namedArgument in attr.NamedArguments)
             {
                 if (namedArgument.MemberInfo.Name.Equals("Value"))
@@ -496,6 +446,9 @@ namespace System.Reflection
                 m_signature.GetCustomModifiers(PositionImpl + 1, false);
         }
 
+        public override Type GetModifiedParameterType() =>
+            ModifiedType.Create(unmodifiedType: ParameterType, m_signature, parameterIndex: PositionImpl + 1);
+
         #endregion
 
         #region ICustomAttributeProvider
@@ -507,8 +460,10 @@ namespace System.Reflection
             return CustomAttribute.GetCustomAttributes(this, (typeof(object) as RuntimeType)!);
         }
 
-        public override object[] GetCustomAttributes(Type attributeType!!, bool inherit)
+        public override object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
+            ArgumentNullException.ThrowIfNull(attributeType);
+
             if (attributeType.UnderlyingSystemType is not RuntimeType attributeRuntimeType)
                 throw new ArgumentException(SR.Arg_MustBeType, nameof(attributeType));
 
@@ -518,8 +473,10 @@ namespace System.Reflection
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
-        public override bool IsDefined(Type attributeType!!, bool inherit)
+        public override bool IsDefined(Type attributeType, bool inherit)
         {
+            ArgumentNullException.ThrowIfNull(attributeType);
+
             if (MdToken.IsNullToken(m_tkParamDef))
                 return false;
 

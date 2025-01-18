@@ -3,12 +3,12 @@
 
 #include "pal_x509chain.h"
 
-SecPolicyRef AppleCryptoNative_X509ChainCreateDefaultPolicy()
+SecPolicyRef AppleCryptoNative_X509ChainCreateDefaultPolicy(void)
 {
     return SecPolicyCreateBasicX509();
 }
 
-SecPolicyRef AppleCryptoNative_X509ChainCreateRevocationPolicy()
+SecPolicyRef AppleCryptoNative_X509ChainCreateRevocationPolicy(void)
 {
     return SecPolicyCreateRevocation(kSecRevocationUseAnyAvailableMethod | kSecRevocationRequirePositiveResponse);
 }
@@ -92,7 +92,10 @@ SecCertificateRef AppleCryptoNative_X509ChainGetCertificateAtIndex(SecTrustRef c
     if (chain == NULL || index < 0)
         return NULL;
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     return SecTrustGetCertificateAtIndex(chain, index);
+#pragma clang diagnostic pop
 }
 
 CFArrayRef AppleCryptoNative_X509ChainGetTrustResults(SecTrustRef chain)
@@ -204,7 +207,7 @@ static void MergeStatusCodes(CFTypeRef key, CFTypeRef value, void* context)
 #if defined DEBUG || defined DEBUGGING_UNKNOWN_VALUE
         CFIndex keyStringLength = CFStringGetLength(keyString);
         CFIndex maxEncodedLength = CFStringGetMaximumSizeForEncoding(keyStringLength, kCFStringEncodingUTF8) + 1;
-        char* keyStringBuffer = malloc(maxEncodedLength);
+        char* keyStringBuffer = malloc((size_t)maxEncodedLength);
 
         if (keyStringBuffer)
         {

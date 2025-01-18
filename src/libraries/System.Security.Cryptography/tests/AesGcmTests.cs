@@ -11,8 +11,9 @@ namespace System.Security.Cryptography.Tests
     [ConditionalClass(typeof(AesGcm), nameof(AesGcm.IsSupported))]
     public class AesGcmTests : CommonAEADTests
     {
+        private const int CryptoKitSupportedTagSizeInBytes = 16;
+
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         [MemberData(nameof(EncryptTamperAADDecryptTestInputs))]
         public static void EncryptTamperAADDecrypt(int dataLength, int additionalDataLength)
         {
@@ -27,14 +28,14 @@ namespace System.Security.Cryptography.Tests
             RandomNumberGenerator.Fill(key);
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 aesGcm.Encrypt(nonce, plaintext, ciphertext, tag, additionalData);
 
                 additionalData[0] ^= 1;
 
                 byte[] decrypted = new byte[dataLength];
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesGcm.Decrypt(nonce, ciphertext, tag, decrypted, additionalData));
             }
         }
@@ -49,12 +50,16 @@ namespace System.Security.Cryptography.Tests
         public static void InvalidKeyLength(int keyLength)
         {
             byte[] key = new byte[keyLength];
+#pragma warning disable SYSLIB0053
             Assert.Throws<CryptographicException>(() => new AesGcm(key));
+            Assert.Throws<CryptographicException>(() => new AesGcm(key.AsSpan()));
+#pragma warning restore SYSLIB0053
+            Assert.Throws<CryptographicException>(() => new AesGcm(key, AesGcm.TagByteSizes.MinSize));
+            Assert.Throws<CryptographicException>(() => new AesGcm(key.AsSpan(), AesGcm.TagByteSizes.MinSize));
         }
 
         [Theory]
         [MemberData(nameof(GetInvalidNonceSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void InvalidNonceSize(int nonceSize)
         {
             int dataLength = 30;
@@ -66,7 +71,7 @@ namespace System.Security.Cryptography.Tests
             RandomNumberGenerator.Fill(key);
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, AesGcm.TagByteSizes.MinSize))
             {
                 Assert.Throws<ArgumentException>("nonce", () => aesGcm.Encrypt(nonce, plaintext, ciphertext, tag));
             }
@@ -74,7 +79,6 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetValidNonceSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void ValidNonceSize(int nonceSize)
         {
             const int dataLength = 35;
@@ -86,7 +90,7 @@ namespace System.Security.Cryptography.Tests
             RandomNumberGenerator.Fill(key);
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, AesGcm.TagByteSizes.MinSize))
             {
                 aesGcm.Encrypt(nonce, plaintext, ciphertext, tag);
 
@@ -98,8 +102,7 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetInvalidTagSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
-        public static void InvalidTagSize(int tagSize)
+        public static void InvalidTagSizeForUnspecifiedRequiredTag(int tagSize)
         {
             int dataLength = 30;
             byte[] plaintext = Enumerable.Range(1, dataLength).Select((x) => (byte)x).ToArray();
@@ -110,15 +113,26 @@ namespace System.Security.Cryptography.Tests
             RandomNumberGenerator.Fill(key);
             RandomNumberGenerator.Fill(nonce);
 
+#pragma warning disable SYSLIB0053
             using (var aesGcm = new AesGcm(key))
+#pragma warning restore SYSLIB0053
             {
                 Assert.Throws<ArgumentException>("tag", () => aesGcm.Encrypt(nonce, plaintext, ciphertext, tag));
+                Assert.Throws<ArgumentException>("tag", () => aesGcm.Decrypt(nonce, ciphertext, tag, plaintext));
             }
         }
 
         [Theory]
+        [MemberData(nameof(GetInvalidTagSizes))]
+        public static void InvalidTagSizeForRequiredTag(int tagSize)
+        {
+            byte[] key = new byte[32];
+            Assert.Throws<ArgumentException>("tagSizeInBytes", () => new AesGcm(key, tagSize));
+            Assert.Throws<ArgumentException>("tagSizeInBytes", () => new AesGcm(key.AsSpan(), tagSize));
+        }
+
+        [Theory]
         [MemberData(nameof(GetValidTagSizes))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void ValidTagSize(int tagSize)
         {
             const int dataLength = 35;
@@ -130,7 +144,7 @@ namespace System.Security.Cryptography.Tests
             RandomNumberGenerator.Fill(key);
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tagSize))
             {
                 aesGcm.Encrypt(nonce, plaintext, ciphertext, tag);
 
@@ -140,8 +154,38 @@ namespace System.Security.Cryptography.Tests
             }
         }
 
+        [Theory]
+        [InlineData(12)]
+        [InlineData(13)]
+        [InlineData(14)]
+        [InlineData(15)]
+        public static void TagSizeDoesNotMatchConstructorRequirement(int wrongTagSize)
+        {
+            byte[] key = new byte[16];
+            byte[] nonce = new byte[12];
+            byte[] plaintext = new byte[1];
+            byte[] ciphertext = new byte[1];
+            byte[] tag = new byte[wrongTagSize];
+            int tagSize = 16;
+
+            using (var aesGcm = new AesGcm(key, tagSize))
+            {
+                ArgumentException ex;
+                ex = Assert.Throws<ArgumentException>("tag", () => aesGcm.Encrypt(nonce, plaintext, ciphertext, tag));
+                Assert.Contains(tagSize.ToString(), ex.Message);
+
+                ex = Assert.Throws<ArgumentException>("tag", () => aesGcm.Encrypt(nonce.AsSpan(), plaintext, ciphertext, tag));
+                Assert.Contains(tagSize.ToString(), ex.Message);
+
+                ex = Assert.Throws<ArgumentException>("tag", () => aesGcm.Decrypt(nonce, ciphertext, tag, plaintext));
+                Assert.Contains(tagSize.ToString(), ex.Message);
+
+                ex = Assert.Throws<ArgumentException>("tag", () => aesGcm.Decrypt(nonce.AsSpan(), ciphertext, tag, plaintext));
+                Assert.Contains(tagSize.ToString(), ex.Message);
+            }
+        }
+
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void TwoEncryptionsAndDecryptionsUsingOneInstance()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -152,7 +196,9 @@ namespace System.Security.Cryptography.Tests
             byte[] nonce2 = "8ba10892e8b87d031196bf99".HexToByteArray();
 
             byte[] expectedCiphertext1 = "f1af1fb2d4485cc536d618475d52ff".HexToByteArray();
-            byte[] expectedTag1 = "5ab65624c46b8160f34e81f5".HexToByteArray();
+            byte[] expectedTag1 = (PlatformDetection.IsOSX || PlatformDetection.UsesMobileAppleCrypto) ?
+                "5ab65624c46b8160f34e81f51fee6cd9".HexToByteArray() :
+                "5ab65624c46b8160f34e81f5".HexToByteArray();
 
             byte[] expectedCiphertext2 = (
                 "217bed01446d731a372a2b30ac7fcd73aed7c946d9171ae9c00b1c589ca73ba2" +
@@ -161,7 +207,7 @@ namespace System.Security.Cryptography.Tests
                 "da").HexToByteArray();
             byte[] expectedTag2 = "9c75d006640ff4fb68c60c9548a45cf8".HexToByteArray();
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, expectedTag1.Length))
             {
                 byte[] ciphertext1 = new byte[originalData1.Length];
                 byte[] tag1 = new byte[expectedTag1.Length];
@@ -169,15 +215,18 @@ namespace System.Security.Cryptography.Tests
                 Assert.Equal(expectedCiphertext1, ciphertext1);
                 Assert.Equal(expectedTag1, tag1);
 
+                byte[] plaintext1 = new byte[originalData1.Length];
+                aesGcm.Decrypt(nonce1, ciphertext1, tag1, plaintext1);
+                Assert.Equal(originalData1, plaintext1);
+            }
+
+            using (var aesGcm = new AesGcm(key, expectedTag2.Length))
+            {
                 byte[] ciphertext2 = new byte[originalData2.Length];
                 byte[] tag2 = new byte[expectedTag2.Length];
                 aesGcm.Encrypt(nonce2, originalData2, ciphertext2, tag2, associatedData2);
                 Assert.Equal(expectedCiphertext2, ciphertext2);
                 Assert.Equal(expectedTag2, tag2);
-
-                byte[] plaintext1 = new byte[originalData1.Length];
-                aesGcm.Decrypt(nonce1, ciphertext1, tag1, plaintext1);
-                Assert.Equal(originalData1, plaintext1);
 
                 byte[] plaintext2 = new byte[originalData2.Length];
                 aesGcm.Decrypt(nonce2, ciphertext2, tag2, plaintext2, associatedData2);
@@ -186,7 +235,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         [MemberData(nameof(PlaintextAndCiphertextSizeDifferTestInputs))]
         public static void PlaintextAndCiphertextSizeDiffer(int ptLen, int ctLen)
         {
@@ -196,7 +244,7 @@ namespace System.Security.Cryptography.Tests
             byte[] ciphertext = new byte[ctLen];
             byte[] tag = new byte[16];
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 Assert.Throws<ArgumentException>(() => aesGcm.Encrypt(nonce, plaintext, ciphertext, tag));
                 Assert.Throws<ArgumentException>(() => aesGcm.Decrypt(nonce, ciphertext, tag, plaintext));
@@ -206,11 +254,13 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public static void NullKey()
         {
+#pragma warning disable SYSLIB0053
             Assert.Throws<ArgumentNullException>(() => new AesGcm((byte[])null));
+#pragma warning restore SYSLIB0053
+            Assert.Throws<ArgumentNullException>(() => new AesGcm((byte[])null, AesGcm.TagByteSizes.MinSize));
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void EncryptDecryptNullNonce()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -218,7 +268,7 @@ namespace System.Security.Cryptography.Tests
             byte[] ciphertext = new byte[0];
             byte[] tag = new byte[16];
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Encrypt((byte[])null, plaintext, ciphertext, tag));
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Decrypt((byte[])null, ciphertext, tag, plaintext));
@@ -226,7 +276,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void EncryptDecryptNullPlaintext()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -234,7 +283,7 @@ namespace System.Security.Cryptography.Tests
             byte[] ciphertext = new byte[0];
             byte[] tag = new byte[16];
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Encrypt(nonce, (byte[])null, ciphertext, tag));
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Decrypt(nonce, ciphertext, tag, (byte[])null));
@@ -242,7 +291,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void EncryptDecryptNullCiphertext()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -250,7 +298,7 @@ namespace System.Security.Cryptography.Tests
             byte[] plaintext = new byte[0];
             byte[] tag = new byte[16];
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Encrypt(nonce, plaintext, (byte[])null, tag));
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Decrypt(nonce, (byte[])null, tag, plaintext));
@@ -258,7 +306,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void EncryptDecryptNullTag()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -266,7 +313,7 @@ namespace System.Security.Cryptography.Tests
             byte[] plaintext = new byte[0];
             byte[] ciphertext = new byte[0];
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tagSizeInBytes: 16))
             {
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Encrypt(nonce, plaintext, ciphertext, (byte[])null));
                 Assert.Throws<ArgumentNullException>(() => aesGcm.Decrypt(nonce, ciphertext, (byte[])null, plaintext));
@@ -274,7 +321,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void InplaceEncryptDecrypt()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -284,7 +330,7 @@ namespace System.Security.Cryptography.Tests
             byte[] tag = new byte[16];
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 aesGcm.Encrypt(nonce, data, data, tag);
                 Assert.NotEqual(originalPlaintext, data);
@@ -295,7 +341,6 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void InplaceEncryptTamperTagDecrypt()
         {
             byte[] key = "d5a194ed90cfe08abecd4691997ceb2c".HexToByteArray();
@@ -305,14 +350,14 @@ namespace System.Security.Cryptography.Tests
             byte[] tag = new byte[16];
             RandomNumberGenerator.Fill(nonce);
 
-            using (var aesGcm = new AesGcm(key))
+            using (var aesGcm = new AesGcm(key, tag.Length))
             {
                 aesGcm.Encrypt(nonce, data, data, tag);
                 Assert.NotEqual(originalPlaintext, data);
 
                 tag[0] ^= 1;
 
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesGcm.Decrypt(nonce, data, tag, data));
                 Assert.Equal(new byte[data.Length], data);
             }
@@ -320,29 +365,76 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetNistGcmTestCases))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
-        public static void AesGcmNistTests(AEADTest testCase)
+        public static void AesGcmNistTestsUnspecifiedTagSize(AEADTest testCase)
         {
+#pragma warning disable SYSLIB0053
             using (var aesGcm = new AesGcm(testCase.Key))
+#pragma warning restore SYSLIB0053
             {
                 byte[] ciphertext = new byte[testCase.Plaintext.Length];
                 byte[] tag = new byte[testCase.Tag.Length];
-                aesGcm.Encrypt(testCase.Nonce, testCase.Plaintext, ciphertext, tag, testCase.AssociatedData);
-                Assert.Equal(testCase.Ciphertext, ciphertext);
-                Assert.Equal(testCase.Tag, tag);
 
-                byte[] plaintext = new byte[testCase.Plaintext.Length];
-                aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData);
-                Assert.Equal(testCase.Plaintext, plaintext);
+                if ((PlatformDetection.IsOSX || PlatformDetection.UsesMobileAppleCrypto) && testCase.Tag.Length != CryptoKitSupportedTagSizeInBytes)
+                {
+                    Assert.Throws<ArgumentException>("tag", () =>
+                    {
+                        aesGcm.Encrypt(testCase.Nonce, testCase.Plaintext, ciphertext, tag, testCase.AssociatedData);
+                    });
+                    Assert.Throws<ArgumentException>("tag", () =>
+                    {
+                        byte[] plaintext = new byte[testCase.Plaintext.Length];
+                        aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, testCase.Ciphertext, testCase.AssociatedData);
+                    });
+                }
+                else
+                {
+                    aesGcm.Encrypt(testCase.Nonce, testCase.Plaintext, ciphertext, tag, testCase.AssociatedData);
+                    Assert.Equal(testCase.Ciphertext, ciphertext);
+                    Assert.Equal(testCase.Tag, tag);
+
+                    byte[] plaintext = new byte[testCase.Plaintext.Length];
+                    aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData);
+                    Assert.Equal(testCase.Plaintext, plaintext);
+                }
             }
         }
 
         [Theory]
         [MemberData(nameof(GetNistGcmTestCases))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        public static void AesGcmNistTestsSpecifiedTagSize(AEADTest testCase)
+        {
+            if ((PlatformDetection.IsOSX || PlatformDetection.UsesMobileAppleCrypto) && testCase.Tag.Length != CryptoKitSupportedTagSizeInBytes)
+            {
+                Assert.Throws<ArgumentException>("tagSizeInBytes", () => new AesGcm(testCase.Key, testCase.Tag.Length));
+            }
+            else
+            {
+                byte[] ciphertext = new byte[testCase.Plaintext.Length];
+                byte[] tag = new byte[testCase.Tag.Length];
+
+                using (var aesGcm = new AesGcm(testCase.Key, testCase.Tag.Length))
+                {
+                    aesGcm.Encrypt(testCase.Nonce, testCase.Plaintext, ciphertext, tag, testCase.AssociatedData);
+                    Assert.Equal(testCase.Ciphertext, ciphertext);
+                    Assert.Equal(testCase.Tag, tag);
+
+                    byte[] plaintext = new byte[testCase.Plaintext.Length];
+                    aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData);
+                    Assert.Equal(testCase.Plaintext, plaintext);
+                }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(GetNistGcmTestCases))]
         public static void AesGcmNistTestsTamperTag(AEADTest testCase)
         {
-            using (var aesGcm = new AesGcm(testCase.Key))
+            if ((PlatformDetection.IsOSX || PlatformDetection.UsesMobileAppleCrypto) && testCase.Tag.Length != CryptoKitSupportedTagSizeInBytes)
+            {
+                return;
+            }
+
+            using (var aesGcm = new AesGcm(testCase.Key, testCase.Tag.Length))
             {
                 byte[] ciphertext = new byte[testCase.Plaintext.Length];
                 byte[] tag = new byte[testCase.Tag.Length];
@@ -354,7 +446,7 @@ namespace System.Security.Cryptography.Tests
 
                 byte[] plaintext = new byte[testCase.Plaintext.Length];
                 RandomNumberGenerator.Fill(plaintext);
-                Assert.Throws<CryptographicException>(
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData));
                 Assert.Equal(new byte[plaintext.Length], plaintext);
             }
@@ -362,10 +454,14 @@ namespace System.Security.Cryptography.Tests
 
         [Theory]
         [MemberData(nameof(GetNistGcmTestCasesWithNonEmptyPT))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51332", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public static void AesGcmNistTestsTamperCiphertext(AEADTest testCase)
         {
-            using (var aesGcm = new AesGcm(testCase.Key))
+            if ((PlatformDetection.IsOSX || PlatformDetection.UsesMobileAppleCrypto) && testCase.Tag.Length != CryptoKitSupportedTagSizeInBytes)
+            {
+                return;
+            }
+
+            using (var aesGcm = new AesGcm(testCase.Key, testCase.Tag.Length))
             {
                 byte[] ciphertext = new byte[testCase.Plaintext.Length];
                 byte[] tag = new byte[testCase.Tag.Length];
@@ -375,12 +471,27 @@ namespace System.Security.Cryptography.Tests
 
                 ciphertext[0] ^= 1;
 
-                byte[] plaintext = new byte[testCase.Plaintext.Length];
-                RandomNumberGenerator.Fill(plaintext);
-                Assert.Throws<CryptographicException>(
+                byte[] plaintext = RandomNumberGenerator.GetBytes(testCase.Plaintext.Length);
+                Assert.Throws<AuthenticationTagMismatchException>(
                     () => aesGcm.Decrypt(testCase.Nonce, ciphertext, tag, plaintext, testCase.AssociatedData));
-                Assert.Equal(new byte[plaintext.Length], plaintext);
+                AssertExtensions.FilledWith<byte>(0, plaintext);
             }
+        }
+
+        [Fact]
+        public static void UseAfterDispose()
+        {
+            byte[] key = new byte[16];
+            byte[] nonce = new byte[12];
+            byte[] plaintext = Array.Empty<byte>();
+            byte[] ciphertext = Array.Empty<byte>();
+            byte[] tag = "58e2fccefa7e3061367f1d57a4e7455a".HexToByteArray();
+
+            AesGcm aesGcm = new AesGcm(key, tag.Length);
+            aesGcm.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => aesGcm.Encrypt(nonce, plaintext, ciphertext, new byte[tag.Length]));
+            Assert.Throws<ObjectDisposedException>(() => aesGcm.Decrypt(nonce, ciphertext, tag, plaintext));
         }
 
         public static IEnumerable<object[]> GetValidNonceSizes()
@@ -862,23 +973,19 @@ namespace System.Security.Cryptography.Tests
         {
             byte[] key = RandomNumberGenerator.GetBytes(256 / 8);
 
+#pragma warning disable SYSLIB0053
             Assert.Throws<PlatformNotSupportedException>(() => new AesGcm(key));
             Assert.Throws<PlatformNotSupportedException>(() => new AesGcm(key.AsSpan()));
+#pragma warning restore SYSLIB0053
+
+            Assert.Throws<PlatformNotSupportedException>(() => new AesGcm(key, AesGcm.TagByteSizes.MinSize));
+            Assert.Throws<PlatformNotSupportedException>(() => new AesGcm(key.AsSpan(), AesGcm.TagByteSizes.MinSize));
         }
 
         [Fact]
         public static void CheckIsSupported()
         {
             bool expectedIsSupported = !PlatformDetection.IsBrowser;
-
-            if (PlatformDetection.IsOSX)
-            {
-                expectedIsSupported = PlatformDetection.OpenSslPresentOnSystem;
-            }
-            else if (PlatformDetection.UsesMobileAppleCrypto)
-            {
-                expectedIsSupported = false;
-            }
 
             Assert.Equal(expectedIsSupported, AesGcm.IsSupported);
         }

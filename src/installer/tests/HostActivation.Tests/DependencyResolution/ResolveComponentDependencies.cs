@@ -8,11 +8,11 @@ using Xunit;
 
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
 {
-    public class ResolveComponentDependencies : 
-        ComponentDependencyResolutionBase,
+    public class ResolveComponentDependencies :
         IClassFixture<ResolveComponentDependencies.SharedTestState>
     {
         private readonly SharedTestState sharedTestState;
+        private const string AdditionalDependencyName = "AdditionalDependency";
 
         public ResolveComponentDependencies(SharedTestState fixture)
         {
@@ -53,13 +53,14 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
         public void ComponentWithNoDependenciesCaseChangedOnAsm()
         {
             // Scenario: change the case of the first letter of component.AppDll file name
+            // Resolution should be based on what is in the .deps.json
 
             // Changing the casing of the first letter of a dependent assembly have different behavior in the 3 platforms
             // Wisely the product code stays out of casing on dependent assemblies choosing the 1st assembly
             // Linux: we fail
-            // Windows and Mac, probing succeeds but
-            // Windows: probing returns the original name
-            // Mac: probing return the new name including 2 assembly probing with the original and new name, and the changed deps file
+            // Windows and Mac, resolution succeeds but
+            // Windows: uses original name and deps file as component info, resolution returns the original name
+            // Mac: uses chanegd name and changed deps file as component info, resolution returns the original name
 
             var component = sharedTestState.ComponentWithNoDependencies.Copy();
 
@@ -89,7 +90,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Pass()
                     .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
-                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{component.AppDll}{Path.PathSeparator}{changeFile}{Path.PathSeparator}]")
+                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{component.AppDll}{Path.PathSeparator}]")
                     .And.HaveStdErrContaining($"app_root='{component.Location}{Path.DirectorySeparatorChar}'")
                     .And.HaveStdErrContaining($"deps='{changeDepsFile}'")
                     .And.HaveStdErrContaining($"mgd_app='{changeFile}'");
@@ -97,7 +98,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
             else
             {
                 // OSPlatform.Linux
-                // We expect the test to fail due to the the case change of AppDll
+                // We expect the test to fail due to the case change of AppDll
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Fail()
                     .And.HaveStdErrContaining($"Failed to locate managed application [{component.AppDll}]");
@@ -107,15 +108,16 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
         [Fact]
         public void ComponentWithNoDependenciesCaseChangedOnDepsAndAsm()
         {
-
             // Scenario: change the case of the first letter of component.AppDll and component.DepsJson file names
+            // Resolution should be based on what is in the .deps.json
 
             // Changing the casing of the first letter of a dependent assembly have different behavior in the 3 platforms
             // Wisely the product code stays out of casing on dependent assemblies choosing the 1st assembly
             // Linux: we fail
-            // Windows and Mac, probing succeeds but
+            // Windows and Mac, resolution succeeds but
             // Windows: probing returns the original name
-            // Mac: probing return the new name including 2 assembly probing with the original and new name, and the changed deps file
+            // Windows: uses original name and deps file as component info, resolution returns the original name
+            // Mac: uses chanegd name and changed deps file as component info, resolution returns the original name
 
             var component = sharedTestState.ComponentWithNoDependencies.Copy();
 
@@ -146,7 +148,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Pass()
                     .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
-                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{component.AppDll}{Path.PathSeparator}{changeFile}{Path.PathSeparator}]")
+                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{component.AppDll}{Path.PathSeparator}]")
                     .And.HaveStdErrContaining($"app_root='{component.Location}{Path.DirectorySeparatorChar}'")
                     .And.HaveStdErrContaining($"deps='{changeDepsFile}'")
                     .And.HaveStdErrContaining($"mgd_app='{changeFile}'");
@@ -154,7 +156,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
             else
             {
                 // OSPlatform.Linux
-                // We expect the test to fail due to the the case change of AppDll
+                // We expect the test to fail due to the case change of AppDll
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Fail()
                     .And.HaveStdErrContaining($"Failed to locate managed application [{component.AppDll}]");
@@ -164,8 +166,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
         [Fact]
         public void ComponentWithNoDependenciesNoDepsCaseChangedOnAsm()
         {
-
             // Scenario: change the case of the first letter of component.AppDll file name and delete component.DepsJson file
+            // Resolution should be based on what is in the app-local directory
 
             // Changing the casing of the first letter of a dependent assembly have different behavior in the 3 platforms
             // Wisely the product code stays out of casing on dependent assemblies choosing the 1st assembly
@@ -194,7 +196,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Pass()
                     .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
-                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{component.AppDll}{Path.PathSeparator}{changeFile}{Path.PathSeparator}]")
+                    .And.HaveStdOutContaining($"corehost_resolve_component_dependencies assemblies:[{changeFile}{Path.PathSeparator}]")
                     .And.HaveStdErrContaining($"app_root='{component.Location}{Path.DirectorySeparatorChar}'")
                     .And.HaveStdErrContaining($"deps='{component.DepsJson}'")
                     .And.HaveStdErrContaining($"mgd_app='{component.AppDll}'");
@@ -212,7 +214,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
             else
             {
                 // OSPlatform.Linux
-                // We expect the test to fail due to the the case change of AppDll
+                // We expect the test to fail due to the case change of AppDll
                 sharedTestState.RunComponentResolutionTest(component)
                     .Should().Fail()
                     .And.HaveStdErrContaining($"Failed to locate managed application [{component.AppDll}]");
@@ -237,9 +239,10 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
                 .And.HaveStdOutContaining(
                     $"corehost_resolve_component_dependencies assemblies:[" +
+                    $"{Path.Combine(sharedTestState.ComponentWithDependencies.Location, $"{AdditionalDependencyName}.dll")}{Path.PathSeparator}" +
                     $"{Path.Combine(sharedTestState.ComponentWithDependencies.Location, "ComponentDependency.dll")}{Path.PathSeparator}" +
                     $"{sharedTestState.ComponentWithDependencies.AppDll}{Path.PathSeparator}" +
-                    $"{Path.Combine(sharedTestState.ComponentWithDependencies.Location, "Newtonsoft.Json.dll")}{Path.PathSeparator}]")
+                    $"]")
                 .And.HaveStdOutContaining(
                     $"corehost_resolve_component_dependencies native_search_paths:[" +
                     $"{Path.Combine(sharedTestState.ComponentWithDependencies.Location, "runtimes", "win10-x86", "native")}" +
@@ -259,9 +262,10 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
                 .And.HaveStdOutContaining(
                     $"corehost_resolve_component_dependencies assemblies:[" +
+                    $"{Path.Combine(component.Location, $"{AdditionalDependencyName}.dll")}{Path.PathSeparator}" +
                     $"{Path.Combine(component.Location, "ComponentDependency.dll")}{Path.PathSeparator}" +
                     $"{component.AppDll}{Path.PathSeparator}" +
-                    $"{Path.Combine(component.Location, "Newtonsoft.Json.dll")}{Path.PathSeparator}]");
+                    $"]");
         }
 
         [Fact]
@@ -277,9 +281,10 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
                 .And.HaveStdOutContaining(
                     $"corehost_resolve_component_dependencies assemblies:[" +
+                    $"{Path.Combine(component.Location, $"{AdditionalDependencyName}.dll")}{Path.PathSeparator}" +
                     $"{Path.Combine(component.Location, "ComponentDependency.dll")}{Path.PathSeparator}" +
                     $"{component.AppDll}{Path.PathSeparator}" +
-                    $"{Path.Combine(component.Location, "Newtonsoft.Json.dll")}{Path.PathSeparator}]");
+                    $"]");
         }
 
         [Fact]
@@ -299,8 +304,9 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 .And.HaveStdOutContaining("corehost_resolve_component_dependencies:Success")
                 .And.HaveStdOutContaining(
                     $"corehost_resolve_component_dependencies assemblies:[" +
+                    $"{Path.Combine(component.Location, $"{AdditionalDependencyName}.dll")}{Path.PathSeparator}" +
                     $"{component.AppDll}{Path.PathSeparator}" +
-                    $"{Path.Combine(component.Location, "Newtonsoft.Json.dll")}{Path.PathSeparator}]");
+                    $"]");
         }
 
         [Fact]
@@ -390,7 +396,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
         }
 
         [Fact]
-        public void MultiThreadedComponentDependencyResolutionWhichSucceeeds()
+        public void MultiThreadedComponentDependencyResolutionWhichSucceeds()
         {
             sharedTestState.RunComponentResolutionMultiThreadedTest(sharedTestState.ComponentWithNoDependencies, sharedTestState.ComponentWithResources)
                 .Should().Pass()
@@ -403,7 +409,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
         }
 
         [Fact]
-        public void MultiThreadedComponentDependencyResolutionWhithFailures()
+        public void MultiThreadedComponentDependencyResolutionWithFailures()
         {
             var componentWithNoDependencies = sharedTestState.ComponentWithNoDependencies.Copy();
 
@@ -449,10 +455,10 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.DependencyResolution
                 NetCoreAppBuilder builder = NetCoreAppBuilder.PortableForNETCoreApp(componentWithDependencies)
                     .WithProject(p => p.WithAssemblyGroup(null, g => g.WithMainAssembly()))
                     .WithProject("ComponentDependency", "1.0.0", p => p.WithAssemblyGroup(null, g => g.WithAsset("ComponentDependency.dll")))
-                    .WithPackage("Newtonsoft.Json", "9.0.1", p => p.WithAssemblyGroup(null, g => g
-                        .WithAsset("lib/netstandard1.0/Newtonsoft.Json.dll", f => f
-                            .WithVersion("9.0.0.0", "9.0.1.19813")
-                            .WithFileOnDiskPath("Newtonsoft.Json.dll"))))
+                    .WithPackage(AdditionalDependencyName, "2.0.1", p => p.WithAssemblyGroup(null, g => g
+                        .WithAsset($"lib/netstandard1.0/{AdditionalDependencyName}.dll", f => f
+                            .WithVersion("2.0.0.0", "2.0.1.23344")
+                            .WithFileOnDiskPath($"{AdditionalDependencyName}.dll"))))
                     .WithPackage("Libuv", "1.9.1", p => p
                         .WithNativeLibraryGroup("debian-x64", g => g.WithAsset("runtimes/debian-x64/native/libuv.so"))
                         .WithNativeLibraryGroup("fedora-x64", g => g.WithAsset("runtimes/fedora-x64/native/libuv.so"))

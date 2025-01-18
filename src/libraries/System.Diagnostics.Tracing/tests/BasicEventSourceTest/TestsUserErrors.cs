@@ -1,16 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
-using System.Diagnostics.Tracing;
-#endif
-using Xunit;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
+using System.Diagnostics.Tracing;
+using System.Collections.Generic;
+using Xunit;
 
 namespace BasicEventSourceTests
 {
@@ -64,7 +59,6 @@ namespace BasicEventSourceTests
         /// Test the
         /// </summary>
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // ActiveIssue: https://github.com/dotnet/runtime/issues/26197
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/51382", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Test_BadEventSource_MismatchedIds()
         {
             TestUtilities.CheckNoEventSourcesRunning("Start");
@@ -152,12 +146,10 @@ namespace BasicEventSourceTests
             }
         }
 
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/105293")]
         [Fact]
         public void Test_Bad_WriteRelatedID_ParameterName()
         {
-#if true
-            Debug.WriteLine("Test disabled because the fix it tests is not in CoreCLR yet.");
-#else
             Guid oldGuid;
             Guid newGuid = Guid.NewGuid();
             Guid newGuid2 = Guid.NewGuid();
@@ -181,7 +173,6 @@ namespace BasicEventSourceTests
                 // expected message: "EventSource expects the first parameter of the Event method to be of type Guid and to be named "relatedActivityId" when calling WriteEventWithRelatedActivityId."
                 Assert.Contains("EventSource expects the first parameter of the Event method to be of type Guid and to be named \"relatedActivityId\" when calling WriteEventWithRelatedActivityId.", message);
             }
-#endif
         }
     }
 
@@ -195,14 +186,6 @@ namespace BasicEventSourceTests
         public void Event1(int arg) { WriteEvent(1, arg); }
         // Error Used the same event ID for this event.
         public void Event2(int arg) { WriteEvent(1, arg); }
-    }
-
-    /// <summary>
-    /// A manifest based provider with a bad type byte[]
-    /// </summary>
-    internal class BadEventSource_Bad_Type_ByteArray : EventSource
-    {
-        public void Event1(byte[] myArray) { WriteEvent(1, myArray); }
     }
 
     public sealed class BadEventSource_IncorrectWriteRelatedActivityIDFirstParameter : EventSource

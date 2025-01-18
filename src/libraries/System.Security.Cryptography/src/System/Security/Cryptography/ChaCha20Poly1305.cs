@@ -9,6 +9,8 @@ namespace System.Security.Cryptography
     [UnsupportedOSPlatform("browser")]
     [UnsupportedOSPlatform("ios")]
     [UnsupportedOSPlatform("tvos")]
+    [SupportedOSPlatform("ios13.0")]
+    [SupportedOSPlatform("tvos13.0")]
     public sealed partial class ChaCha20Poly1305 : IDisposable
     {
         // Per https://tools.ietf.org/html/rfc7539, ChaCha20Poly1305 AEAD requires a 256-bit key and 96-bit nonce,
@@ -27,8 +29,10 @@ namespace System.Security.Cryptography
             ImportKey(key);
         }
 
-        public ChaCha20Poly1305(byte[] key!!)
+        public ChaCha20Poly1305(byte[] key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             ThrowIfNotSupported();
 
             CheckKeySize(key.Length);
@@ -43,8 +47,13 @@ namespace System.Security.Cryptography
             }
         }
 
-        public void Encrypt(byte[] nonce!!, byte[] plaintext!!, byte[] ciphertext!!, byte[] tag!!, byte[]? associatedData = null)
+        public void Encrypt(byte[] nonce, byte[] plaintext, byte[] ciphertext, byte[] tag, byte[]? associatedData = null)
         {
+            ArgumentNullException.ThrowIfNull(nonce);
+            ArgumentNullException.ThrowIfNull(plaintext);
+            ArgumentNullException.ThrowIfNull(ciphertext);
+            ArgumentNullException.ThrowIfNull(tag);
+
             Encrypt((ReadOnlySpan<byte>)nonce, plaintext, ciphertext, tag, associatedData);
         }
 
@@ -59,8 +68,13 @@ namespace System.Security.Cryptography
             EncryptCore(nonce, plaintext, ciphertext, tag, associatedData);
         }
 
-        public void Decrypt(byte[] nonce!!, byte[] ciphertext!!, byte[] tag!!, byte[] plaintext!!, byte[]? associatedData = null)
+        public void Decrypt(byte[] nonce, byte[] ciphertext, byte[] tag, byte[] plaintext, byte[]? associatedData = null)
         {
+            ArgumentNullException.ThrowIfNull(nonce);
+            ArgumentNullException.ThrowIfNull(ciphertext);
+            ArgumentNullException.ThrowIfNull(tag);
+            ArgumentNullException.ThrowIfNull(plaintext);
+
             Decrypt((ReadOnlySpan<byte>)nonce, ciphertext, tag, plaintext, associatedData);
         }
 

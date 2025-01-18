@@ -43,13 +43,16 @@ namespace System.Globalization
         /// equal, a number less than 0 if sortkey1 is less than sortkey2,
         /// and a number greater than 0 if sortkey1 is greater than sortkey2.
         /// </summary>
-        public static int Compare(SortKey sortkey1!!, SortKey sortkey2!!)
+        public static int Compare(SortKey sortkey1, SortKey sortkey2)
         {
+            ArgumentNullException.ThrowIfNull(sortkey1);
+            ArgumentNullException.ThrowIfNull(sortkey2);
+
             byte[] key1Data = sortkey1._keyData;
             byte[] key2Data = sortkey2._keyData;
 
-            Debug.Assert(key1Data != null, "key1Data != null");
-            Debug.Assert(key2Data != null, "key2Data != null");
+            Debug.Assert(key1Data != null);
+            Debug.Assert(key2Data != null);
 
             // SortKey comparisons are done as an ordinal comparison by the raw sort key bytes.
 

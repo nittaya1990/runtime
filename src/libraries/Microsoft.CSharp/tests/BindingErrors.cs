@@ -61,6 +61,10 @@ namespace Microsoft.CSharp.RuntimeBinder.Tests
             {
             }
 
+            public void DoSomething(float d)
+            {
+            }
+
             public static void DoSomething(int i)
             {
             }
@@ -248,7 +252,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Tests
         }
 
         [Fact]
-        public void AmbigousUnaryOp()
+        public void AmbiguousUnaryOp()
         {
             dynamic d = new AmbiguousNumClass(7);
             Assert.Throws<RuntimeBinderException>(() => -d);

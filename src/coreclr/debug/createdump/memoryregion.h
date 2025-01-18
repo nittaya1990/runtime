@@ -1,12 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if !defined(PAGE_SIZE) && (defined(__arm__) || defined(__aarch64__))
-#define PAGE_SIZE sysconf(_SC_PAGESIZE)
+#if !defined(PAGE_SIZE) && (defined(__arm__) || defined(__aarch64__) || defined(__loongarch64)) || defined(__riscv)
+extern long g_pageSize;
+#define PAGE_SIZE g_pageSize
 #endif
 
 #undef PAGE_MASK 
 #define PAGE_MASK (~(PAGE_SIZE-1))
+
+#define CONVERT_FROM_SIGN_EXTENDED(offset) ((ULONG_PTR)(offset))
 
 enum MEMORY_REGION_FLAGS : uint32_t
 {
@@ -15,8 +18,7 @@ enum MEMORY_REGION_FLAGS : uint32_t
     // PF_R        = 0x04,      // Read
     MEMORY_REGION_FLAG_PERMISSIONS_MASK = 0x0f,
     MEMORY_REGION_FLAG_SHARED = 0x10,
-    MEMORY_REGION_FLAG_PRIVATE = 0x20,
-    MEMORY_REGION_FLAG_MEMORY_BACKED = 0x40
+    MEMORY_REGION_FLAG_PRIVATE = 0x20
 };
 
 struct MemoryRegion
@@ -27,21 +29,7 @@ private:
     uint64_t m_endAddress;
     uint64_t m_offset;
 
-    // The name used for NT_FILE output
-    std::string m_fileName;
-
 public:
-    MemoryRegion(uint32_t flags, uint64_t start, uint64_t end, uint64_t offset, const std::string& filename) :
-        m_flags(flags),
-        m_startAddress(start),
-        m_endAddress(end),
-        m_offset(offset),
-        m_fileName(filename)
-    {
-        assert((start & ~PAGE_MASK) == 0);
-        assert((end & ~PAGE_MASK) == 0);
-    }
-
     MemoryRegion(uint32_t flags, uint64_t start, uint64_t end, uint64_t offset) :
         m_flags(flags),
         m_startAddress(start),
@@ -53,20 +41,11 @@ public:
     MemoryRegion(uint32_t flags, uint64_t start, uint64_t end) :
         m_flags(flags),
         m_startAddress(start),
-        m_endAddress(end)
+        m_endAddress(end),
+        m_offset(0)
     {
         assert((start & ~PAGE_MASK) == 0);
         assert((end & ~PAGE_MASK) == 0);
-    }
-
-    // copy with new file name constructor
-    MemoryRegion(const MemoryRegion& region, const std::string& fileName) :
-        m_flags(region.m_flags),
-        m_startAddress(region.m_startAddress),
-        m_endAddress(region.m_endAddress),
-        m_offset(region.m_offset),
-        m_fileName(fileName)
-    {
     }
 
     // copy with new flags constructor. The file name is not copied.
@@ -83,8 +62,7 @@ public:
         m_flags(region.m_flags),
         m_startAddress(region.m_startAddress),
         m_endAddress(region.m_endAddress),
-        m_offset(region.m_offset),
-        m_fileName(region.m_fileName)
+        m_offset(region.m_offset)
     {
     }
 
@@ -94,12 +72,11 @@ public:
 
     uint32_t Permissions() const { return m_flags & MEMORY_REGION_FLAG_PERMISSIONS_MASK; }
     inline uint32_t Flags() const { return m_flags; }
-    bool IsBackedByMemory() const { return (m_flags & MEMORY_REGION_FLAG_MEMORY_BACKED) != 0; }
     inline uint64_t StartAddress() const { return m_startAddress; }
     inline uint64_t EndAddress() const { return m_endAddress; }
     inline uint64_t Size() const { return m_endAddress - m_startAddress; }
+    inline uint64_t SizeInPages() const { return Size() / PAGE_SIZE; }
     inline uint64_t Offset() const { return m_offset; }
-    inline const std::string& FileName() const { return m_fileName; }
 
     bool operator<(const MemoryRegion& rhs) const
     {
@@ -112,9 +89,10 @@ public:
         return (m_startAddress <= rhs.m_startAddress) && (m_endAddress >= rhs.m_endAddress);
     }
 
-    void Trace() const
+    void Trace(const char* prefix = "", const char* suffix = "") const
     {
-        TRACE("%" PRIA PRIx64 " - %" PRIA PRIx64 " (%06" PRIx64 ") %" PRIA PRIx64 " %c%c%c%c%c%c %02x %s\n",
+        TRACE("%s%" PRIA PRIx64 " - %" PRIA PRIx64 " (%06" PRIx64 ") %" PRIA PRIx64 " %c%c%c%c%c %02x %s\n",
+            prefix,
             m_startAddress,
             m_endAddress,
             Size() / PAGE_SIZE,
@@ -124,8 +102,54 @@ public:
             (m_flags & PF_X) ? 'x' : '-',
             (m_flags & MEMORY_REGION_FLAG_SHARED) ? 's' : '-',
             (m_flags & MEMORY_REGION_FLAG_PRIVATE) ? 'p' : '-',
-            (m_flags & MEMORY_REGION_FLAG_MEMORY_BACKED) ? 'b' : '-',
             m_flags,
-            m_fileName.c_str());
+            suffix);
+    }
+};
+
+struct ModuleRegion : MemoryRegion
+{
+private:
+    std::string m_fileName;
+
+public:
+    ModuleRegion(uint32_t flags, uint64_t start, uint64_t end, uint64_t offset, char* filename) : MemoryRegion(flags, start, end, offset),
+        m_fileName(filename != nullptr ? filename : "")
+    {
+    }
+
+    ModuleRegion(uint32_t flags, uint64_t start, uint64_t end, uint64_t offset, const std::string& filename) : MemoryRegion(flags, start, end, offset),
+        m_fileName(filename)
+    {
+    }
+
+    ModuleRegion(uint32_t flags, uint64_t start, uint64_t end, uint64_t offset) : MemoryRegion(flags, start, end, offset)
+    {
+    }
+
+    ModuleRegion(uint32_t flags, uint64_t start, uint64_t end) : MemoryRegion(flags, start, end)
+    {
+    }
+
+    // copy with new file name constructor
+    ModuleRegion(const ModuleRegion& region, const std::string& fileName) : MemoryRegion(region),
+        m_fileName(fileName)
+    {
+    }
+
+    // copy constructor from MemoryRegion
+    ModuleRegion(const MemoryRegion& region) : MemoryRegion(region)
+    {
+    }
+
+    ~ModuleRegion()
+    {
+    }
+
+    inline const std::string& FileName() const { return m_fileName; }
+
+    void Trace(const char* prefix = "") const
+    {
+        MemoryRegion::Trace(prefix, m_fileName.c_str());
     }
 };

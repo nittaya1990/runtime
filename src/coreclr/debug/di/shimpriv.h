@@ -389,7 +389,7 @@ public:
     );
 
     // Locates the DAC module adjacent to DBI
-    static HMODULE GetDacModule();
+    static HMODULE GetDacModule(PathString& dacModulePath);
 
     //
     // Functions used by CordbProcess
@@ -430,6 +430,8 @@ public:
     HRESULT QueueFakeThreadAttachEventsNoOrder();
 
     bool IsThreadSuspendedOrHijacked(ICorDebugThread * pThread);
+
+    bool IsUnmanagedThreadHijacked(ICorDebugThread * pThread);
 
     // Expose m_attached to CordbProcess.
     bool GetAttached();
@@ -780,6 +782,8 @@ private:
 
         // Indicate whether we are processing a converted frame.
         bool m_fHasConvertedFrame;
+
+        bool m_fHasException;
     };
 
     // A ShimStackWalk is deleted when a process is continued, or when the stack is changed in any way

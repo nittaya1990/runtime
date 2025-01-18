@@ -6,6 +6,7 @@
 #include "dir_utils.h"
 #include "pal.h"
 #include "utils.h"
+#include <cinttypes>
 
 #ifdef __sun
 #include <alloca.h>
@@ -31,7 +32,7 @@ pal::string_t& extractor_t::extraction_dir()
         // m_extraction_dir = $DOTNET_BUNDLE_EXTRACT_BASE_DIR/<app>/<id>/...
         //
         // If DOTNET_BUNDLE_EXTRACT_BASE_DIR is not set in the environment,
-        // a default is choosen within the temporary directory.
+        // a default is chosen within the temporary directory.
 
         if (!pal::getenv(_X("DOTNET_BUNDLE_EXTRACT_BASE_DIR"), &m_extraction_dir))
         {
@@ -62,7 +63,7 @@ pal::string_t& extractor_t::extraction_dir()
         append_path(&m_extraction_dir, host_name.c_str());
         append_path(&m_extraction_dir, m_bundle_id.c_str());
 
-        trace::info(_X("Files embedded within the bundled will be extracted to [%s] directory."), m_extraction_dir.c_str());
+        trace::info(_X("Files embedded within the bundle will be extracted to [%s] directory."), m_extraction_dir.c_str());
     }
 
     return m_extraction_dir;
@@ -178,7 +179,7 @@ void extractor_t::extract(const file_entry_t &entry, reader_t &reader)
 
     if (extracted_size != cast_size)
     {
-        trace::error(_X("Failure extracting contents of the application bundle. Expected size:%d Actual size:%d"), size, extracted_size);
+        trace::error(_X("Failure extracting contents of the application bundle. Expected size:%" PRId64 " Actual size:%zu"), size, extracted_size);
         trace::error(_X("I/O failure when writing extracted files."));
         throw StatusCode::BundleExtractionIOError;
     }
@@ -218,7 +219,7 @@ void extractor_t::commit_dir()
     // Retry the move operation with some wait in between the attempts. This is to workaround for possible file locking
     // caused by AV software. Basically the extraction process above writes a bunch of executable files to disk
     // and some AV software may decide to scan them on write. If this happens the files will be locked which blocks
-    // our ablity to move them.
+    // our ability to move them.
 
     bool extracted_by_concurrent_process = false;
     bool extracted_by_current_process =

@@ -9,12 +9,13 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <minipal/thread.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -28,7 +29,7 @@ static volatile TerminalInvalidationCallback g_terminalInvalidationCallback = NU
 static volatile SigChldCallback g_sigChldCallback = NULL;
 static volatile bool g_sigChldConsoleConfigurationDelayed;
 static void (*g_sigChldConsoleConfigurationCallback)(void);
-// Callback invoked for for SIGTTOU while terminal settings are changed.
+// Callback invoked for SIGTTOU while terminal settings are changed.
 static volatile ConsoleSigTtouHandler g_consoleTtouHandler;
 
 // Callback invoked for PosixSignal handling.
@@ -40,7 +41,7 @@ static int g_signalPipe[2] = {-1, -1}; // Pipe used between signal handler and w
 
 static pid_t g_pid;
 
-static int GetSignalMax() // Returns the highest usable signal number.
+static int GetSignalMax(void) // Returns the highest usable signal number.
 {
 #ifdef SIGRTMAX
     return SIGRTMAX;
@@ -228,7 +229,7 @@ static void SignalHandler(int sig, siginfo_t* siginfo, void* context)
                 assert(origHandler->sa_handler);
                 origHandler->sa_handler(sig);
             }
-            
+
         }
     }
 
@@ -309,9 +310,16 @@ static void* SignalHandlerLoop(void* arg)
     // Passed in argument is a ptr to the file descriptor
     // for the read end of the pipe.
     assert(arg != NULL);
+
     int pipeFd = *(int*)arg;
+
     free(arg);
     assert(pipeFd >= 0);
+
+    // set thread name
+    int setNameResult = minipal_set_thread_name(pthread_self(), ".NET SigHandler");
+    (void)setNameResult; // used
+    assert(setNameResult == 0);
 
     // Continually read a signal code from the signal pipe and process it,
     // until the pipe is closed.
@@ -401,7 +409,7 @@ static void* SignalHandlerLoop(void* arg)
     }
 }
 
-static void CloseSignalHandlingPipe()
+static void CloseSignalHandlingPipe(void)
 {
     assert(g_signalPipe[0] >= 0);
     assert(g_signalPipe[1] >= 0);
@@ -468,7 +476,7 @@ void SystemNative_SetTerminalInvalidationHandler(TerminalInvalidationCallback ca
 {
     assert(callback != NULL);
     assert(g_terminalInvalidationCallback == NULL);
-    bool installed;
+    bool installed = false;
     (void)installed; // only used for assert
 
     pthread_mutex_lock(&lock);
@@ -489,7 +497,7 @@ void SystemNative_RegisterForSigChld(SigChldCallback callback)
 {
     assert(callback != NULL);
     assert(g_sigChldCallback == NULL);
-    bool installed;
+    bool installed = false;
     (void)installed; // only used for assert
 
     pthread_mutex_lock(&lock);
@@ -540,7 +548,7 @@ static bool CreateSignalHandlerThread(int* readFdPtr)
     return success;
 }
 
-int32_t InitializeSignalHandlingCore()
+int32_t InitializeSignalHandlingCore(void)
 {
     size_t signalMax = (size_t)GetSignalMax();
     g_origSigHandler = (struct sigaction*)calloc(sizeof(struct sigaction), signalMax);
@@ -662,7 +670,7 @@ void InstallTTOUHandlerForConsole(ConsoleSigTtouHandler handler)
         // will stop it (default SIGTTOU action).
         // We change SIGTTOU's disposition to get EINTR instead.
         // This thread may be used to run a signal handler, which may write to
-        // stdout. We set SA_RESETHAND to avoid that handler's write loops infinitly
+        // stdout. We set SA_RESETHAND to avoid that handler's write loops infinitely
         // on EINTR when the process is running in background and the terminal
         // configured with TOSTOP.
         RestoreSignalHandler(SIGTTOU);
@@ -674,7 +682,7 @@ void InstallTTOUHandlerForConsole(ConsoleSigTtouHandler handler)
 
 void UninstallTTOUHandlerForConsole(void)
 {
-    bool installed;
+    bool installed = false;
     (void)installed; // only used for assert
     pthread_mutex_lock(&lock);
     {
@@ -692,7 +700,7 @@ void UninstallTTOUHandlerForConsole(void)
 
 #ifndef HAS_CONSOLE_SIGNALS
 
-int32_t SystemNative_InitializeTerminalAndSignalHandling()
+int32_t SystemNative_InitializeTerminalAndSignalHandling(void)
 {
     static int32_t initialized = 0;
 

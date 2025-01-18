@@ -3,11 +3,14 @@
 
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Linq;
+using System.Net.Test.Common;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.DotNet.RemoteExecutor;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -15,6 +18,27 @@ namespace System.Net.Sockets.Tests
 {
     public class TelemetryTest
     {
+        private const string ActivitySourceName = "Experimental.System.Net.Sockets";
+        private const string ActivityName = ActivitySourceName + ".Connect";
+
+        private static readonly Lazy<Task<bool>> s_remoteServerIsReachable = new Lazy<Task<bool>>(() => Task.Run(async () =>
+        {
+            try
+            {
+                using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                EndPoint endPoint = await GetRemoteEndPointAsync(useDnsEndPointString: "True", port: 443);
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                await socket.ConnectAsync(endPoint, cts.Token);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }));
+
         public readonly ITestOutputHelper _output;
 
         public TelemetryTest(ITestOutputHelper output)
@@ -23,6 +47,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public static void EventSource_ExistsWithCorrectId()
         {
             Type esType = typeof(Socket).Assembly.GetType("System.Net.Sockets.SocketsTelemetry", throwOnError: true, ignoreCase: false);
@@ -36,9 +61,9 @@ namespace System.Net.Sockets.Tests
 
         public static IEnumerable<object[]> SocketMethods_MemberData()
         {
-            yield return new[] { "Sync" };
+            if (!OperatingSystem.IsWasi()) yield return new[] { "Sync" };
             yield return new[] { "Task" };
-            yield return new[] { "Apm" };
+            if (!OperatingSystem.IsWasi()) yield return new[] { "Apm" };
             yield return new[] { "Eap" };
         }
 
@@ -52,8 +77,8 @@ namespace System.Net.Sockets.Tests
         public static IEnumerable<object[]> SocketMethods_WithBools_MemberData()
         {
             return from connectMethod in SocketMethods_MemberData()
-                   from useDnsEndPoint in new[] { true, false }
-                   select new[] { connectMethod[0], useDnsEndPoint };
+                   from boolValue in new[] { true, false }
+                   select new[] { connectMethod[0], boolValue };
         }
 
         private static async Task<EndPoint> GetRemoteEndPointAsync(string useDnsEndPointString, int port)
@@ -85,18 +110,155 @@ namespace System.Net.Sockets.Tests
             };
         }
 
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [MemberData(nameof(SocketMethods_WithBools_MemberData))]
+        public async Task Connect_Success_ActivityRecorded(string connectMethod, bool ipv6)
+        {
+            if (ipv6 && !Socket.OSSupportsIPv6) return;
+
+            await RemoteExecutor.Invoke(static async (connectMethod, ipv6Str) =>
+            {
+                bool ipv6 = bool.Parse(ipv6Str);
+                using Socket server = new Socket(ipv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                server.BindToAnonymousPort(ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback);
+                server.Listen();
+
+                Activity parent = new Activity("parent").Start();
+
+                using Socket client = new Socket(ipv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+                using ActivityRecorder recorder = new ActivityRecorder(ActivitySourceName, ActivityName)
+                {
+                    ExpectedParent = parent
+                };
+
+                Task connectTask = GetHelperBase(connectMethod).ConnectAsync(client, server.LocalEndPoint);
+                await server.AcceptAsync();
+                await connectTask;
+
+                recorder.VerifyActivityRecorded(1);
+                Activity activity = recorder.LastFinishedActivity;
+                VerifyTcpConnectActivity(activity, (IPEndPoint)server.LocalEndPoint, ipv6);
+
+                Assert.Same(parent, Activity.Current);
+                parent.Stop();
+            }, connectMethod, ipv6.ToString()).DisposeAsync();
+        }
+
+        static void VerifyTcpConnectActivity(Activity activity, IPEndPoint remoteEndPoint, bool ipv6)
+        {
+            string address = remoteEndPoint.Address.ToString();
+            int port = remoteEndPoint.Port;
+            Assert.Equal(ActivityKind.Internal, activity.Kind);
+            Assert.Equal(ActivityName, activity.OperationName);
+            Assert.Equal($"socket connect {address}:{port}", activity.DisplayName);
+            ActivityAssert.HasTag(activity, "network.peer.address", address);
+            ActivityAssert.HasTag(activity, "network.peer.port", port);
+            ActivityAssert.HasTag(activity, "network.type", ipv6 ? "ipv6" : "ipv4");
+            ActivityAssert.HasTag(activity, "network.transport", "tcp");
+        }
+
+        [OuterLoop("Connection failure takes long on Windows.")]
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [MemberData(nameof(SocketMethods_WithBools_MemberData))]
+        public async Task Connect_Failure_ActivityRecorded(string connectMethod, bool ipv6)
+        {
+            await RemoteExecutor.Invoke(static async (connectMethod, ipv6Str) =>
+            {
+                bool ipv6 = bool.Parse(ipv6Str);
+                using Socket notListening = new Socket(ipv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                notListening.BindToAnonymousPort(ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback);
+
+                Activity parent = new Activity("parent").Start();
+
+                using Socket client = new Socket(ipv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+                using ActivityRecorder recorder = new ActivityRecorder(ActivitySourceName, ActivityName)
+                {
+                    ExpectedParent = parent
+                };
+
+                SocketException ex = await Assert.ThrowsAsync<SocketException>(() => GetHelperBase(connectMethod)
+                    .ConnectAsync(client, notListening.LocalEndPoint));
+
+                recorder.VerifyActivityRecorded(1);
+                Activity activity = recorder.LastFinishedActivity;
+                VerifyTcpConnectActivity(activity, (IPEndPoint)notListening.LocalEndPoint, ipv6);
+                string expectedErrorType = ActivityAssert.CamelToSnake(ex.SocketErrorCode.ToString());
+                ActivityAssert.HasTag(activity, "error.type", expectedErrorType);
+                Assert.Equal(ActivityStatusCode.Error, activity.Status);
+
+                Assert.Same(parent, Activity.Current);
+                parent.Stop();
+            }, connectMethod, ipv6.ToString()).DisposeAsync();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        [MemberData(nameof(SocketMethods_MemberData))]
+        public async Task Socket_UDS_Success_ActivityRecorded(string connectMethod)
+        {
+            if (!Socket.OSSupportsUnixDomainSockets)
+            {
+                return;
+            }
+
+            await RemoteExecutor.Invoke(static async connectMethod =>
+            {
+                Socket server = null;
+                UnixDomainSocketEndPoint endPoint = null;
+
+                //Path selection is contingent on a successful Bind().
+                //If it fails, the next iteration will try another path.
+                RetryHelper.Execute(() =>
+                {
+                    server = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    endPoint = new UnixDomainSocketEndPoint(UnixDomainSocketTest.GetRandomNonExistingFilePath());
+                    server.Bind(endPoint);
+                    server.Listen();
+                }, retryWhen: e => e is SocketException);
+
+                using Socket client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+
+                using ActivityRecorder recorder = new ActivityRecorder(ActivitySourceName, ActivityName);
+
+                Task connectTask = GetHelperBase(connectMethod).ConnectAsync(client, endPoint);
+                await server.AcceptAsync();
+                await connectTask;
+
+                recorder.VerifyActivityRecorded(1);
+                Activity activity = recorder.LastFinishedActivity;
+                Assert.Equal(ActivityKind.Internal, activity.Kind);
+                Assert.Equal(ActivityName, activity.OperationName);
+                Assert.Equal($"socket connect {endPoint}", activity.DisplayName);
+                ActivityAssert.HasTag(activity, "network.peer.address", endPoint.ToString());
+                ActivityAssert.HasTag(activity, "network.transport", "unix");
+
+            }, connectMethod).DisposeAsync();
+        }
+
         [OuterLoop]
         [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [MemberData(nameof(SocketMethods_Matrix_MemberData))]
-        public void EventSource_SocketConnectsLoopback_LogsConnectAcceptStartStop(string connectMethod, string acceptMethod)
+        public async Task EventSource_SocketConnectsLoopback_LogsConnectAcceptStartStop(string connectMethod, string acceptMethod)
         {
-            RemoteExecutor.Invoke(async (connectMethod, acceptMethod) =>
+            await RemoteExecutor.Invoke(async (connectMethod, acceptMethod) =>
             {
                 using var listener = new TestEventListener("System.Net.Sockets", EventLevel.Verbose, 0.1);
                 listener.AddActivityTracking();
 
                 var events = new ConcurrentQueue<(EventWrittenEventArgs Event, Guid ActivityId)>();
-                await listener.RunWithCallbackAsync(e => events.Enqueue((e, e.ActivityId)), async () =>
+                await listener.RunWithCallbackAsync(e =>
+                {
+                    events.Enqueue((e, e.ActivityId));
+
+                    if (e.EventName == "ConnectStart")
+                    {
+                        // Make sure we observe a non-zero current-outgoing-connect-attempts counter
+                        WaitForEventCountersAsync(events).GetAwaiter().GetResult();
+                    }
+                },
+                async () =>
                 {
                     using var server = new Socket(SocketType.Stream, ProtocolType.Tcp);
                     server.Bind(new IPEndPoint(IPAddress.Loopback, 0));
@@ -104,30 +266,36 @@ namespace System.Net.Sockets.Tests
 
                     using var client = new Socket(SocketType.Stream, ProtocolType.Tcp);
 
-                    Task acceptTask = GetHelperBase(acceptMethod).AcceptAsync(server);
-                    await WaitForEventAsync(events, "AcceptStart");
+                    Task connectTask = GetHelperBase(connectMethod).ConnectAsync(client, server.LocalEndPoint);
+                    await WaitForEventAsync(events, "ConnectStart");
+                    await WaitForEventCountersAsync(events); // Wait for current-outgoing-connect-attempts = 1
 
-                    await GetHelperBase(connectMethod).ConnectAsync(client, server.LocalEndPoint);
-                    await acceptTask;
+                    await GetHelperBase(acceptMethod).AcceptAsync(server);
 
                     await WaitForEventAsync(events, "AcceptStop");
                     await WaitForEventAsync(events, "ConnectStop");
+                    await connectTask;
 
                     await WaitForEventCountersAsync(events);
                 });
 
                 VerifyEvents(events, connect: true, expectedCount: 1);
                 VerifyEvents(events, connect: false, expectedCount: 1);
-                VerifyEventCounters(events, connectCount: 1);
-            }, connectMethod, acceptMethod).Dispose();
+                VerifyEventCounters(events, connectCount: 1, hasCurrentConnectCounter: true);
+            }, connectMethod, acceptMethod).DisposeAsync();
         }
 
         [OuterLoop]
         [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [MemberData(nameof(SocketMethods_WithBools_MemberData))]
-        public void EventSource_SocketConnectsRemote_LogsConnectStartStop(string connectMethod, bool useDnsEndPoint)
+        public async Task EventSource_SocketConnectsRemote_LogsConnectStartStop(string connectMethod, bool useDnsEndPoint)
         {
-            RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
+            if (!await s_remoteServerIsReachable.Value)
+            {
+                throw new SkipTestException("The remote server is not reachable");
+            }
+
+            await RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
             {
                 using var listener = new TestEventListener("System.Net.Sockets", EventLevel.Verbose, 0.1);
                 listener.AddActivityTracking();
@@ -149,16 +317,23 @@ namespace System.Net.Sockets.Tests
 
                 VerifyEvents(events, connect: true, expectedCount: 1);
                 VerifyEventCounters(events, connectCount: 1, connectOnly: true);
-            }, connectMethod, useDnsEndPoint.ToString()).Dispose();
+            }, connectMethod, useDnsEndPoint.ToString()).DisposeAsync();
         }
 
         [OuterLoop]
         [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD, "Same as Connect.ConnectGetsCanceledByDispose")]
         [MemberData(nameof(SocketMethods_WithBools_MemberData))]
-        public void EventSource_SocketConnectFailure_LogsConnectFailed(string connectMethod, bool useDnsEndPoint)
+        public async Task EventSource_SocketConnectFailure_LogsConnectFailed(string connectMethod, bool useDnsEndPoint)
         {
-            RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
+            // Skip test on Linux kernels that may have a regression that was fixed in 6.6.
+            // See TcpReceiveSendGetsCanceledByDispose test for additional information.
+            if (connectMethod == "Sync" && PlatformDetection.IsLinux && Environment.OSVersion.Version < new Version(6, 6))
+            {
+                return;
+            }
+
+            await RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
             {
                 EndPoint endPoint = await GetRemoteEndPointAsync(useDnsEndPointString, port: 12345);
 
@@ -194,15 +369,15 @@ namespace System.Net.Sockets.Tests
                 int? expectedCount = bool.Parse(useDnsEndPointString) ? null : 1;
                 VerifyEvents(events, connect: true, expectedCount, shouldHaveFailures: true);
                 VerifyEventCounters(events, connectCount: 0);
-            }, connectMethod, useDnsEndPoint.ToString()).Dispose();
+            }, connectMethod, useDnsEndPoint.ToString()).DisposeAsync();
         }
 
         [OuterLoop]
         [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [MemberData(nameof(SocketMethods_MemberData))]
-        public void EventSource_SocketAcceptFailure_LogsAcceptFailed(string acceptMethod)
+        public async Task EventSource_SocketAcceptFailure_LogsAcceptFailed(string acceptMethod)
         {
-            RemoteExecutor.Invoke(async acceptMethod =>
+            await RemoteExecutor.Invoke(async acceptMethod =>
             {
                 using var listener = new TestEventListener("System.Net.Sockets", EventLevel.Verbose, 0.1);
                 listener.AddActivityTracking();
@@ -229,7 +404,7 @@ namespace System.Net.Sockets.Tests
 
                 VerifyEvents(events, connect: false, expectedCount: 1, shouldHaveFailures: true);
                 VerifyEventCounters(events, connectCount: 0);
-            }, acceptMethod).Dispose();
+            }, acceptMethod).DisposeAsync();
         }
 
         [OuterLoop]
@@ -238,9 +413,9 @@ namespace System.Net.Sockets.Tests
         [InlineData("Task", false)]
         [InlineData("Eap", true)]
         [InlineData("Eap", false)]
-        public void EventSource_ConnectAsyncCanceled_LogsConnectFailed(string connectMethod, bool useDnsEndPoint)
+        public async Task EventSource_ConnectAsyncCanceled_LogsConnectFailed(string connectMethod, bool useDnsEndPoint)
         {
-            RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
+            await RemoteExecutor.Invoke(async (connectMethod, useDnsEndPointString) =>
             {
                 EndPoint endPoint = await GetRemoteEndPointAsync(useDnsEndPointString, port: 12345);
 
@@ -294,14 +469,14 @@ namespace System.Net.Sockets.Tests
                 int? expectedCount = bool.Parse(useDnsEndPointString) ? null : 1;
                 VerifyEvents(events, connect: true, expectedCount, shouldHaveFailures: true);
                 VerifyEventCounters(events, connectCount: 0);
-            }, connectMethod, useDnsEndPoint.ToString()).Dispose();
+            }, connectMethod, useDnsEndPoint.ToString()).DisposeAsync();
         }
 
         [OuterLoop]
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        public void EventSource_EventsRaisedAsExpected()
+        public async Task EventSource_EventsRaisedAsExpected()
         {
-            RemoteExecutor.Invoke(async () =>
+            await RemoteExecutor.Invoke(async () =>
             {
                 using (var listener = new TestEventListener("System.Net.Sockets", EventLevel.Verbose, 0.1))
                 {
@@ -334,9 +509,9 @@ namespace System.Net.Sockets.Tests
                     });
 
                     VerifyEvents(events, connect: true, expectedCount: 10);
-                    VerifyEventCounters(events, connectCount: 10, shouldHaveTransferedBytes: true, shouldHaveDatagrams: true);
+                    VerifyEventCounters(events, connectCount: 10, shouldHaveTransferredBytes: true, shouldHaveDatagrams: true);
                 }
-            }).Dispose();
+            }).DisposeAsync();
         }
 
         private static async Task WaitForEventAsync(ConcurrentQueue<(EventWrittenEventArgs Event, Guid ActivityId)> events, string name)
@@ -445,7 +620,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        private static void VerifyEventCounters(ConcurrentQueue<(EventWrittenEventArgs Event, Guid ActivityId)> events, int connectCount, bool connectOnly = false, bool shouldHaveTransferedBytes = false, bool shouldHaveDatagrams = false)
+        private static void VerifyEventCounters(ConcurrentQueue<(EventWrittenEventArgs Event, Guid ActivityId)> events, int connectCount, bool hasCurrentConnectCounter = false, bool connectOnly = false, bool shouldHaveTransferredBytes = false, bool shouldHaveDatagrams = false)
         {
             Dictionary<string, double[]> eventCounters = events
                 .Where(e => e.Event.EventName == "EventCounters")
@@ -459,14 +634,21 @@ namespace System.Net.Sockets.Tests
             Assert.True(eventCounters.TryGetValue("incoming-connections-established", out double[] incomingConnections));
             Assert.Equal(connectOnly ? 0 : connectCount, incomingConnections[^1]);
 
+            Assert.True(eventCounters.TryGetValue("current-outgoing-connect-attempts", out double[] currentOutgoingConnectAttempts));
+            if (hasCurrentConnectCounter)
+            {
+                Assert.Contains(currentOutgoingConnectAttempts, c => c > 0);
+            }
+            Assert.Equal(0, currentOutgoingConnectAttempts[^1]);
+
             Assert.True(eventCounters.TryGetValue("bytes-received", out double[] bytesReceived));
-            if (shouldHaveTransferedBytes)
+            if (shouldHaveTransferredBytes)
             {
                 Assert.True(bytesReceived[^1] > 0);
             }
 
             Assert.True(eventCounters.TryGetValue("bytes-sent", out double[] bytesSent));
-            if (shouldHaveTransferedBytes)
+            if (shouldHaveTransferredBytes)
             {
                 Assert.True(bytesSent[^1] > 0);
             }

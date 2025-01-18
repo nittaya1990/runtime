@@ -169,7 +169,8 @@ struct x509_store_st
     X509_VERIFY_PARAM* param;
 };
 
-struct bio_st {
+struct bio_st
+{
     const void* _ignored1;
     const void* _ignored2;
     const void* _ignored3;
@@ -182,4 +183,13 @@ struct bio_st {
     const void*_ignored10;
     const void*_ignored11;
     int references;
+};
+
+struct bignum_st
+{
+    BN_ULONG *d;
+    int top;
+    int dmax;
+    int neg;
+    int flags;
 };

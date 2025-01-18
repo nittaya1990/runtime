@@ -81,8 +81,7 @@ struct LazyMachState : public MachState {
     static void unwindLazyState(LazyMachState* baseState,
                                 MachState* lazyState,
                                 DWORD threadId,
-                                int funCallDepth = 1,
-                                HostCallPreference hostCallPreference = AllowHostCalls);
+                                int funCallDepth = 1);
 
     friend class HelperMethodFrame;
     friend class CheckAsmOffsets;
@@ -165,7 +164,7 @@ typedef DPTR(LazyMachState) PTR_LazyMachState;
 EXTERN_C void LazyMachStateCaptureState(struct LazyMachState *pState);
 
 // CAPTURE_STATE captures just enough register state so that the state of the
-// processor can be deterined just after the the routine that has CAPTURE_STATE in
+// processor can be deterined just after the routine that has CAPTURE_STATE in
 // it returns.
 
 #define CAPTURE_STATE(machState, ret)                       \

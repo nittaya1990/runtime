@@ -26,8 +26,7 @@
 #endif // !defined(DACCESS_COMPILE)
 
 #include "bundle.h"
-
-class DomainAssembly;
+#include <assemblybinderutil.h>
 
 namespace BINDER_SPACE
 {
@@ -50,41 +49,41 @@ namespace BINDER_SPACE
         PEImage* GetPEImage();
         BOOL GetIsInTPA();
 
-        inline AssemblyBinder* GetBinder()
+        PTR_AssemblyBinder GetBinder()
         {
             return m_pBinder;
         }
 
-        DomainAssembly* GetDomainAssembly()
+        ::Assembly* GetRuntimeAssembly()
         {
-            return m_domainAssembly;
+            return m_runtimeAssembly;
         }
 
-        void SetDomainAssembly(DomainAssembly* value)
+        void SetRuntimeAssembly(::Assembly* value)
         {
-            _ASSERTE(value == NULL || m_domainAssembly == NULL);
-            m_domainAssembly = value;
+            _ASSERTE(value == NULL || m_runtimeAssembly == NULL);
+            m_runtimeAssembly = value;
         }
 
     private:
         LONG                     m_cRef;
         PEImage                 *m_pPEImage;
         AssemblyName            *m_pAssemblyName;
-        AssemblyBinder          *m_pBinder;
+        PTR_AssemblyBinder       m_pBinder;
         bool                     m_isInTPA;
-        DomainAssembly          *m_domainAssembly;
+        ::Assembly              *m_runtimeAssembly;
 
+#if !defined(DACCESS_COMPILE)
         inline void SetBinder(AssemblyBinder *pBinder)
         {
             _ASSERTE(m_pBinder == NULL || m_pBinder == pBinder);
             m_pBinder = pBinder;
         }
 
-        friend class ::DefaultAssemblyBinder;
-
-#if !defined(DACCESS_COMPILE)
         friend class ::CustomAssemblyBinder;
 #endif // !defined(DACCESS_COMPILE)
+
+        friend class ::DefaultAssemblyBinder;
     };
 
 #include "assembly.inl"

@@ -1,10 +1,10 @@
 #include <config.h>
 #include <mono/utils/mono-compiler.h>
+#include <mono/eglib/glib.h>
 
 #if defined (HOST_WASM)
 
 #include "mono/utils/mono-dl.h"
-#include "mono/utils/mono-embed.h"
 #include "mono/utils/mono-path.h"
 
 #include <stdlib.h>
@@ -32,13 +32,6 @@ mono_dl_get_so_suffixes (void)
 	};
 	return suffixes;
 }
-
-const char*
-mono_dl_get_system_dir (void)
-{
-	return NULL;
-}
-
 
 void*
 mono_dl_lookup_symbol (MonoDl *module, const char *name)
@@ -77,14 +70,14 @@ mono_dl_convert_flags (int mono_flags, int native_flags)
 }
 
 void *
-mono_dl_open_file (const char *file, int flags)
+mono_dl_open_file (const char *file, int flags, MonoError *error)
 {
 	// Actual dlopen is done in driver.c:wasm_dl_load()
 	return NULL;
 }
 
 void
-mono_dl_close_handle (MonoDl *module)
+mono_dl_close_handle (MonoDl *module, MonoError *error)
 {
 }
 

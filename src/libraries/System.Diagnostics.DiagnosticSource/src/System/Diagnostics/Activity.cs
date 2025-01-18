@@ -4,8 +4,8 @@
 using System.Buffers.Binary;
 using System.Buffers.Text;
 using System.Collections;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -14,6 +14,28 @@ using System.Threading;
 
 namespace System.Diagnostics
 {
+    /// <summary>
+    /// Carries the <see cref="Activity.Current"/> changed event data.
+    /// </summary>
+    public readonly struct ActivityChangedEventArgs
+    {
+        internal ActivityChangedEventArgs(Activity? previous, Activity? current)
+        {
+            Previous = previous;
+            Current = current;
+        }
+
+        /// <summary>
+        /// Gets <see cref="Activity"/> object before the event.
+        /// </summary>
+        public Activity? Previous { get; init; }
+
+        /// <summary>
+        /// Gets <see cref="Activity"/> object after the event.
+        /// </summary>
+        public Activity? Current { get; init; }
+    }
+
     /// <summary>
     /// Activity represents operation with context to be used for logging.
     /// Activity has operation name, Id, start time and duration, tags and baggage.
@@ -40,17 +62,24 @@ namespace System.Diagnostics
         private static readonly IEnumerable<ActivityEvent> s_emptyEvents = new ActivityEvent[0];
 #pragma warning restore CA1825
         private static readonly ActivitySource s_defaultSource = new ActivitySource(string.Empty);
+        private static readonly AsyncLocal<Activity?> s_current = new AsyncLocal<Activity?>();
 
         private const byte ActivityTraceFlagsIsSet = 0b_1_0000000; // Internal flag to indicate if flags have been set
         private const int RequestIdMaxLength = 1024;
 
         // Used to generate an ID it represents the machine and process we are in.
-        private static readonly string s_uniqSuffix = "-" + GetRandomNumber().ToString("x") + ".";
+        private static readonly string s_uniqSuffix = $"-{GetRandomNumber():x}.";
 
         // A unique number inside the appdomain, randomized between appdomains.
         // Int gives enough randomization and keeps hex-encoded s_currentRootId 8 chars long for most applications
         private static long s_currentRootId = (uint)GetRandomNumber();
         private static ActivityIdFormat s_defaultIdFormat;
+
+        /// <summary>
+        /// Event occur when the <see cref="Activity.Current"/> value changes.
+        /// </summary>
+        public static event EventHandler<ActivityChangedEventArgs>? CurrentChanged;
+
         /// <summary>
         /// Normally if the ParentID is defined, the format of that is used to determine the
         /// format used by the Activity. However if ForceDefaultFormat is set to true, the
@@ -103,6 +132,22 @@ namespace System.Diagnostics
         public bool HasRemoteParent { get; private set; }
 
         /// <summary>
+        /// Gets or sets the current operation (Activity) for the current thread. This flows
+        /// across async calls.
+        /// </summary>
+        public static Activity? Current
+        {
+            get { return s_current.Value; }
+            set
+            {
+                if (ValidateSetCurrent(value))
+                {
+                    SetCurrent(value);
+                }
+            }
+        }
+
+        /// <summary>
         /// Sets the status code and description on the current activity object.
         /// </summary>
         /// <param name="code">The status code</param>
@@ -110,7 +155,7 @@ namespace System.Diagnostics
         /// <returns><see langword="this" /> for convenient chaining.</returns>
         /// <remarks>
         /// When passing code value different than ActivityStatusCode.Error, the Activity.StatusDescription will reset to null value.
-        /// The description paramater will be respected only when passing ActivityStatusCode.Error value.
+        /// The description parameter will be respected only when passing ActivityStatusCode.Error value.
         /// </remarks>
         public Activity SetStatus(ActivityStatusCode code, string? description = null)
         {
@@ -172,12 +217,12 @@ namespace System.Diagnostics
 
         /// <summary>
         /// This is an ID that is specific to a particular request.   Filtering
-        /// to a particular ID insures that you get only one request that matches.
+        /// to a particular ID ensures that you get only one request that matches.
         /// Id has a hierarchical structure: '|root-id.id1_id2.id3_' Id is generated when
         /// <see cref="Start"/> is called by appending suffix to Parent.Id
         /// or ParentId; Activity has no Id until it started
         /// <para/>
-        /// See <see href="https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
+        /// See <see href="https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
         /// </summary>
         /// <example>
         /// Id looks like '|a000b421-5d183ab6.1.8e2d4c28_1.':<para />
@@ -188,9 +233,6 @@ namespace System.Diagnostics
         /// </example>
         public string? Id
         {
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
             get
             {
                 // if we represented it as a traceId-spanId, convert it to a string.
@@ -200,8 +242,12 @@ namespace System.Diagnostics
                     // Convert flags to binary.
                     Span<char> flagsChars = stackalloc char[2];
                     HexConverter.ToCharsBuffer((byte)((~ActivityTraceFlagsIsSet) & _w3CIdFlags), flagsChars, 0, HexConverter.Casing.Lower);
-                    string id = "00-" + _traceId + "-" + _spanId + "-" + flagsChars.ToString();
-
+                    string id =
+#if NET
+                        string.Create(null, stackalloc char[128], $"00-{_traceId}-{_spanId}-{flagsChars}");
+#else
+                        "00-" + _traceId + "-" + _spanId + "-" + flagsChars.ToString();
+#endif
                     Interlocked.CompareExchange(ref _id, id, null);
 
                 }
@@ -215,13 +261,10 @@ namespace System.Diagnostics
         /// from the parent).   This accessor fetches the parent ID if it exists at all.
         /// Note this can be null if this is a root Activity (it has no parent)
         /// <para/>
-        /// See <see href="https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
+        /// See <see href="https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
         /// </summary>
         public string? ParentId
         {
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-            [System.Security.SecuritySafeCriticalAttribute]
-#endif
             get
             {
                 // if we represented it as a traceId-spanId, convert it to a string.
@@ -231,7 +274,12 @@ namespace System.Diagnostics
                     {
                         Span<char> flagsChars = stackalloc char[2];
                         HexConverter.ToCharsBuffer((byte)((~ActivityTraceFlagsIsSet) & _parentTraceFlags), flagsChars, 0, HexConverter.Casing.Lower);
-                        string parentId = "00-" + _traceId + "-" + _parentSpanId + "-" + flagsChars.ToString();
+                        string parentId =
+#if NET
+                            string.Create(null, stackalloc char[128], $"00-{_traceId}-{_parentSpanId}-{flagsChars}");
+#else
+                            "00-" + _traceId + "-" + _parentSpanId + "-" + flagsChars.ToString();
+#endif
                         Interlocked.CompareExchange(ref _parentId, parentId, null);
                     }
                     else if (Parent != null)
@@ -248,7 +296,7 @@ namespace System.Diagnostics
         /// Root Id is substring from Activity.Id (or ParentId) between '|' (or beginning) and first '.'.
         /// Filtering by root Id allows to find all Activities involved in operation processing.
         /// RootId may be null if Activity has neither ParentId nor Id.
-        /// See <see href="https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
+        /// See <see href="https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format"/> for more details
         /// </summary>
         public string? RootId
         {
@@ -359,6 +407,24 @@ namespace System.Diagnostics
         }
 
         /// <summary>
+        /// Enumerate the tags attached to this Activity object.
+        /// </summary>
+        /// <returns><see cref="Enumerator{T}"/>.</returns>
+        public Enumerator<KeyValuePair<string, object?>> EnumerateTagObjects() => new Enumerator<KeyValuePair<string, object?>>(_tags?.First);
+
+        /// <summary>
+        /// Enumerate the <see cref="ActivityEvent" /> objects attached to this Activity object.
+        /// </summary>
+        /// <returns><see cref="Enumerator{T}"/>.</returns>
+        public Enumerator<ActivityEvent> EnumerateEvents() => new Enumerator<ActivityEvent>(_events?.First);
+
+        /// <summary>
+        /// Enumerate the <see cref="ActivityLink" /> objects attached to this Activity object.
+        /// </summary>
+        /// <returns><see cref="Enumerator{T}"/>.</returns>
+        public Enumerator<ActivityLink> EnumerateLinks() => new Enumerator<ActivityLink>(_links?.First);
+
+        /// <summary>
         /// Returns the value of the key-value pair added to the activity with <see cref="AddBaggage(string, string)"/>.
         /// Returns null if that key does not exist.
         /// </summary>
@@ -388,7 +454,7 @@ namespace System.Diagnostics
         public Activity(string operationName)
         {
             Source = s_defaultSource;
-            // Allow data by default in the constructor to keep the compatability.
+            // Allow data by default in the constructor to keep the compatibility.
             IsAllDataRequested = true;
 
             if (string.IsNullOrEmpty(operationName))
@@ -396,7 +462,7 @@ namespace System.Diagnostics
                 NotifyError(new ArgumentException(SR.OperationNameInvalid));
             }
 
-            OperationName = operationName;
+            OperationName = operationName ?? string.Empty;
         }
 
         /// <summary>
@@ -407,7 +473,7 @@ namespace System.Diagnostics
         /// <returns><see langword="this" /> for convenient chaining.</returns>
         /// <param name="key">The tag key name</param>
         /// <param name="value">The tag value mapped to the input key</param>
-        public Activity AddTag(string key, string? value) => AddTag(key, (object?) value);
+        public Activity AddTag(string key, string? value) => AddTag(key, (object?)value);
 
         /// <summary>
         /// Update the Activity to have a tag with an additional 'key' and value 'value'.
@@ -469,6 +535,94 @@ namespace System.Diagnostics
         }
 
         /// <summary>
+        /// Add an <see cref="ActivityEvent" /> object containing the exception information to the <see cref="Events" /> list.
+        /// </summary>
+        /// <param name="exception">The exception to add to the attached events list.</param>
+        /// <param name="tags">The tags to add to the exception event.</param>
+        /// <param name="timestamp">The timestamp to add to the exception event.</param>
+        /// <returns><see langword="this" /> for convenient chaining.</returns>
+        /// <remarks>
+        /// <para>- The name of the event will be "exception", and it will include the tags "exception.message", "exception.stacktrace", and "exception.type",
+        /// in addition to the tags provided in the <paramref name="tags"/> parameter.</para>
+        /// <para>- Any registered <see cref="ActivityListener"/> with the <see cref="ActivityListener.ExceptionRecorder"/> callback will be notified about this exception addition
+        /// before the <see cref="ActivityEvent" /> object is added to the <see cref="Events" /> list.</para>
+        /// <para>- Any registered <see cref="ActivityListener"/> with the <see cref="ActivityListener.ExceptionRecorder"/> callback that adds "exception.message", "exception.stacktrace", or "exception.type" tags
+        /// will not have these tags overwritten, except by any subsequent <see cref="ActivityListener"/> that explicitly overwrites them.</para>
+        /// </remarks>
+        public Activity AddException(Exception exception, in TagList tags = default, DateTimeOffset timestamp = default)
+        {
+            if (exception == null)
+            {
+                throw new ArgumentNullException(nameof(exception));
+            }
+
+            TagList exceptionTags = tags;
+
+            Source.NotifyActivityAddException(this, exception, ref exceptionTags);
+
+            const string ExceptionEventName = "exception";
+            const string ExceptionMessageTag = "exception.message";
+            const string ExceptionStackTraceTag = "exception.stacktrace";
+            const string ExceptionTypeTag = "exception.type";
+
+            bool hasMessage = false;
+            bool hasStackTrace = false;
+            bool hasType = false;
+
+            for (int i = 0; i < exceptionTags.Count; i++)
+            {
+                if (exceptionTags[i].Key == ExceptionMessageTag)
+                {
+                    hasMessage = true;
+                }
+                else if (exceptionTags[i].Key == ExceptionStackTraceTag)
+                {
+                    hasStackTrace = true;
+                }
+                else if (exceptionTags[i].Key == ExceptionTypeTag)
+                {
+                    hasType = true;
+                }
+            }
+
+            if (!hasMessage)
+            {
+                exceptionTags.Add(new KeyValuePair<string, object?>(ExceptionMessageTag, exception.Message));
+            }
+
+            if (!hasStackTrace)
+            {
+                exceptionTags.Add(new KeyValuePair<string, object?>(ExceptionStackTraceTag, exception.ToString()));
+            }
+
+            if (!hasType)
+            {
+                exceptionTags.Add(new KeyValuePair<string, object?>(ExceptionTypeTag, exception.GetType().ToString()));
+            }
+
+            return AddEvent(new ActivityEvent(ExceptionEventName, timestamp, ref exceptionTags));
+        }
+
+        /// <summary>
+        /// Add an <see cref="ActivityLink"/> to the <see cref="Links"/> list.
+        /// </summary>
+        /// <param name="link">The <see cref="ActivityLink"/> to add.</param>
+        /// <returns><see langword="this" /> for convenient chaining.</returns>
+        /// <remarks>
+        /// For contexts that are available during span creation, adding links at span creation is preferred to calling <see cref="AddLink(ActivityLink)" /> later,
+        /// because head sampling decisions can only consider information present during span creation.
+        /// </remarks>
+        public Activity AddLink(ActivityLink link)
+        {
+            if (_links != null || Interlocked.CompareExchange(ref _links, new DiagLinkedList<ActivityLink>(link), null) != null)
+            {
+                _links.Add(link);
+            }
+
+            return this;
+        }
+
+        /// <summary>
         /// Update the Activity to have baggage with an additional 'key' and value 'value'.
         /// This shows up in the <see cref="Baggage"/> enumeration as well as the <see cref="GetBaggageItem(string)"/>
         /// method.
@@ -524,7 +678,12 @@ namespace System.Diagnostics
         /// <param name="parentId">The id of the parent operation.</param>
         public Activity SetParentId(string parentId)
         {
-            if (Parent != null)
+            if (_id != null || _spanId != null)
+            {
+                // Cannot set the parent on already started Activity.
+                NotifyError(new InvalidOperationException(SR.ActivitySetParentAlreadyStarted));
+            }
+            else if (Parent != null)
             {
                 NotifyError(new InvalidOperationException(SR.SetParentIdOnActivityWithParent));
             }
@@ -549,7 +708,12 @@ namespace System.Diagnostics
         /// </summary>
         public Activity SetParentId(ActivityTraceId traceId, ActivitySpanId spanId, ActivityTraceFlags activityTraceFlags = ActivityTraceFlags.None)
         {
-            if (Parent != null)
+            if (_id != null || _spanId != null)
+            {
+                // Cannot set the parent on already started Activity.
+                NotifyError(new InvalidOperationException(SR.ActivitySetParentAlreadyStarted));
+            }
+            else if (Parent != null)
             {
                 NotifyError(new InvalidOperationException(SR.SetParentIdOnActivityWithParent));
             }
@@ -562,7 +726,7 @@ namespace System.Diagnostics
                 _traceId = traceId.ToHexString();     // The child will share the parent's traceId.
                 _parentSpanId = spanId.ToHexString();
                 ActivityTraceFlags = activityTraceFlags;
-                _parentTraceFlags = (byte) activityTraceFlags;
+                _parentTraceFlags = (byte)activityTraceFlags;
             }
             return this;
         }
@@ -742,9 +906,6 @@ namespace System.Diagnostics
         /// </summary>
         public ActivitySpanId SpanId
         {
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-            [System.Security.SecuritySafeCriticalAttribute]
-#endif
             get
             {
                 if (_spanId is null)
@@ -787,7 +948,7 @@ namespace System.Diagnostics
         /// Indicate if the this Activity object should be populated with all the propagation info and also all other
         /// properties such as Links, Tags, and Events.
         /// </summary>
-        public bool IsAllDataRequested { get; set;}
+        public bool IsAllDataRequested { get; set; }
 
         /// <summary>
         /// Return the flags (defined by the W3C ID specification) associated with the activity.
@@ -814,9 +975,6 @@ namespace System.Diagnostics
         /// </summary>
         public ActivitySpanId ParentSpanId
         {
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-            [System.Security.SecuritySafeCriticalAttribute]
-#endif
             get
             {
                 if (_parentSpanId is null)
@@ -922,9 +1080,6 @@ namespace System.Diagnostics
                    (id[0] != 'f' || id[1] != 'f');
         }
 
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
         internal static bool TryConvertIdToContext(string traceParent, string? traceState, bool isRemote, out ActivityContext context)
         {
             context = default;
@@ -933,8 +1088,8 @@ namespace System.Diagnostics
                 return false;
             }
 
-            ReadOnlySpan<char> traceIdSpan = traceParent.AsSpan(3,  32);
-            ReadOnlySpan<char> spanIdSpan  = traceParent.AsSpan(36, 16);
+            ReadOnlySpan<char> traceIdSpan = traceParent.AsSpan(3, 32);
+            ReadOnlySpan<char> spanIdSpan = traceParent.AsSpan(36, 16);
 
             if (!ActivityTraceId.IsLowerCaseHexAndNotAllZeros(traceIdSpan) || !ActivityTraceId.IsLowerCaseHexAndNotAllZeros(spanIdSpan) ||
                 !HexConverter.IsHexLowerChar(traceParent[53]) || !HexConverter.IsHexLowerChar(traceParent[54]))
@@ -945,7 +1100,7 @@ namespace System.Diagnostics
             context = new ActivityContext(
                             new ActivityTraceId(traceIdSpan.ToString()),
                             new ActivitySpanId(spanIdSpan.ToString()),
-                            (ActivityTraceFlags) ActivityTraceId.HexByteFromChars(traceParent[53], traceParent[54]),
+                            (ActivityTraceFlags)ActivityTraceId.HexByteFromChars(traceParent[53], traceParent[54]),
                             traceState,
                             isRemote);
 
@@ -1078,8 +1233,10 @@ namespace System.Diagnostics
                     activity._parentSpanId = parentContext.SpanId.ToString();
                 }
 
-                activity.ActivityTraceFlags = parentContext.TraceFlags;
-                activity._parentTraceFlags = (byte) parentContext.TraceFlags;
+                // Note: Don't inherit Recorded from parent as it is set below
+                // based on sampling decision
+                activity.ActivityTraceFlags = parentContext.TraceFlags & ~ActivityTraceFlags.Recorded;
+                activity._parentTraceFlags = (byte)parentContext.TraceFlags;
                 activity.HasRemoteParent = parentContext.IsRemote;
             }
 
@@ -1101,6 +1258,21 @@ namespace System.Diagnostics
             }
 
             return activity;
+        }
+
+        private static void SetCurrent(Activity? activity)
+        {
+            EventHandler<ActivityChangedEventArgs>? handler = CurrentChanged;
+            if (handler is null)
+            {
+                s_current.Value = activity;
+            }
+            else
+            {
+                Activity? previous = s_current.Value;
+                s_current.Value = activity;
+                handler.Invoke(null, new ActivityChangedEventArgs(previous, activity));
+            }
         }
 
         /// <summary>
@@ -1201,6 +1373,7 @@ namespace System.Diagnostics
             return id.Substring(rootStart, rootEnd - rootStart);
         }
 
+#pragma warning disable CA1822
         private string AppendSuffix(string parentId, string suffix, char delimiter)
         {
 #if DEBUG
@@ -1227,9 +1400,8 @@ namespace System.Diagnostics
             string overflowSuffix = ((int)GetRandomNumber()).ToString("x8");
             return parentId.Substring(0, trimPosition) + overflowSuffix + '#';
         }
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
+#pragma warning restore CA1822
+
         private static unsafe long GetRandomNumber()
         {
             // Use the first 8 bytes of the GUID as a random number.
@@ -1248,9 +1420,6 @@ namespace System.Diagnostics
             return canSet;
         }
 
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
         private bool TrySetTraceIdFromParent()
         {
             Debug.Assert(_traceId is null);
@@ -1273,9 +1442,6 @@ namespace System.Diagnostics
             return _traceId != null;
         }
 
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
         private void TrySetTraceFlagsFromParent()
         {
             Debug.Assert(!W3CIdFlagsSet);
@@ -1334,6 +1500,55 @@ namespace System.Diagnostics
         {
             get => (ActivityIdFormat)(_state & State.FormatFlags);
             private set => _state = (_state & ~State.FormatFlags) | (State)((byte)value & (byte)State.FormatFlags);
+        }
+
+        /// <summary>
+        /// Enumerates the data stored on an Activity object.
+        /// </summary>
+        /// <typeparam name="T">Type being enumerated.</typeparam>
+        public struct Enumerator<T>
+        {
+            private static readonly DiagNode<T> s_Empty = new DiagNode<T>(default!);
+
+            private DiagNode<T>? _nextNode;
+            private DiagNode<T> _currentNode;
+
+            internal Enumerator(DiagNode<T>? head)
+            {
+                _nextNode = head;
+                _currentNode = s_Empty;
+            }
+
+            /// <summary>
+            /// Returns an enumerator that iterates through the data stored on an Activity object.
+            /// </summary>
+            /// <returns><see cref="Enumerator{T}"/>.</returns>
+            [ComponentModel.EditorBrowsable(ComponentModel.EditorBrowsableState.Never)] // Only here to make foreach work
+            public readonly Enumerator<T> GetEnumerator() => this;
+
+            /// <summary>
+            /// Gets the element at the current position of the enumerator.
+            /// </summary>
+            public readonly ref T Current => ref _currentNode.Value;
+
+            /// <summary>
+            /// Advances the enumerator to the next element of the data.
+            /// </summary>
+            /// <returns><see langword="true"/> if the enumerator was successfully advanced to the
+            /// next element; <see langword="false"/> if the enumerator has passed the end of the
+            /// collection.</returns>
+            public bool MoveNext()
+            {
+                if (_nextNode == null)
+                {
+                    _currentNode = s_Empty;
+                    return false;
+                }
+
+                _currentNode = _nextNode;
+                _nextNode = _nextNode.Next;
+                return true;
+            }
         }
 
         private sealed class BaggageLinkedList : IEnumerable<KeyValuePair<string, string?>>
@@ -1412,13 +1627,12 @@ namespace System.Diagnostics
                 }
             }
 
-            // Note: Some consumers use this GetEnumerator dynamically to avoid allocations.
-            public Enumerator<KeyValuePair<string, string?>> GetEnumerator() => new Enumerator<KeyValuePair<string, string?>>(_first);
+            public DiagEnumerator<KeyValuePair<string, string?>> GetEnumerator() => new DiagEnumerator<KeyValuePair<string, string?>>(_first);
             IEnumerator<KeyValuePair<string, string?>> IEnumerable<KeyValuePair<string, string?>>.GetEnumerator() => GetEnumerator();
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
-        private sealed class TagsLinkedList : IEnumerable<KeyValuePair<string, object?>>
+        internal sealed class TagsLinkedList : IEnumerable<KeyValuePair<string, object?>>
         {
             private DiagNode<KeyValuePair<string, object?>>? _first;
             private DiagNode<KeyValuePair<string, object?>>? _last;
@@ -1437,6 +1651,8 @@ namespace System.Diagnostics
                     _last = _last.Next;
                 }
             }
+
+            public DiagNode<KeyValuePair<string, object?>>? First => _first;
 
             public TagsLinkedList(IEnumerable<KeyValuePair<string, object?>> list) => Add(list);
 
@@ -1574,8 +1790,7 @@ namespace System.Diagnostics
                 }
             }
 
-            // Note: Some consumers use this GetEnumerator dynamically to avoid allocations.
-            public Enumerator<KeyValuePair<string, object?>> GetEnumerator() => new Enumerator<KeyValuePair<string, object?>>(_first);
+            public DiagEnumerator<KeyValuePair<string, object?>> GetEnumerator() => new DiagEnumerator<KeyValuePair<string, object?>>(_first);
             IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() => GetEnumerator();
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
@@ -1656,7 +1871,7 @@ namespace System.Diagnostics
     public enum ActivityIdFormat
     {
         Unknown = 0,      // ID format is not known.
-        Hierarchical = 1, //|XXXX.XX.X_X ... see https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format
+        Hierarchical = 1, //|XXXX.XX.X_X ... see https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.DiagnosticSource/src/ActivityUserGuide.md#id-format
         W3C = 2,          // 00-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXX-XX see https://w3c.github.io/trace-context/
     };
 
@@ -1669,9 +1884,6 @@ namespace System.Diagnostics
     /// it has to, and caches the string representation after it was created.
     /// It is mostly useful as an exchange type.
     /// </summary>
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
     public readonly struct ActivityTraceId : IEquatable<ActivityTraceId>
     {
         private readonly string? _hexString;
@@ -1692,7 +1904,11 @@ namespace System.Diagnostics
             if (idData.Length != 16)
                 throw new ArgumentOutOfRangeException(nameof(idData));
 
+#if NET9_0_OR_GREATER
+            return new ActivityTraceId(Convert.ToHexStringLower(idData));
+#else
             return new ActivityTraceId(HexConverter.ToString(idData, HexConverter.Casing.Lower));
+#endif
         }
         public static ActivityTraceId CreateFromUtf8String(ReadOnlySpan<byte> idData) => new ActivityTraceId(idData);
 
@@ -1771,7 +1987,11 @@ namespace System.Diagnostics
                 span[1] = BinaryPrimitives.ReverseEndianness(span[1]);
             }
 
+#if NET9_0_OR_GREATER
+            _hexString = Convert.ToHexStringLower(MemoryMarshal.AsBytes(span));
+#else
             _hexString = HexConverter.ToString(MemoryMarshal.AsBytes(span), HexConverter.Casing.Lower);
+#endif
         }
 
         /// <summary>
@@ -1786,16 +2006,16 @@ namespace System.Diagnostics
         /// Sets the bytes in 'outBytes' to be random values. outBytes.Length must be either 8 or 16 bytes.
         /// </summary>
         /// <param name="outBytes"></param>
-        internal static unsafe void SetToRandomBytes(Span<byte> outBytes)
+        internal static void SetToRandomBytes(Span<byte> outBytes)
         {
             Debug.Assert(outBytes.Length == 16 || outBytes.Length == 8);
             RandomNumberGenerator r = RandomNumberGenerator.Current;
 
-            Unsafe.WriteUnaligned(ref outBytes[0],  r.Next());
+            Unsafe.WriteUnaligned(ref outBytes[0], r.Next());
 
             if (outBytes.Length == 16)
             {
-                Unsafe.WriteUnaligned(ref outBytes[8],  r.Next());
+                Unsafe.WriteUnaligned(ref outBytes[8], r.Next());
             }
         }
 
@@ -1853,9 +2073,6 @@ namespace System.Diagnostics
     /// it has to, and caches the string representation after it was created.
     /// It is mostly useful as an exchange type.
     /// </summary>
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
     public readonly struct ActivitySpanId : IEquatable<ActivitySpanId>
     {
         private readonly string? _hexString;
@@ -1869,14 +2086,22 @@ namespace System.Diagnostics
         {
             ulong id;
             ActivityTraceId.SetToRandomBytes(new Span<byte>(&id, sizeof(ulong)));
+#if NET9_0_OR_GREATER
+            return new ActivitySpanId(Convert.ToHexStringLower(new ReadOnlySpan<byte>(&id, sizeof(ulong))));
+#else
             return new ActivitySpanId(HexConverter.ToString(new ReadOnlySpan<byte>(&id, sizeof(ulong)), HexConverter.Casing.Lower));
+#endif
         }
         public static ActivitySpanId CreateFromBytes(ReadOnlySpan<byte> idData)
         {
             if (idData.Length != 8)
                 throw new ArgumentOutOfRangeException(nameof(idData));
 
+#if NET9_0_OR_GREATER
+            return new ActivitySpanId(Convert.ToHexStringLower(idData));
+#else
             return new ActivitySpanId(HexConverter.ToString(idData, HexConverter.Casing.Lower));
+#endif
         }
         public static ActivitySpanId CreateFromUtf8String(ReadOnlySpan<byte> idData) => new ActivitySpanId(idData);
 
@@ -1944,7 +2169,11 @@ namespace System.Diagnostics
                 id = BinaryPrimitives.ReverseEndianness(id);
             }
 
+#if NET9_0_OR_GREATER
+            _hexString = Convert.ToHexStringLower(new ReadOnlySpan<byte>(&id, sizeof(ulong)));
+#else
             _hexString = HexConverter.ToString(new ReadOnlySpan<byte>(&id, sizeof(ulong)), HexConverter.Casing.Lower);
+#endif
         }
 
         /// <summary>

@@ -4,13 +4,11 @@
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-#pragma warning disable CA1419 // TODO https://github.com/dotnet/roslyn-analyzers/issues/5232: not intended for use with P/Invoke
-
 namespace System.DirectoryServices.Protocols
 {
     internal sealed class HGlobalMemHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
-        internal static IntPtr _dummyPointer = new IntPtr(1);
+        internal const IntPtr _dummyPointer = 1;
 
         internal HGlobalMemHandle(IntPtr value) : base(true)
         {

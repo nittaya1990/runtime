@@ -12,29 +12,22 @@ namespace System.Runtime
     {
         public static IntPtr FindInterfaceMethodImplementationTarget(MethodTable* pTgtType,
                                                                  MethodTable* pItfType,
-                                                                 ushort itfSlotNumber)
+                                                                 ushort itfSlotNumber,
+                                                                 ResolveFlags flags,
+                                                                 /* out */ MethodTable** ppGenericContext)
         {
-            DynamicModule* dynamicModule = pTgtType->DynamicModule;
-
-            // Use the dynamic module resolver if it's present
-            if (dynamicModule != null)
-            {
-                delegate*<MethodTable*, MethodTable*, ushort, IntPtr> resolver = dynamicModule->DynamicTypeSlotDispatchResolve;
-                if (resolver != null)
-                    return resolver(pTgtType, pItfType, itfSlotNumber);
-            }
+            // We set this bit below during second pass, callers should not set it.
+            Debug.Assert((flags & ResolveFlags.DefaultInterfaceImplementation) == 0);
 
             // Start at the current type and work up the inheritance chain
             MethodTable* pCur = pTgtType;
 
-            if (pItfType->IsCloned)
-                pItfType = pItfType->CanonicalEEType;
-
+        again:
             while (pCur != null)
             {
                 ushort implSlotNumber;
                 if (FindImplSlotForCurrentType(
-                        pCur, pItfType, itfSlotNumber, &implSlotNumber))
+                        pCur, pItfType, itfSlotNumber, flags, &implSlotNumber, ppGenericContext))
                 {
                     IntPtr targetMethod;
                     if (implSlotNumber < pCur->NumVtableSlots)
@@ -63,6 +56,15 @@ namespace System.Runtime
                 else
                     pCur = pCur->NonArrayBaseType;
             }
+
+            // If we haven't found an implementation, do a second pass looking for a default implementation.
+            if ((flags & ResolveFlags.DefaultInterfaceImplementation) == 0)
+            {
+                flags |= ResolveFlags.DefaultInterfaceImplementation;
+                pCur = pTgtType;
+                goto again;
+            }
+
             return IntPtr.Zero;
         }
 
@@ -70,8 +72,13 @@ namespace System.Runtime
         private static bool FindImplSlotForCurrentType(MethodTable* pTgtType,
                                         MethodTable* pItfType,
                                         ushort itfSlotNumber,
-                                        ushort* pImplSlotNumber)
+                                        ResolveFlags flags,
+                                        ushort* pImplSlotNumber,
+                                        MethodTable** ppGenericContext)
         {
+            // We set this below during second pass, callers should not set this.
+            Debug.Assert((flags & ResolveFlags.Variant) == 0);
+
             bool fRes = false;
 
             // If making a call and doing virtual resolution don't look into the dispatch map,
@@ -87,34 +94,19 @@ namespace System.Runtime
 
             if (pTgtType->HasDispatchMap)
             {
-                // We first look at non-default implementation. Default implementations are only considered
-                // if the "old algorithm" didn't come up with an answer.
-
-                bool fDoDefaultImplementationLookup = false;
-
                 // For variant interface dispatch, the algorithm is to walk the parent hierarchy, and at each level
                 // attempt to dispatch exactly first, and then if that fails attempt to dispatch variantly. This can
                 // result in interesting behavior such as a derived type only overriding one particular instantiation
                 // and funneling all the dispatches to it, but its the algorithm.
 
-            again:
-                bool fDoVariantLookup = false; // do not check variance for first scan of dispatch map
-
                 fRes = FindImplSlotInSimpleMap(
-                    pTgtType, pItfType, itfSlotNumber, pImplSlotNumber, fDoVariantLookup, fDoDefaultImplementationLookup);
+                    pTgtType, pItfType, itfSlotNumber, pImplSlotNumber, ppGenericContext, flags);
 
                 if (!fRes)
                 {
-                    fDoVariantLookup = true; // check variance for second scan of dispatch map
+                    flags |= ResolveFlags.Variant; // check variance for second scan of dispatch map
                     fRes = FindImplSlotInSimpleMap(
-                     pTgtType, pItfType, itfSlotNumber, pImplSlotNumber, fDoVariantLookup, fDoDefaultImplementationLookup);
-                }
-
-                // If we haven't found anything and haven't looked at the default implementations yet, look now
-                if (!fRes && !fDoDefaultImplementationLookup)
-                {
-                    fDoDefaultImplementationLookup = true;
-                    goto again;
+                     pTgtType, pItfType, itfSlotNumber, pImplSlotNumber, ppGenericContext, flags);
                 }
             }
 
@@ -125,20 +117,20 @@ namespace System.Runtime
                                      MethodTable* pItfType,
                                      uint itfSlotNumber,
                                      ushort* pImplSlotNumber,
-                                     bool actuallyCheckVariance,
-                                     bool checkDefaultImplementations)
+                                     MethodTable** ppGenericContext,
+                                     ResolveFlags flags)
         {
             Debug.Assert(pTgtType->HasDispatchMap, "Missing dispatch map");
 
             MethodTable* pItfOpenGenericType = null;
-            EETypeRef* pItfInstantiation = null;
+            MethodTableList itfInstantiation = default;
             int itfArity = 0;
             GenericVariance* pItfVarianceInfo = null;
 
             bool fCheckVariance = false;
             bool fArrayCovariance = false;
 
-            if (actuallyCheckVariance)
+            if ((flags & ResolveFlags.Variant) != 0)
             {
                 fCheckVariance = pItfType->HasGenericVariance;
                 fArrayCovariance = pTgtType->IsArray;
@@ -174,22 +166,36 @@ namespace System.Runtime
                 }
             }
 
+            bool fStaticDispatch = (flags & ResolveFlags.Static) != 0;
+            bool checkDefaultImplementations = (flags & ResolveFlags.DefaultInterfaceImplementation) != 0;
+
+            // We either scan the instance or static portion of the dispatch map. Depends on what the caller wants.
             DispatchMap* pMap = pTgtType->DispatchMap;
-            DispatchMap.DispatchMapEntry* i = (*pMap)[checkDefaultImplementations ? (int)pMap->NumStandardEntries : 0];
-            DispatchMap.DispatchMapEntry* iEnd = (*pMap)[checkDefaultImplementations ? (int)(pMap->NumStandardEntries + pMap->NumDefaultEntries) : (int)pMap->NumStandardEntries];
-            for (; i != iEnd; ++i)
+            DispatchMap.DispatchMapEntry* i = fStaticDispatch ?
+                pMap->GetStaticEntry(checkDefaultImplementations ? (int)pMap->NumStandardStaticEntries : 0) :
+                pMap->GetEntry(checkDefaultImplementations ? (int)pMap->NumStandardEntries : 0);
+            DispatchMap.DispatchMapEntry* iEnd = fStaticDispatch ?
+                pMap->GetStaticEntry(checkDefaultImplementations ? (int)(pMap->NumStandardStaticEntries + pMap->NumDefaultStaticEntries) : (int)pMap->NumStandardStaticEntries) :
+                pMap->GetEntry(checkDefaultImplementations ? (int)(pMap->NumStandardEntries + pMap->NumDefaultEntries) : (int)pMap->NumStandardEntries);
+            for (; i != iEnd; i = fStaticDispatch ? (DispatchMap.DispatchMapEntry*)(((DispatchMap.StaticDispatchMapEntry*)i) + 1) : i + 1)
             {
                 if (i->_usInterfaceMethodSlot == itfSlotNumber)
                 {
                     MethodTable* pCurEntryType =
-                        pTgtType->InterfaceMap[i->_usInterfaceIndex].InterfaceType;
-
-                    if (pCurEntryType->IsCloned)
-                        pCurEntryType = pCurEntryType->CanonicalEEType;
+                        pTgtType->InterfaceMap[i->_usInterfaceIndex];
 
                     if (pCurEntryType == pItfType)
                     {
                         *pImplSlotNumber = i->_usImplMethodSlot;
+
+                        // If this is a static method, the entry point is not usable without generic context.
+                        // (Instance methods acquire the generic context from their `this`.)
+                        // Same for IDynamicInterfaceCastable (that has a `this` but it's not useful)
+                        if (fStaticDispatch)
+                            *ppGenericContext = GetGenericContextSource(pTgtType, i);
+                        else if ((flags & ResolveFlags.IDynamicInterfaceCastable) != 0)
+                            *ppGenericContext = pTgtType;
+
                         return true;
                     }
                     else if (fCheckVariance && ((fArrayCovariance && pCurEntryType->IsGeneric) || pCurEntryType->HasGenericVariance))
@@ -204,7 +210,7 @@ namespace System.Runtime
                         {
                             pItfOpenGenericType = pItfType->GenericDefinition;
                             itfArity = (int)pItfType->GenericArity;
-                            pItfInstantiation = pItfType->GenericArguments;
+                            itfInstantiation = pItfType->GenericArguments;
                             pItfVarianceInfo = pItfType->GenericVariance;
                         }
 
@@ -216,15 +222,24 @@ namespace System.Runtime
                             continue;
 
                         // Grab instantiation details for the candidate interface.
-                        EETypeRef* pCurEntryInstantiation = pCurEntryType->GenericArguments;
+                        MethodTableList curEntryInstantiation = pCurEntryType->GenericArguments;
 
                         // The types represent different instantiations of the same generic type. The
                         // arity of both had better be the same.
-                        Debug.Assert(itfArity == (int)pCurEntryType->GenericArity, "arity mismatch betweeen generic instantiations");
+                        Debug.Assert(itfArity == (int)pCurEntryType->GenericArity, "arity mismatch between generic instantiations");
 
-                        if (TypeCast.TypeParametersAreCompatible(itfArity, pCurEntryInstantiation, pItfInstantiation, pItfVarianceInfo, fArrayCovariance, null))
+                        if (TypeCast.TypeParametersAreCompatible(itfArity, curEntryInstantiation, itfInstantiation, pItfVarianceInfo, fArrayCovariance, null))
                         {
                             *pImplSlotNumber = i->_usImplMethodSlot;
+
+                            // If this is a static method, the entry point is not usable without generic context.
+                            // (Instance methods acquire the generic context from their `this`.)
+                            // Same for IDynamicInterfaceCastable (that has a `this` but it's not useful)
+                            if (fStaticDispatch)
+                                *ppGenericContext = GetGenericContextSource(pTgtType, i);
+                            else if ((flags & ResolveFlags.IDynamicInterfaceCastable) != 0)
+                                *ppGenericContext = pTgtType;
+
                             return true;
                         }
                     }
@@ -232,6 +247,25 @@ namespace System.Runtime
             }
 
             return false;
+        }
+
+        private static unsafe MethodTable* GetGenericContextSource(MethodTable* pTgtType, DispatchMap.DispatchMapEntry* pEntry)
+        {
+            ushort usEncodedValue = ((DispatchMap.StaticDispatchMapEntry*)pEntry)->_usContextMapSource;
+            return usEncodedValue switch
+            {
+                StaticVirtualMethodContextSource.None => null,
+                StaticVirtualMethodContextSource.ContextFromThisClass => pTgtType,
+                _ => pTgtType->InterfaceMap[usEncodedValue - StaticVirtualMethodContextSource.ContextFromFirstInterface]
+            };
+        }
+
+        public enum ResolveFlags
+        {
+            Variant = 0x1,
+            DefaultInterfaceImplementation = 0x2,
+            Static = 0x4,
+            IDynamicInterfaceCastable = 0x8,
         }
     }
 }

@@ -150,8 +150,7 @@ namespace System.Linq.Parallel
                 TKey keyUnused = default!;
                 Pair<TInputOutput, NoKeyMemoizationRequired> current = default(Pair<TInputOutput, NoKeyMemoizationRequired>);
 
-                if (_outputLoopCount == null)
-                    _outputLoopCount = new Shared<int>(0);
+                _outputLoopCount ??= new Shared<int>(0);
 
                 while (_source.MoveNext(ref current, ref keyUnused))
                 {
@@ -194,7 +193,9 @@ namespace System.Linq.Parallel
             private readonly QueryOperatorEnumerator<Pair<TInputOutput, NoKeyMemoizationRequired>, TKey> _source; // The data source.
             private readonly Dictionary<Wrapper<TInputOutput>, TKey> _hashLookup; // The hash lookup, used to produce the distinct set.
             private readonly IComparer<TKey> _keyComparer; // Comparer to decide the key order.
+#pragma warning disable CA1859
             private IEnumerator<KeyValuePair<Wrapper<TInputOutput>, TKey>>? _hashLookupEnumerator; // Enumerates over _hashLookup.
+#pragma warning restore
             private readonly CancellationToken _cancellationToken;
 
             //---------------------------------------------------------------------------------------
@@ -271,10 +272,7 @@ namespace System.Linq.Parallel
                 Debug.Assert(_source != null);
                 _source.Dispose();
 
-                if (_hashLookupEnumerator != null)
-                {
-                    _hashLookupEnumerator.Dispose();
-                }
+                _hashLookupEnumerator?.Dispose();
             }
         }
     }

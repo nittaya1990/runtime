@@ -30,8 +30,13 @@ namespace System.Formats.Asn1
         /// </exception>
         /// <seealso cref="WriteEnumeratedValue(Enum,Asn1Tag?)"/>
         /// <seealso cref="WriteEnumeratedValue{T}(T,Asn1Tag?)"/>
-        public void WriteEnumeratedValue(Enum value!!, Asn1Tag? tag = null)
+        public void WriteEnumeratedValue(Enum value, Asn1Tag? tag = null)
         {
+            if (value is null)
+            {
+                throw new ArgumentNullException(nameof(value));
+            }
+
             WriteEnumeratedValue(tag?.AsPrimitive() ?? Asn1Tag.Enumerated, value.GetType(), value);
         }
 
@@ -39,8 +44,8 @@ namespace System.Formats.Asn1
         ///   Write a non-[<see cref="FlagsAttribute"/>] enum value as an Enumerated with
         ///   tag UNIVERSAL 10.
         /// </summary>
-        /// <param name="tag">The tag to write.</param>
         /// <param name="value">The boxed enumeration value to write.</param>
+        /// <param name="tag">The tag to write.</param>
         /// <exception cref="ArgumentNullException">
         ///   <paramref name="value"/> is <see langword="null"/>.
         /// </exception>

@@ -13,6 +13,7 @@
 #include <immintrin.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <type_traits>
 #include "defs.h"
 #include "machine_traits.h"
 
@@ -24,8 +25,20 @@
 #define d2s _mm256_castpd_ps
 
 namespace vxsort {
-extern const int8_t perm_table_64[128];
-extern const int8_t perm_table_32[2048];
+
+// We might read the last 8 bytes into a 128-bit vector for the purpose of permutation
+// Most compilers actually fuse the pair of instructions: _mm256_cvtepi8_epiNN + _mm_loadu_si128
+// into a single instruction that will not read more that 4/8 bytes..
+// vpmovsxb[dq] ymm0, dword [...], eliminating the 128-bit load completely and effectively
+// reading exactly 4/8 (depending if the instruction is vpmovsxbd or vpmovsxbq)
+// without generating an out of bounds read at all.
+// But, life is harsh, and we can't trust the compiler to do the right thing if it is not
+// contractual
+const int T64_SIZE = 128 + 8;
+const int T32_SIZE = 2048 + 8;
+
+extern const uint8_t perm_table_64[T64_SIZE];
+extern const uint8_t perm_table_32[T32_SIZE];
 
 static void not_supported()
 {
@@ -111,8 +124,7 @@ class vxsort_machine_traits<int64_t, AVX2> {
 
     template <int Shift>
     static constexpr bool can_pack(T span) {
-        const auto PACK_LIMIT = (((TU) std::numeric_limits<uint32_t>::Max() + 1)) << Shift;
-        return ((TU) span) < PACK_LIMIT;
+        return ((TU) span) < ((((TU) std::numeric_limits<uint32_t>::max() + 1)) << Shift);
     }
 
     static INLINE TV load_vec(TV* p) { return _mm256_lddqu_si256(p); }

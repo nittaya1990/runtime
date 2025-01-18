@@ -6,6 +6,7 @@ using Xunit;
 
 namespace System.Net.Sockets.Tests
 {
+    [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support Linger")]
     public class LingerStateTest
     {
         private void TestLingerState_Success(Socket sock, bool enabled, int lingerTime)
@@ -43,7 +44,7 @@ namespace System.Net.Sockets.Tests
 
         [OuterLoop]
         [Fact]
-        [SkipOnPlatform(TestPlatforms.OSX, "The upper bound for linger time is drastically different on OS X.")]
+        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.MacCatalyst | TestPlatforms.iOS | TestPlatforms.tvOS, "The upper bound for linger time is drastically different on Apple platforms.")]
         public void Socket_LingerState_Upper_Boundaries_CorrectBehavior()
         {
             Socket sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -55,10 +56,10 @@ namespace System.Net.Sockets.Tests
 
         [OuterLoop]
         [Fact]
-        [PlatformSpecific(TestPlatforms.OSX)]  // The upper bound for linger time is drastically different on OS X.
-        public void Socket_LingerState_Upper_Boundaries_CorrectBehavior_OSX()
+        [PlatformSpecific(TestPlatforms.OSX | TestPlatforms.MacCatalyst | TestPlatforms.iOS | TestPlatforms.tvOS)]  // The upper bound for linger time is drastically different on Apple platforms.
+        public void Socket_LingerState_Upper_Boundaries_CorrectBehavior_Apple()
         {
-            // The upper bound for linger time is drastically different on OS X.
+            // The upper bound for linger time is drastically different on Apple platforms.
             Socket sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             Assert.Throws<SocketException>(() =>

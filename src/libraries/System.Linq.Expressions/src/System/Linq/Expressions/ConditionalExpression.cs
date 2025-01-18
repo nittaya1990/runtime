@@ -1,9 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Dynamic.Utils;
 using System.Diagnostics;
-
+using System.Dynamic.Utils;
 using AstUtils = System.Linq.Expressions.Utils;
 
 namespace System.Linq.Expressions
@@ -168,7 +167,7 @@ namespace System.Linq.Expressions
             ExpressionUtils.RequiresCanRead(test, nameof(test));
             ExpressionUtils.RequiresCanRead(ifTrue, nameof(ifTrue));
             ExpressionUtils.RequiresCanRead(ifFalse, nameof(ifFalse));
-            ContractUtils.RequiresNotNull(type, nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
             if (test.Type != typeof(bool))
             {

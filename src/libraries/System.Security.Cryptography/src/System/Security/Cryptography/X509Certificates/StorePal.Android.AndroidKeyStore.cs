@@ -56,9 +56,9 @@ namespace System.Security.Cryptography.X509Certificates
                         // The AndroidKeyStore doesn't support adding DSA private key entries in newer versions (API 23+)
                         // Our minimum supported version (API 21) does support it, but for simplicity, we simply block adding
                         // certificates with DSA private keys on all versions instead of trying to support it on two versions.
-                        SafeDsaHandle _ => throw new PlatformNotSupportedException(SR.Cryptography_X509_StoreDSAPrivateKeyNotSupported),
-                        SafeEcKeyHandle _ => Interop.AndroidCrypto.PAL_KeyAlgorithm.EC,
-                        SafeRsaHandle _ => Interop.AndroidCrypto.PAL_KeyAlgorithm.RSA,
+                        SafeDsaHandle => throw new PlatformNotSupportedException(SR.Cryptography_X509_StoreDSAPrivateKeyNotSupported),
+                        SafeEcKeyHandle => Interop.AndroidCrypto.PAL_KeyAlgorithm.EC,
+                        SafeRsaHandle => Interop.AndroidCrypto.PAL_KeyAlgorithm.RSA,
                         _ => throw new NotSupportedException(SR.NotSupported_KeyAlgorithm)
                     };
 
@@ -101,7 +101,7 @@ namespace System.Security.Cryptography.X509Certificates
                     bool success = Interop.AndroidCrypto.X509StoreEnumerateCertificates(
                         _keyStoreHandle,
                         &EnumCertificatesCallback,
-                        Unsafe.AsPointer(ref context));
+                        &context);
                     if (!success)
                     {
                         throw new CryptographicException(SR.Cryptography_X509_StoreEnumerateFailure);
@@ -116,7 +116,7 @@ namespace System.Security.Cryptography.X509Certificates
 
             private static string GetCertificateHashString(ICertificatePal certPal)
             {
-                return X509Certificate.GetCertHashString(HashAlgorithmName.SHA256, certPal);
+                return X509Certificate.GetCertHashString(HashAlgorithmName.SHA256, certPal.RawData);
             }
 
             private struct EnumCertificatesContext
@@ -127,7 +127,7 @@ namespace System.Security.Cryptography.X509Certificates
             [UnmanagedCallersOnly]
             private static unsafe void EnumCertificatesCallback(void* certPtr, void* privateKeyPtr, Interop.AndroidCrypto.PAL_KeyAlgorithm privateKeyAlgorithm, void* context)
             {
-                ref EnumCertificatesContext callbackContext = ref Unsafe.As<byte, EnumCertificatesContext>(ref *(byte*)context);
+                EnumCertificatesContext* callbackContext = (EnumCertificatesContext*)context;
 
                 AndroidCertificatePal certPal;
                 var handle = new SafeX509Handle((IntPtr)certPtr);
@@ -148,7 +148,7 @@ namespace System.Security.Cryptography.X509Certificates
                 }
 
                 var cert = new X509Certificate2(certPal);
-                if (!callbackContext.Results.Add(cert))
+                if (!callbackContext->Results.Add(cert))
                     cert.Dispose();
             }
         }

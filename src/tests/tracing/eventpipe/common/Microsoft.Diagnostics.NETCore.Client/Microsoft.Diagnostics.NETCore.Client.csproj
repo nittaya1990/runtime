@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFrameworks>netstandard2.0;netcoreapp3.1</TargetFrameworks>
@@ -11,11 +11,15 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IncludeSymbols>true</IncludeSymbols>
     <IsShipping>true</IsShipping>
+    <BuildingOutsideDiagnostics>false</BuildingOutsideDiagnostics>
+    <BuildingOutsideDiagnostics Condition="'$(GitHubRepositoryName)' != 'diagnostics'">true</BuildingOutsideDiagnostics>
+    <!-- TODO: Add package readme -->
+    <EnableDefaultPackageReadmeFile>false</EnableDefaultPackageReadmeFile>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(GitHubRepositoryName)' == 'runtime'">
+  <PropertyGroup Condition="$(BuildingOutsideDiagnostics)">
     <DefineConstants>$(DefineConstants);DIAGNOSTICS_RUNTIME</DefineConstants>
-    <NoWarn>CS1591,CS8073,CS0162</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;CS8073;CS0162</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,6 +40,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Condition="'$(GitHubRepositoryName)' == 'runtime'" Include="**/*.cs" />
+    <Compile Condition="$(BuildingOutsideDiagnostics)" Include="**/*.cs" />
   </ItemGroup>
 </Project>

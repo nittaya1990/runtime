@@ -1,21 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
+using System;
+using System.Runtime.InteropServices;
+
 // This file defines many COM dual interfaces which are legacy and,
 // cannot be changed.  Tolerate possible obsoletion.
-//
 #pragma warning disable CS0618 // Type or member is obsolete
 
 namespace System.DirectoryServices.AccountManagement
 {
-    using System.Runtime.InteropServices;
-    using System;
-
     internal static class Constants
     {
-        internal static byte[] GUID_USERS_CONTAINER_BYTE = new byte[] { 0xa9, 0xd1, 0xca, 0x15, 0x76, 0x88, 0x11, 0xd1, 0xad, 0xed, 0x00, 0xc0, 0x4f, 0xd8, 0xd5, 0xcd };
-        internal static byte[] GUID_COMPUTRS_CONTAINER_BYTE = new byte[] { 0xaa, 0x31, 0x28, 0x25, 0x76, 0x88, 0x11, 0xd1, 0xad, 0xed, 0x00, 0xc0, 0x4f, 0xd8, 0xd5, 0xcd };
         internal static byte[] GUID_FOREIGNSECURITYPRINCIPALS_CONTAINER_BYTE = new byte[] { 0x22, 0xb7, 0x0c, 0x67, 0xd5, 0x6e, 0x4e, 0xfb, 0x91, 0xe9, 0x30, 0x0f, 0xca, 0x3d, 0xc1, 0xaa };
     }
 
@@ -23,15 +19,23 @@ namespace System.DirectoryServices.AccountManagement
     {
         public static int ADsOpenObject(string path, string userName, string password, int flags, [In, Out] ref Guid iid, [Out, MarshalAs(UnmanagedType.Interface)] out object ppObject)
         {
+            IntPtr ppObjPtr = IntPtr.Zero;
             try
             {
-                int hr = Interop.Activeds.ADsOpenObject(path, userName, password, flags, ref iid, out IntPtr ppObjPtr);
+                int hr = Interop.Activeds.ADsOpenObject(path, userName, password, flags, ref iid, out ppObjPtr);
                 ppObject = Marshal.GetObjectForIUnknown(ppObjPtr);
                 return hr;
             }
             catch (EntryPointNotFoundException)
             {
                 throw new InvalidOperationException(SR.AdsiNotInstalled);
+            }
+            finally
+            {
+                if (ppObjPtr != IntPtr.Zero)
+                {
+                    Marshal.Release(ppObjPtr);
+                }
             }
         }
 
@@ -291,7 +295,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             void Set(
                 [In, MarshalAs(UnmanagedType.BStr)] string bstrADsPath,
-                [In, MarshalAs(UnmanagedType.U4)]  int lnSetType
+                [In, MarshalAs(UnmanagedType.U4)] int lnSetType
                 );
 
             void SetDisplayType(
@@ -309,7 +313,7 @@ namespace System.DirectoryServices.AccountManagement
             [return: MarshalAs(UnmanagedType.BStr)]
             string
             GetElement(
-                [In, MarshalAs(UnmanagedType.U4)]  int lnElementIndex
+                [In, MarshalAs(UnmanagedType.U4)] int lnElementIndex
                 );
 
             void AddLeafElement(

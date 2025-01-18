@@ -4,8 +4,9 @@
 // NOTE: This is a generated file - do not manually edit!
 
 using System;
-using System.Reflection;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 
 #pragma warning disable 108     // base type 'uint' is not CLS-compliant
 #pragma warning disable 3009    // base type 'uint' is not CLS-compliant
@@ -14,6 +15,9 @@ using System.Collections.Generic;
 namespace Internal.Metadata.NativeFormat
 {
     [Flags]
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
     public enum AssemblyFlags : uint
     {
         /// The assembly reference holds the full (unhashed) public key.
@@ -22,13 +26,13 @@ namespace Internal.Metadata.NativeFormat
         /// The implementation of this assembly used at runtime is not expected to match the version seen at compile time.
         Retargetable = 0x100,
 
-        /// Reserved.
-        DisableJITcompileOptimizer = 0x4000,
-
-        /// Reserved.
-        EnableJITcompileTracking = 0x8000,
+        /// Content type mask. Masked bits correspond to values of System.Reflection.AssemblyContentType
+        ContentTypeMask = 0x00000e00,
     } // AssemblyFlags
 
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
     public enum AssemblyHashAlgorithm : uint
     {
         None = 0x0,
@@ -36,6 +40,9 @@ namespace Internal.Metadata.NativeFormat
         SHA1 = 0x8004,
     } // AssemblyHashAlgorithm
 
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
     public enum GenericParameterKind : byte
     {
         /// Represents a type parameter for a generic type.
@@ -45,6 +52,9 @@ namespace Internal.Metadata.NativeFormat
         GenericMethodParameter = 0x1,
     } // GenericParameterKind
 
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
     public enum NamedArgumentMemberKind : byte
     {
         /// Specifies the name of a property
@@ -54,6 +64,26 @@ namespace Internal.Metadata.NativeFormat
         Field = 0x1,
     } // NamedArgumentMemberKind
 
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
+    public enum SignatureCallingConvention : byte
+    {
+        HasThis = 0x20,
+        ExplicitThis = 0x40,
+        Default = 0x00,
+        Vararg = 0x05,
+        Cdecl = 0x01,
+        StdCall = 0x02,
+        ThisCall = 0x03,
+        FastCall = 0x04,
+        Unmanaged = 0x09,
+        UnmanagedCallingConventionMask = 0x0F,
+    } // SignatureCallingConvention
+
+#if SYSTEM_PRIVATE_CORELIB
+    [CLSCompliant(false)]
+#endif
     public enum HandleType : byte
     {
         Null = 0x0,
@@ -61,14 +91,14 @@ namespace Internal.Metadata.NativeFormat
         ByReferenceSignature = 0x2,
         ConstantBooleanArray = 0x3,
         ConstantBooleanValue = 0x4,
-        ConstantBoxedEnumValue = 0x5,
-        ConstantByteArray = 0x6,
-        ConstantByteValue = 0x7,
-        ConstantCharArray = 0x8,
-        ConstantCharValue = 0x9,
-        ConstantDoubleArray = 0xa,
-        ConstantDoubleValue = 0xb,
-        ConstantEnumArray = 0xc,
+        ConstantByteArray = 0x5,
+        ConstantByteValue = 0x6,
+        ConstantCharArray = 0x7,
+        ConstantCharValue = 0x8,
+        ConstantDoubleArray = 0x9,
+        ConstantDoubleValue = 0xa,
+        ConstantEnumArray = 0xb,
+        ConstantEnumValue = 0xc,
         ConstantHandleArray = 0xd,
         ConstantInt16Array = 0xe,
         ConstantInt16Value = 0xf,

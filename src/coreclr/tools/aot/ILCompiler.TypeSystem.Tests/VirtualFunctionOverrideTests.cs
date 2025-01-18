@@ -2,23 +2,30 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
+using Internal.IL;
 using Internal.TypeSystem;
-
+using Internal.TypeSystem.Ecma;
 using Xunit;
+using Xunit.Abstractions;
 
 
 namespace TypeSystemTests
 {
     public class VirtualFunctionOverrideTests
     {
-        TestTypeSystemContext _context;
-        ModuleDesc _testModule;
-        DefType _stringType;
-        DefType _voidType;
+        private TestTypeSystemContext _context;
+        private ModuleDesc _testModule;
+        private DefType _stringType;
+        private DefType _voidType;
+        private ITestOutputHelper _logger;
 
-        public VirtualFunctionOverrideTests()
+        public VirtualFunctionOverrideTests(ITestOutputHelper logger)
         {
+            _logger = logger;
             _context = new TestTypeSystemContext(TargetArchitecture.X64);
             var systemModule = _context.CreateModuleForSimpleName("CoreTestAssembly");
             _context.SetSystemModule(systemModule);
@@ -77,7 +84,7 @@ namespace TypeSystemTests
             MethodDesc targetOnInstance = testInstance.GetMethod("ToString", toStringSig);
 
             MethodDesc targetMethod = testInstance.FindVirtualFunctionTargetMethodOnObjectType(objectToString);
-            Assert.Equal(targetOnInstance, targetMethod);        
+            Assert.Equal(targetOnInstance, targetMethod);
         }
 
         [Fact]
@@ -103,7 +110,7 @@ namespace TypeSystemTests
         {
             MetadataType classWithFinalizer = _testModule.GetType("VirtualFunctionOverride", "ClassWithFinalizer");
             DefType objectType = _testModule.Context.GetWellKnownType(WellKnownType.Object);
-            MethodDesc finalizeMethod = objectType.GetMethod("Finalize", new MethodSignature(MethodSignatureFlags.None, 0, _voidType, new TypeDesc[] { }));
+            MethodDesc finalizeMethod = objectType.GetMethod("Finalize", new MethodSignature(MethodSignatureFlags.None, 0, _voidType, Array.Empty<TypeDesc>()));
 
             MethodDesc actualFinalizer = classWithFinalizer.FindVirtualFunctionTargetMethodOnObjectType(finalizeMethod);
             Assert.NotNull(actualFinalizer);
@@ -192,7 +199,6 @@ namespace TypeSystemTests
             var bang0Type = _context.GetSignatureVariable(0, false);
             var bang1Type = _context.GetSignatureVariable(1, false);
             var bang2Type = _context.GetSignatureVariable(2, false);
-            var bang3Type = _context.GetSignatureVariable(3, false);
 
             MethodSignature sigBang0Bang1 = new MethodSignature(0, 0, stringType, new TypeDesc[] { bang0Type, bang1Type });
             MethodDesc baseMethod0_1 = baseType.GetMethod("Method", sigBang0Bang1);
@@ -200,7 +206,6 @@ namespace TypeSystemTests
             MethodDesc virtualMethodBang0Bang1 = algo.FindVirtualFunctionTargetMethodOnObjectType(baseMethod0_1, myDerivedType);
             Assert.Equal(virtualMethodBang0Bang1.OwningType, baseType);
 
-            MethodSignature sigBang2Bang3 = new MethodSignature(0, 0, stringType, new TypeDesc[] { bang2Type, bang3Type });
             MethodDesc baseMethod2_3 = null;
             // BaseMethod(!2,!3) has custom modifiers in its signature, and thus the sig is difficult to write up by hand. Just search for
             // it in an ad hoc manner
@@ -269,6 +274,200 @@ namespace TypeSystemTests
             ResolveInterfaceDispatch_ForMultiGenericTest(intImplementorType, out md1, out md2);
             Assert.Contains("!0,!1", md1.Name);
             Assert.Contains("!1,!0", md2.Name);
+        }
+
+        [Fact]
+        public void TestFunctionPointerOverloads()
+        {
+            MetadataType baseClass = _testModule.GetType("VirtualFunctionOverride", "FunctionPointerOverloadBase");
+            MetadataType derivedClass = _testModule.GetType("VirtualFunctionOverride", "FunctionPointerOverloadDerived");
+
+            var resolvedMethods = new List<MethodDesc>();
+            foreach (MethodDesc baseMethod in baseClass.GetVirtualMethods())
+                resolvedMethods.Add(derivedClass.FindVirtualFunctionTargetMethodOnObjectType(baseMethod));
+
+            var expectedMethods = new List<MethodDesc>();
+            foreach (MethodDesc derivedMethod in derivedClass.GetVirtualMethods())
+                expectedMethods.Add(derivedMethod);
+
+            Assert.Equal(expectedMethods, resolvedMethods);
+
+            Assert.Equal(expectedMethods[0].Signature[0], expectedMethods[1].Signature[0]);
+            Assert.NotEqual(expectedMethods[0].Signature[0], expectedMethods[3].Signature[0]);
+        }
+
+        [Theory]
+        // ScenarioA_Test1
+        [InlineData("ScenarioA_Test1_1", "T3", "A.T3_1", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test1_2", "T2", "A.T3_1", "A.T2Exp", "Func2")]
+        [InlineData("ScenarioA_Test1_3", "T3", "A.T3_1", "A.T3_1", "Func3")]
+
+        // ScenarioA_Test2
+        [InlineData("ScenarioA_Test2_1", "T3", "A.T3_2", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test2_2", "T3", "A.T3_2", "A.T2Exp", "Func2")]
+        [InlineData("ScenarioA_Test2_3", "T3", "A.T3_2", "A.T3_2", "Func3")]
+
+        // ScenarioA_Test3
+        [InlineData("ScenarioA_Test3_1", "T3", "A.T3_3", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test3_2", "T2", "A.T3_3", "A.T2Exp", "Func2")]
+        [InlineData("ScenarioA_Test3_3", "T3", "A.T3_3", "A.T3_3", "Func1")]
+
+        // ScenarioA_Test4
+        [InlineData("ScenarioA_Test4_1", "T3", "A.T3_4", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test4_2", "T3", "A.T3_4", "A.T2Exp", "Func2")]
+        [InlineData("ScenarioA_Test4_3", "T3", "A.T3_4", "A.T3_4", "Func2")]
+
+        // ScenarioA_Test5
+        [InlineData("ScenarioA_Test5_1", "T3", "A.T3_5", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test5_2", "T3", "A.T3_5", "A.T2Imp", "Func1")]
+        [InlineData("ScenarioA_Test5_3", "T3", "A.T3_5", "A.T3_5", "Func3")]
+
+        // ScenarioA_Test6
+        [InlineData("ScenarioA_Test6_1", "T3", "A.T3_6", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test6_2", "T3", "A.T3_6", "A.T2Imp", "Func1")]
+        [InlineData("ScenarioA_Test6_3", "T3", "A.T3_6", "A.T3_6", "Func3")]
+
+        // ScenarioA_Test7
+        [InlineData("ScenarioA_Test7_1", "T3", "A.T3_7", "A.T1", "Func1")]
+        [InlineData("ScenarioA_Test7_2", "T3", "A.T3_7", "A.T2Imp", "Func1")]
+        [InlineData("ScenarioA_Test7_3", "T3", "A.T3_7", "A.T3_7", "Func1")]
+
+        // ScenarioB_Test1
+        [InlineData("ScenarioB_Test_1_1", "T3", "B.T3_1", "B.T1", "Func1")]
+        [InlineData("ScenarioB_Test_1_2", "T2", "B.T3_1", "B.T2", "Func2")]
+        [InlineData("ScenarioB_Test_1_3", "T3", "B.T3_1", "B.T3_1", "Func3")] // Change from IL
+
+        // ScenarioB_Test2
+        [InlineData("ScenarioB_Test_2_1", "T3", "B.T3_2", "B.T1", "Func1")]
+        [InlineData("ScenarioB_Test_2_2", "T3", "B.T3_2", "B.T2", "Func2")]
+        [InlineData("ScenarioB_Test_2_3", "T3", "B.T3_2", "B.T3_2", "Func3")] // Change from IL
+
+        // ScenarioB_Test3
+        [InlineData("ScenarioB_Test_3_1", "T3", "B.T3_3", "B.T1", "Func1")]
+        [InlineData("ScenarioB_Test_3_2", "T2", "B.T3_3", "B.T2", "Func2")]
+        [InlineData("ScenarioB_Test_3_3", "T3", "B.T3_3", "B.T3_3", "Func1")]
+
+        // ScenarioB_Test4
+        [InlineData("ScenarioB_Test_4_1", "T3", "B.T3_4", "B.T1", "Func1")]
+        [InlineData("ScenarioB_Test_4_2", "T3", "B.T3_4", "B.T2", "Func2")]
+        [InlineData("ScenarioB_Test_4_3", "T3", "B.T3_4", "B.T3_4", "Func2")] // Change from IL
+
+        // ScenarioC_Test1
+        [InlineData("ScenarioC_Test_1_1", "T3", "C.T3_1", "C.T1", "Func1")]
+        [InlineData("ScenarioC_Test_1_2", "T3", "C.T3_1", "C.T2", "Func2")]
+        [InlineData("ScenarioC_Test_1_3", "T3", "C.T3_1", "C.T3_1", "Func3")]
+
+        // ScenarioC_Test2
+        [InlineData("ScenarioC_Test_2_1", "T3", "C.T3_2", "C.T1", "Func1")]
+        [InlineData("ScenarioC_Test_2_2", "T3", "C.T3_2", "C.T2", "Func2")]
+        [InlineData("ScenarioC_Test_2_3", "T3", "C.T3_2", "C.T3_2", "Func3")] // Change from IL
+
+        // ScenarioC_Test3
+        [InlineData("ScenarioC_Test_3_1", "T3", "C.T3_3", "C.T1", "Func1")]
+        [InlineData("ScenarioC_Test_3_2", "T2", "C.T3_3", "C.T2", "Func2")]
+        [InlineData("ScenarioC_Test_3_3", "T3", "C.T3_3", "C.T3_3", "Func1")]
+
+        // ScenarioC_Test4
+        [InlineData("ScenarioC_Test_4_1", "T3", "C.T3_4", "C.T1", "Func1")]
+        [InlineData("ScenarioC_Test_4_2", "T3", "C.T3_4", "C.T2", "Func2")]
+        [InlineData("ScenarioC_Test_4_3", "T3", "C.T3_4", "C.T3_4", "Func2")] // Change from IL
+        [InlineData("ScenarioC_Test_4_4", "T3", "C.T3_4", "C.T3_4", "Func2")]
+
+        // ScenarioD_Test1
+        [InlineData("ScenarioD_Test_1_1", "T3", "D.T3_1", "D.T1", "Func1")]
+        [InlineData("ScenarioD_Test_1_2", "T3", "D.T3_1", "D.T2", "Func1")]
+        [InlineData("ScenarioD_Test_1_3", "T3", "D.T3_1", "D.T3_1", "Func3")] // Change from IL
+        [InlineData("ScenarioD_Test_1_4", "T3", "D.T3_1", "D.T3_1", "Func3")]
+
+        // ScenarioD_Test2
+        [InlineData("ScenarioD_Test_2_1", "T3", "D.T3_2", "D.T1", "Func1")]
+        [InlineData("ScenarioD_Test_2_2", "T3", "D.T3_2", "D.T2", "Func1")]
+        [InlineData("ScenarioD_Test_2_3", "T3", "D.T3_2", "D.T3_2", "Func3")] // Change from IL
+        // DUPLICATE?!?! [InlineData("T3", "D.T3_1", "D.T3_1", "Func3")]
+
+        // ScenarioD_Test3
+        [InlineData("ScenarioD_Test_3_1", "T3", "D.T3_3", "D.T1", "Func1")]
+        [InlineData("ScenarioD_Test_3_2", "T3", "D.T3_3", "D.T2", "Func1")]
+        [InlineData("ScenarioD_Test_3_3", "T3", "D.T3_3", "D.T3_3", "Func1")]
+
+        // ScenarioE_Test1
+        [InlineData("ScenarioE_Test_1_1", "T3", "E.T3_1", "E.T1", "Func1")]
+        [InlineData("ScenarioE_Test_1_2", "T3", "E.T3_1", "E.T2", "Func1")]
+        [InlineData("ScenarioE_Test_1_3", "T3", "E.T3_1", "E.T3_1", "Func3")]
+
+        // ScenarioE_Test2
+        [InlineData("ScenarioE_Test_2_1", "T3", "E.T3_2", "E.T1", "Func1")]
+        [InlineData("ScenarioE_Test_2_2", "T3", "E.T3_2", "E.T2", "Func1")]
+        [InlineData("ScenarioE_Test_2_3", "T3", "E.T3_2", "E.T3_2", "Func3")]
+        // DUPLICATE?!?!?        [InlineData("T3", "E.T3_1", "E.T3_1", "Func3")]
+
+        // ScenarioE_Test3
+        [InlineData("ScenarioE_Test_3_1", "T3", "E.T3_3", "E.T1", "Func1")]
+        [InlineData("ScenarioE_Test_3_2", "T3", "E.T3_3", "E.T2", "Func1")]
+        [InlineData("ScenarioE_Test_3_3", "T3", "E.T3_3", "E.T3_3", "Func1")]
+        public void TestPreserveBaseOverridesBehavior(string exactScenarioName, string stringToExpect, string typeToConstruct, string typeOfMethodToCallOn, string methodName)
+        {
+            this._logger.WriteLine(exactScenarioName);
+            var ilModule = _context.GetModuleForSimpleName("ILTestAssembly");
+            (string typeToConstructNamespace, string typeToConstructTypeName) = SplitIntoNameAndNamespace(typeToConstruct);
+            var constructedType = ilModule.GetType(typeToConstructNamespace, typeToConstructTypeName);
+
+            (string typeToCallNamespace, string typeToCallTypeName) = SplitIntoNameAndNamespace(typeOfMethodToCallOn);
+            var typeToCall = ilModule.GetType(typeToCallNamespace, typeToCallTypeName);
+
+            MethodDesc callMethod = typeToCall.GetMethod(methodName, null);
+            Assert.NotNull(callMethod);
+
+            MethodDesc resolvedMethod = constructedType.FindVirtualFunctionTargetMethodOnObjectType(callMethod);
+
+            var methodIL = Internal.IL.EcmaMethodIL.Create((EcmaMethod)resolvedMethod);
+            ILReader reader = new ILReader(methodIL.GetILBytes());
+            Assert.Equal(ILOpcode.ldstr, reader.ReadILOpcode());
+
+            int userStringToken = reader.ReadILToken();
+            string stringLoadedAsFirstILOpcodeInResolvedMethod = (string)methodIL.GetObject(userStringToken);
+            Assert.Equal(stringToExpect, stringLoadedAsFirstILOpcodeInResolvedMethod);
+        }
+
+
+        [Theory]
+        [InlineData("Base", "BaseCovariant")]
+        [InlineData("Impl", "ImplCovariant")]
+        [InlineData("SubImpl", "SubImplCovariant")]
+        [InlineData("SubImpl_OverrideViaNameSig", "SubImplCovariant2")]
+        [InlineData("SubImpl_OverrideViaNameSig_OverriddenViaMethodImpl", "SubSubImplCovariant")]
+        public void TestSubImplCovariant(string exactScenarioName, string typeToConstruct)
+        {
+            this._logger.WriteLine(exactScenarioName);
+
+            MetadataType derivedClass = _testModule.GetType("VirtualFunctionOverride", typeToConstruct);
+            MetadataType baseClass = derivedClass;
+
+            while (baseClass != baseClass.Context.GetWellKnownType(WellKnownType.Object))
+            {
+                this._logger.WriteLine("-----");
+                this._logger.WriteLine(baseClass.ToString());
+                MethodDesc callMethod = baseClass.GetMethod("FromType", null);
+                this._logger.WriteLine(callMethod.ToString());
+                Assert.NotNull(callMethod);
+
+                MethodDesc resolvedMethod = derivedClass.FindVirtualFunctionTargetMethodOnObjectType(callMethod);
+                this._logger.WriteLine(resolvedMethod.ToString());
+
+                Assert.Equal(typeToConstruct, ((EcmaType)((EcmaMethod)resolvedMethod).OwningType).Name);
+
+                baseClass = (MetadataType)baseClass.BaseType;
+            }
+        }
+
+        private static (string _namespace, string type) SplitIntoNameAndNamespace(string typeName)
+        {
+            int namespaceIndextypeName = typeName.LastIndexOf('.');
+            Assert.True(namespaceIndextypeName > 0);
+            string typeNameNamespace = typeName.Substring(0, namespaceIndextypeName);
+            string typeNameTypeName = typeName.Substring(namespaceIndextypeName + 1);
+            Assert.True(typeNameTypeName.Length > 0);
+            return (typeNameNamespace, typeNameTypeName);
         }
     }
 }

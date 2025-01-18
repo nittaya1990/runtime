@@ -5,14 +5,14 @@ endif(CLR_CMAKE_HOST_UNIX)
 # Set the RPATH of paltest_pal_sxs_test1 so that it can find dependencies without needing to set LD_LIBRARY
 # For more information: http://www.cmake.org/Wiki/CMake_RPATH_handling.
 if(CORECLR_SET_RPATH)
+  set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
   if(CLR_CMAKE_HOST_OSX)
-    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+    set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
+    set(CMAKE_INSTALL_NAME_DIR "@rpath")
     set(CMAKE_INSTALL_RPATH "@loader_path")
-  endif(CLR_CMAKE_HOST_OSX)
-  if(CLR_CMAKE_HOST_LINUX)
-    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+  else()
     set(CMAKE_INSTALL_RPATH "\$ORIGIN")
-  endif(CLR_CMAKE_HOST_LINUX)
+  endif(CLR_CMAKE_HOST_OSX)
 endif(CORECLR_SET_RPATH)
 
 # Test DLL1
@@ -38,6 +38,7 @@ add_dependencies(paltest_pal_sxs_test1_dll1
 )
 
 target_link_libraries(paltest_pal_sxs_test1_dll1
+    PUBLIC
     ${COMMON_TEST_LIBRARIES}
     m
     coreclrpal
@@ -69,6 +70,7 @@ add_dependencies(paltest_pal_sxs_test1_dll2
 )
 
 target_link_libraries(paltest_pal_sxs_test1_dll2
+  PUBLIC
    ${COMMON_TEST_LIBRARIES}
 )
 
@@ -84,6 +86,7 @@ add_dependencies(paltest_pal_sxs_test1
 )
 
 target_link_libraries(paltest_pal_sxs_test1
+  PUBLIC
    paltest_pal_sxs_test1_dll1
    paltest_pal_sxs_test1_dll2
 )

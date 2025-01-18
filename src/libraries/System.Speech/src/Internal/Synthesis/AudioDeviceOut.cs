@@ -194,7 +194,7 @@ namespace System.Speech.Internal.Synthesis
                         Interop.WinMM.MMSYSERR result = Interop.WinMM.waveOutPause(_hwo);
                         if (result != Interop.WinMM.MMSYSERR.NOERROR)
                         {
-                            System.Diagnostics.Debug.Assert(false, ((int)result).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                            System.Diagnostics.Debug.Fail(((int)result).ToString(System.Globalization.CultureInfo.InvariantCulture));
                         }
                     }
                     _fPaused = true;
@@ -454,20 +454,14 @@ namespace System.Speech.Internal.Synthesis
             }
             public void Dispose()
             {
-                if (_waveHeader != null)
-                {
-                    _waveHeader.Dispose();
-                }
+                _waveHeader?.Dispose();
 
                 GC.SuppressFinalize(this);
             }
 
             internal void ReleaseData()
             {
-                if (_waveHeader != null)
-                {
-                    _waveHeader.ReleaseData();
-                }
+                _waveHeader?.ReleaseData();
             }
 
             internal WaveHeader _waveHeader;

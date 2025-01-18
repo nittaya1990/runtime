@@ -5,7 +5,7 @@
 //
 
 //
-// COM+ IL assembler
+// CLR IL assembler
 //
 #include "ilasmpch.h"
 
@@ -14,6 +14,10 @@
 #define DECLARE_DATA
 
 #include "assembler.h"
+
+#if !defined(_WIN32) && !defined(__APPLE__)
+#include "sha256.h"
+#endif
 
 void indexKeywords(Indx* indx); // defined in asmparse.y
 
@@ -28,6 +32,7 @@ Assembler::Assembler()
 {
     m_pDisp = NULL;
     m_pEmitter = NULL;
+    m_pInternalEmitForDeterministicMvid = NULL;
     m_pImporter = NULL;
 
     char* pszFQN = new char[16];
@@ -107,6 +112,7 @@ Assembler::Assembler()
     m_fGeneratePDB = FALSE;
     m_fIsMscorlib = FALSE;
     m_fOptimize = FALSE;
+    m_fDeterministic = FALSE;
     m_tkSysObject = 0;
     m_tkSysString = 0;
     m_tkSysValue = 0;
@@ -154,6 +160,7 @@ Assembler::Assembler()
     indexKeywords(&indxKeywords);
 
     m_pPortablePdbWriter = NULL;
+    m_pOverrideAssemblyName = NULL;
 }
 
 
@@ -207,6 +214,11 @@ Assembler::~Assembler()
         m_pEmitter->Release();
         m_pEmitter = NULL;
     }
+    if (m_pInternalEmitForDeterministicMvid != NULL)
+    {
+        m_pInternalEmitForDeterministicMvid->Release();
+        m_pInternalEmitForDeterministicMvid = NULL;
+    }
     if (m_pPortablePdbWriter != NULL)
     {
         delete m_pPortablePdbWriter;
@@ -232,12 +244,18 @@ BOOL Assembler::Init(BOOL generatePdb)
     }
 
     if (FAILED(CreateICeeFileGen(&m_pCeeFileGen))) return FALSE;
-
     if (FAILED(m_pCeeFileGen->CreateCeeFileEx(&m_pCeeFile,(ULONG)m_dwCeeFileFlags))) return FALSE;
-
     if (FAILED(m_pCeeFileGen->GetSectionCreate(m_pCeeFile, ".il", sdReadOnly, &m_pILSection))) return FALSE;
     if (FAILED(m_pCeeFileGen->GetSectionCreate (m_pCeeFile, ".sdata", sdReadWrite, &m_pGlobalDataSection))) return FALSE;
     if (FAILED(m_pCeeFileGen->GetSectionCreate (m_pCeeFile, ".tls", sdReadWrite, &m_pTLSSection))) return FALSE;
+
+#if !defined(_WIN32) && !defined(__APPLE__)
+    if (m_fDeterministic && !IsOpenSslAvailable())
+    {
+        fprintf(stderr, "OpenSSL is not available, but required for build determinism\n");
+        return FALSE;
+    }
+#endif
 
     m_fGeneratePDB = generatePdb;
 
@@ -296,41 +314,19 @@ BOOL Assembler::AddMethod(Method *pMethod)
         fIsInterface = IsTdInterface(pMethod->m_pClass->m_Attr);
         fIsImport = IsTdImport(pMethod->m_pClass->m_Attr);
     }
-    if(m_CurPC)
+
+    if(!m_CurPC) return TRUE; // method has no body, just emit empty method.
+
+    char sz[1024] = {};
+    if(fIsImport) strcat_s(sz,1024," imported");
+    if(IsMdAbstract(pMethod->m_Attr)) strcat_s(sz,1024," abstract");
+    if(IsMdPinvokeImpl(pMethod->m_Attr)) strcat_s(sz,1024," pinvoke");
+    if(!IsMiIL(pMethod->m_wImplAttr)) strcat_s(sz,1024," non-IL");
+    if(IsMiRuntime(pMethod->m_wImplAttr)) strcat_s(sz,1024," runtime-supplied");
+    if(IsMiInternalCall(pMethod->m_wImplAttr)) strcat_s(sz,1024," an internal call");
+    if(strlen(sz))
     {
-        char sz[1024];
-        sz[0] = 0;
-        if(fIsImport) strcat_s(sz,1024," imported");
-        if(IsMdAbstract(pMethod->m_Attr)) strcat_s(sz,1024," abstract");
-        if(IsMdPinvokeImpl(pMethod->m_Attr)) strcat_s(sz,1024," pinvoke");
-        if(!IsMiIL(pMethod->m_wImplAttr)) strcat_s(sz,1024," non-IL");
-        if(IsMiRuntime(pMethod->m_wImplAttr)) strcat_s(sz,1024," runtime-supplied");
-        if(IsMiInternalCall(pMethod->m_wImplAttr)) strcat_s(sz,1024," an internal call");
-        if(strlen(sz))
-        {
-            report->error("Method cannot have body if it is%s\n",sz);
-        }
-    }
-    else // method has no body
-    {
-        if(fIsImport || IsMdAbstract(pMethod->m_Attr) || IsMdPinvokeImpl(pMethod->m_Attr)
-           || IsMiRuntime(pMethod->m_wImplAttr) || IsMiInternalCall(pMethod->m_wImplAttr)) return TRUE;
-        if(OnErrGo)
-        {
-            report->error("Method has no body\n");
-            return TRUE;
-        }
-        else
-        {
-            report->warn("Method has no body, 'ret' emitted\n");
-            Instr* pIns = GetInstr();
-            if(pIns)
-            {
-                memset(pIns,0,sizeof(Instr));
-                pIns->opcode = CEE_RET;
-                EmitOpcode(pIns);
-            }
-        }
+        report->error("Method cannot have body if it is%s\n",sz);
     }
 
     if(pMethod->m_Locals.COUNT()) pMethod->m_LocalsSig=0x11000001; // placeholder, the real token 2b defined in EmitMethod
@@ -349,7 +345,7 @@ BOOL Assembler::AddMethod(Method *pMethod)
     unsigned codeSize = m_CurPC;
     unsigned codeSizeAligned = codeSize;
     if (moreSections)
-        codeSizeAligned = (codeSizeAligned + 3) & ~3;    // to insure EH section aligned
+        codeSizeAligned = (codeSizeAligned + 3) & ~3;    // to ensure EH section aligned
 
     unsigned headerSize = COR_ILMETHOD::Size(&fatHeader, moreSections);
     unsigned ehSize     = COR_ILMETHOD_SECT_EH::Size(pMethod->m_dwNumExceptions, pMethod->m_ExceptionList);
@@ -609,7 +605,7 @@ void Assembler::EmitImports()
     mdToken tk;
     for(i=0; (pID = m_ImportList.PEEK(i)); i++)
     {
-        WszMultiByteToWideChar(g_uCodePage,0,pID->szDllName,-1,wzDllName,dwUniBuf-1);
+        MultiByteToWideChar(g_uCodePage,0,pID->szDllName,-1,wzDllName,dwUniBuf-1);
         if(FAILED(m_pEmitter->DefineModuleRef(             // S_OK or error.
                             wzDllName,            // [IN] DLL name
                             &tk)))      // [OUT] returned
@@ -623,7 +619,7 @@ HRESULT Assembler::EmitPinvokeMap(mdToken tk, PInvokeDescriptor* pDescr)
 {
     WCHAR*               wzAlias=&wzUniBuf[0];
 
-    if(pDescr->szAlias) WszMultiByteToWideChar(g_uCodePage,0,pDescr->szAlias,-1,wzAlias,dwUniBuf-1);
+    if(pDescr->szAlias) MultiByteToWideChar(g_uCodePage,0,pDescr->szAlias,-1,wzAlias,dwUniBuf-1);
 
     return m_pEmitter->DefinePinvokeMap(        // Return code.
                         tk,                     // [IN] FieldDef, MethodDef or MethodImpl.
@@ -661,12 +657,12 @@ BOOL Assembler::EmitMethod(Method *pMethod)
     ClassToken = (pMethod->IsGlobalMethod())? mdTokenNil
                                     : pMethod->m_pClass->m_cl;
     // Convert name to UNICODE
-    WszMultiByteToWideChar(g_uCodePage,0,pszMethodName,-1,wzMemberName,dwUniBuf-1);
+    MultiByteToWideChar(g_uCodePage,0,pszMethodName,-1,wzMemberName,dwUniBuf-1);
 
     if(IsMdPrivateScope(pMethod->m_Attr))
     {
-        WCHAR* p = wcsstr(wzMemberName,W("$PST06"));
-        if(p) *p = 0;
+        WCHAR* p = (WCHAR*)u16_strstr(wzMemberName,W("$PST06"));
+        if(p) *p = W('\0');
     }
 
     if (FAILED(m_pEmitter->DefineMethod(ClassToken,       // parent class
@@ -725,8 +721,6 @@ BOOL Assembler::EmitMethod(Method *pMethod)
     //--------------------------------------------------------------------------------
     if (pMethod->m_fEntryPoint)
     {
-        if(fIsInterface) report->error("Entrypoint in Interface: Method '%s'\n",pszMethodName);
-
         if (FAILED(m_pCeeFileGen->SetEntryPoint(m_pCeeFile, MethodToken)))
         {
             report->error("Failed to set entry point for method '%s'\n",pszMethodName);
@@ -807,7 +801,7 @@ BOOL Assembler::EmitMethod(Method *pMethod)
             if(pAN->dwName) strcpy_s(szPhonyName,dwUniBuf >> 1,pAN->szName);
             else sprintf_s(szPhonyName,(dwUniBuf >> 1),"A_%d",pAN->nNum);
 
-            WszMultiByteToWideChar(g_uCodePage,0,szPhonyName,-1,wzParName,dwUniBuf >> 1);
+            MultiByteToWideChar(g_uCodePage,0,szPhonyName,-1,wzParName,dwUniBuf >> 1);
 
             if(pAN->pValue)
             {
@@ -910,7 +904,7 @@ BOOL Assembler::EmitEvent(EventDescriptor* pED)
 
     if(!pED) return FALSE;
 
-    WszMultiByteToWideChar(g_uCodePage,0,pED->m_szName,-1,wzMemberName,dwUniBuf-1);
+    MultiByteToWideChar(g_uCodePage,0,pED->m_szName,-1,wzMemberName,dwUniBuf-1);
 
     mdAddOn = ResolveLocalMemberRef(pED->m_tkAddOn);
     if(TypeFromToken(mdAddOn) != mdtMethodDef)
@@ -970,7 +964,7 @@ BOOL Assembler::EmitProp(PropDescriptor* pPD)
 
     if(!pPD) return FALSE;
 
-    WszMultiByteToWideChar(g_uCodePage,0,pPD->m_szName,-1,wzMemberName,dwUniBuf-1);
+    MultiByteToWideChar(g_uCodePage,0,pPD->m_szName,-1,wzMemberName,dwUniBuf-1);
 
     mdSet = ResolveLocalMemberRef(pPD->m_tkSet);
     if((RidFromToken(mdSet)!=0)&&(TypeFromToken(mdSet) != mdtMethodDef))
@@ -1087,28 +1081,19 @@ BOOL Assembler::EmitClass(Class *pClass)
     LPCUTF8              szFullName;
     WCHAR*              wzFullName=&wzUniBuf[0];
     HRESULT             hr = E_FAIL;
-    GUID                guid;
     size_t              L;
     mdToken             tok;
 
     if(pClass == NULL) return FALSE;
-
-    hr = CoCreateGuid(&guid);
-    if (FAILED(hr))
-    {
-        printf("Unable to create GUID\n");
-        m_State = STATE_FAIL;
-        return FALSE;
-    }
 
     if(pClass->m_pEncloser)
         szFullName = strrchr(pClass->m_szFQN,NESTING_SEP) + 1;
     else
         szFullName = pClass->m_szFQN;
 
-    WszMultiByteToWideChar(g_uCodePage,0,szFullName,-1,wzFullName,dwUniBuf);
+    MultiByteToWideChar(g_uCodePage,0,szFullName,-1,wzFullName,dwUniBuf);
 
-    L = wcslen(wzFullName);
+    L = u16_strlen(wzFullName);
     if((L==0)||(wzFullName[L-1]==L'.')) // Missing class name!
     {
         wcscat_s(wzFullName,dwUniBuf,W("$UNNAMED_TYPE$"));
@@ -1348,7 +1333,12 @@ OPCODE Assembler::DecodeOpcode(const BYTE *pCode, DWORD *pdwLen)
 
 char* Assembler::ReflectionNotation(mdToken tk)
 {
+    // We break the global static `wzUniBuf` into 2 equal parts: the first part is used for a Unicode
+    // string, the second part is used for a converted-into-multibyte (MB) string. Note that the MB string
+    // length is in bytes.
     char *sz = (char*)&wzUniBuf[dwUniBuf>>1], *pc;
+    const size_t szSizeBytes = (dwUniBuf * sizeof(WCHAR)) / 2; // sizeof(WCHAR) is 2, so this is just `dwUniBuf`
+    const size_t cchUniBuf = dwUniBuf / 2; // only use the first 1/2 of wzUniBuf
     *sz=0;
     switch(TypeFromToken(tk))
     {
@@ -1357,7 +1347,7 @@ char* Assembler::ReflectionNotation(mdToken tk)
                 Class *pClass = m_lstClass.PEEK(RidFromToken(tk)-1);
                 if(pClass)
                 {
-                    strcpy_s(sz,dwUniBuf>>1,pClass->m_szFQN);
+                    strcpy_s(sz,szSizeBytes,pClass->m_szFQN);
                     pc = sz;
                     while((pc = strchr(pc,NESTING_SEP)) != NULL)
                     {
@@ -1372,31 +1362,80 @@ char* Assembler::ReflectionNotation(mdToken tk)
             {
                 ULONG   N;
                 mdToken tkResScope;
-                if(SUCCEEDED(m_pImporter->GetTypeRefProps(tk,&tkResScope,wzUniBuf,dwUniBuf>>1,&N)))
+                if(SUCCEEDED(m_pImporter->GetTypeRefProps(tk,&tkResScope,wzUniBuf,cchUniBuf,&N)))
                 {
-                    WszWideCharToMultiByte(CP_UTF8,0,wzUniBuf,-1,sz,dwUniBuf>>1,NULL,NULL);
+                    int ret = WideCharToMultiByte(CP_UTF8,0,wzUniBuf,-1,sz,szSizeBytes,NULL,NULL);
                     if(TypeFromToken(tkResScope)==mdtAssemblyRef)
                     {
                         AsmManAssembly *pAsmRef = m_pManifest->m_AsmRefLst.PEEK(RidFromToken(tkResScope)-1);
                         if(pAsmRef)
                         {
-                            pc = &sz[strlen(sz)];
-                            pc+=sprintf_s(pc,(dwUniBuf >> 1),", %s, Version=%d.%d.%d.%d, Culture=",pAsmRef->szName,
+                            // We assume below that if sprintf_s fails due to buffer overrun,
+                            // execution fails fast and sprintf_s doesn't return.
+                            int sprintf_ret;
+                            const size_t szLen = strlen(sz);
+                            pc = &sz[szLen];
+                            size_t szRemainingSizeBytes = szSizeBytes - szLen;
+
+                            sprintf_ret = sprintf_s(pc,szRemainingSizeBytes,", %s, Version=%d.%d.%d.%d, Culture=",pAsmRef->szName,
                                     pAsmRef->usVerMajor,pAsmRef->usVerMinor,pAsmRef->usBuild,pAsmRef->usRevision);
-                            ULONG L=0;
-                            if(pAsmRef->pLocale && (L=pAsmRef->pLocale->length()))
+                            pc += sprintf_ret;
+                            szRemainingSizeBytes -= (size_t)sprintf_ret;
+
+                            unsigned L=0;
+                            if(pAsmRef->pLocale && ((L=pAsmRef->pLocale->length()) > 0))
                             {
-                                memcpy(wzUniBuf,pAsmRef->pLocale->ptr(),L);
-                                wzUniBuf[L>>1] = 0;
-                                WszWideCharToMultiByte(CP_UTF8,0,wzUniBuf,-1,pc,dwUniBuf>>1,NULL,NULL);
+                                // L is in bytes and doesn't include the terminating null.
+                                if (L > (cchUniBuf - 1) * sizeof(WCHAR))
+                                {
+                                    report->error("Locale too long (%d characters, %d allowed).\n",L / sizeof(WCHAR), cchUniBuf - 1);
+                                    *sz=0;
+                                    break;
+                                }
+                                else if (szRemainingSizeBytes == 0)
+                                {
+                                    report->error("TypeRef too long.\n");
+                                    *sz=0;
+                                    break;
+                                }
+
+                                if (szRemainingSizeBytes > 0)
+                                {
+                                    memcpy(wzUniBuf,pAsmRef->pLocale->ptr(),L);
+                                    wzUniBuf[L>>1] = 0;
+                                    ret = WideCharToMultiByte(CP_UTF8,0,wzUniBuf,-1,pc,(int)szRemainingSizeBytes,NULL,NULL);
+                                    if (ret <= 0)
+                                    {
+                                        report->error("Locale too long.\n");
+                                        *sz=0;
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        pc += ret;
+                                        szRemainingSizeBytes -= (size_t)ret;
+                                    }
+                                }
                             }
-                            else pc+=sprintf_s(pc,(dwUniBuf >> 1),"neutral");
-                            pc = &sz[strlen(sz)];
-                            if(pAsmRef->pPublicKeyToken && (L=pAsmRef->pPublicKeyToken->length()))
+                            else
                             {
-                                pc+=sprintf_s(pc,(dwUniBuf >> 1),", Publickeytoken=");
+                                sprintf_ret = sprintf_s(pc,szRemainingSizeBytes,"neutral");
+                                pc += sprintf_ret;
+                                szRemainingSizeBytes -= (size_t)sprintf_ret;
+                            }
+                            if(pAsmRef->pPublicKeyToken && ((L=pAsmRef->pPublicKeyToken->length()) > 0))
+                            {
+                                sprintf_ret = sprintf_s(pc,szRemainingSizeBytes,", Publickeytoken=");
+                                pc += sprintf_ret;
+                                szRemainingSizeBytes -= (size_t)sprintf_ret;
+
                                 BYTE* pb = (BYTE*)(pAsmRef->pPublicKeyToken->ptr());
-                                for(N=0; N<L; N++,pb++) pc+=sprintf_s(pc,(dwUniBuf >> 1),"%2.2x",*pb);
+                                for(unsigned i=0; i<L; i++,pb++)
+                                {
+                                    sprintf_ret = sprintf_s(pc,szRemainingSizeBytes,"%2.2x",*pb);
+                                    pc += sprintf_ret;
+                                    szRemainingSizeBytes -= (size_t)sprintf_ret;
+                                }
                             }
                         }
                     }

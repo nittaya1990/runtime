@@ -22,7 +22,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
             _method = (EcmaMethod)method.GetTypicalMethodDefinition();
         }
 
-        public override ObjectNodeSection Section => ObjectNodeSection.TextSection;
+        public override ObjectNodeSection GetSection(NodeFactory factory) => ObjectNodeSection.TextSection;
 
         public override bool IsShareable => false;
 
@@ -33,7 +33,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
-            sb.Append("ILMethod_");
+            sb.Append("ILMethod_"u8);
             sb.Append(nameMangler.GetMangledMethodName(_method));
         }
 

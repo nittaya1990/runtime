@@ -37,6 +37,15 @@ public:
     void Delete();
 };
 
+struct ResolvedToken final
+{
+    class TypeHandle TypeHandle;
+    SigPointer TypeSignature;
+    SigPointer MethodSignature;
+    MethodDesc* Method;
+    FieldDesc* Field;
+};
+
 //---------------------------------------------------------------------------------------
 //
 class DynamicResolver
@@ -52,12 +61,24 @@ public:
         CanSkipCSEvaluation = 0x8,
     };
 
+    virtual ~DynamicResolver() { }
 
     // set up and clean up for jitting
     virtual void FreeCompileTimeState() = 0;
     virtual void GetJitContext(SecurityControlFlags * securityControlFlags,
                                TypeHandle *typeOwner) = 0;
     virtual ChunkAllocator* GetJitMetaHeap() = 0;
+
+    // API to check if visibility checks are needed.
+    // If the API requires checks, the callers should use
+    // the potentially expensive GetJitContext() API.
+    // If it returns "false", there is no need for any
+    // further visibility checks.
+    virtual bool RequiresAccessCheck() = 0;
+
+    // Return the flags that should be used in JIT compilation
+    // of the associated method.
+    virtual CORJIT_FLAGS GetJitFlags() = 0;
 
     //
     // code info data
@@ -77,8 +98,8 @@ public:
     // jit interface api
     virtual OBJECTHANDLE ConstructStringLiteral(mdToken metaTok) = 0;
     virtual BOOL IsValidStringRef(mdToken metaTok) = 0;
-    virtual int GetStringLiteralLength(mdToken metaTok) = 0;
-    virtual void ResolveToken(mdToken token, TypeHandle * pTH, MethodDesc ** ppMD, FieldDesc ** ppFD) = 0;
+    virtual STRINGREF GetStringLiteral(mdToken metaTok) = 0;
+    virtual void ResolveToken(mdToken token, ResolvedToken* resolvedToken) = 0;
     virtual SigPointer ResolveSignature(mdToken token) = 0;
     virtual SigPointer ResolveSignatureForVarArg(mdToken token) = 0;
     virtual void GetEHInfo(unsigned EHnumber, CORINFO_EH_CLAUSE* clause) = 0;
@@ -121,14 +142,15 @@ public:
     void GetJitContext(SecurityControlFlags * securityControlFlags,
                        TypeHandle * typeOwner);
     ChunkAllocator* GetJitMetaHeap();
+    bool RequiresAccessCheck();
+    CORJIT_FLAGS GetJitFlags();
 
     BYTE* GetCodeInfo(unsigned *pCodeSize, unsigned *pStackSize, CorInfoOptions *pOptions, unsigned* pEHSize);
     SigPointer GetLocalSig();
 
     OBJECTHANDLE ConstructStringLiteral(mdToken metaTok);
     BOOL IsValidStringRef(mdToken metaTok);
-    int GetStringLiteralLength(mdToken metaTok);
-    void ResolveToken(mdToken token, TypeHandle * pTH, MethodDesc ** ppMD, FieldDesc ** ppFD);
+    void ResolveToken(mdToken token, ResolvedToken* resolvedToken);
     SigPointer ResolveSignature(mdToken token);
     SigPointer ResolveSignatureForVarArg(mdToken token);
     void GetEHInfo(unsigned EHnumber, CORINFO_EH_CLAUSE* clause);
@@ -138,7 +160,7 @@ public:
     void SetManagedResolver(OBJECTHANDLE obj) { LIMITED_METHOD_CONTRACT; m_managedResolver = obj; }
     void * GetRecordCodePointer()  { LIMITED_METHOD_CONTRACT; return m_recordCodePointer; }
 
-    STRINGREF GetStringLiteral(mdToken token);
+    STRINGREF GetStringLiteral(mdToken metaTok);
     STRINGREF * GetOrInternString(STRINGREF *pString);
     void AddToUsedIndCellList(BYTE * indcell);
 #ifdef FEATURE_PGO
@@ -265,7 +287,7 @@ private:
 
     // data to track free list and pointers into this heap
     // - on an used block this struct has got a pointer back to the CodeHeap, size and start of aligned allocation
-    // - on an unused block (free block) this tracks the size of the block and the pointer to the next non contiguos free block
+    // - on an unused block (free block) this tracks the size of the block and the pointer to the next non contiguous free block
     struct TrackAllocation {
         union {
             HostCodeHeap *pHeap;
@@ -332,18 +354,21 @@ inline MethodDesc* GetMethod(CORINFO_METHOD_HANDLE methodHandle)
 
 #ifndef DACCESS_COMPILE
 
-#define CORINFO_MODULE_HANDLE_TYPE_MASK 1
-
 enum CORINFO_MODULE_HANDLE_TYPES
 {
-    CORINFO_NORMAL_MODULE  = 0,
-    CORINFO_DYNAMIC_MODULE,
+    // The module handle is a Module
+    CORINFO_NORMAL_MODULE   = 0,
+
+    // The module handle is a DynamicResolver
+    CORINFO_DYNAMIC_MODULE  = 1,
 };
+
+#define CORINFO_MODULE_HANDLE_TYPE_MASK (CORINFO_NORMAL_MODULE | CORINFO_DYNAMIC_MODULE)
 
 inline bool IsDynamicScope(CORINFO_MODULE_HANDLE module)
 {
     LIMITED_METHOD_CONTRACT;
-    return (CORINFO_DYNAMIC_MODULE == (((size_t)module) & CORINFO_MODULE_HANDLE_TYPE_MASK));
+    return !!(CORINFO_DYNAMIC_MODULE & (((size_t)module) & CORINFO_MODULE_HANDLE_TYPE_MASK));
 }
 
 inline CORINFO_MODULE_HANDLE MakeDynamicScope(DynamicResolver* pResolver)
@@ -358,6 +383,17 @@ inline DynamicResolver* GetDynamicResolver(CORINFO_MODULE_HANDLE module)
     LIMITED_METHOD_CONTRACT;
     CONSISTENCY_CHECK(IsDynamicScope(module));
     return (DynamicResolver*)(((size_t)module) & ~((size_t)CORINFO_MODULE_HANDLE_TYPE_MASK));
+}
+
+inline bool RequiresAccessCheck(CORINFO_MODULE_HANDLE module)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    // Non-dynamic scopes always require access checks.
+    if (!IsDynamicScope(module))
+        return true;
+
+    return GetDynamicResolver(module)->RequiresAccessCheck();
 }
 
 inline Module* GetModule(CORINFO_MODULE_HANDLE scope)

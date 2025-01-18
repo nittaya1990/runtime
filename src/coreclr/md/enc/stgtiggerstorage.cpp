@@ -182,6 +182,16 @@ TiggerStorage::GetExtraData(
     return S_OK;
 } // TiggerStorage::GetExtraData
 
+//*****************************************************************************
+// Debugging helpers.  #define __SAVESIZE_TRACE__ to enable.
+//*****************************************************************************
+
+// #define __SAVESIZE_TRACE__
+#ifdef __SAVESIZE_TRACE__
+#define SAVETRACE(func) DEBUG_STMT(func)
+#else
+#define SAVETRACE(func)
+#endif // __SAVESIZE_TRACE__
 
 //*****************************************************************************
 // Called when this stream is going away.
@@ -197,10 +207,10 @@ TiggerStorage::WriteHeader(
     HRESULT hr;
     SAVETRACE(ULONG cbDebugSize);   // Track debug size of header.
 
-    SAVETRACE(DbgWriteEx(W("PSS:  Header:\n")));
+    SAVETRACE(printf("PSS:  Header:\n"));
 
     // Save the count and set flags.
-    m_StgHdr.SetiStreams(pList->Count());
+    m_StgHdr.SetiStreams((USHORT)pList->Count());
     if (cbExtraData != 0)
         m_StgHdr.AddFlags(STGHDR_EXTRADATA);
 
@@ -218,7 +228,7 @@ TiggerStorage::WriteHeader(
 
         // And then the data.
         IfFailRet(m_pStgIO->Write(pbExtraData, cbExtraData, &cbWritten));
-        SAVETRACE(DbgWriteEx(W("PSS:    extra data size %d\n"), m_pStgIO->GetCurrentOffset() - cbDebugSize);cbDebugSize=m_pStgIO->GetCurrentOffset());
+        SAVETRACE(printf("PSS:    extra data size %d\n", m_pStgIO->GetCurrentOffset() - cbDebugSize);cbDebugSize=m_pStgIO->GetCurrentOffset());
     }
 
     // Save off each data stream.
@@ -238,9 +248,9 @@ TiggerStorage::WriteHeader(
         {
             IfFailRet(m_pStgIO->Write(&hr, ALIGN4BYTE(iLen) - iLen, 0));
         }
-        SAVETRACE(DbgWriteEx(W("PSS:    Table %hs header size %d\n"), pStream->rcName, m_pStgIO->GetCurrentOffset() - cbDebugSize);cbDebugSize=m_pStgIO->GetCurrentOffset());
+        SAVETRACE(printf("PSS:    Table %hs header size %d\n", pStream->rcName, m_pStgIO->GetCurrentOffset() - cbDebugSize);cbDebugSize=m_pStgIO->GetCurrentOffset());
     }
-    SAVETRACE(DbgWriteEx(W("PSS:  Total size of header data %d\n"), m_pStgIO->GetCurrentOffset()));
+    SAVETRACE(printf("PSS:  Total size of header data %d\n", m_pStgIO->GetCurrentOffset()));
     // Make sure the whole thing is 4 byte aligned.
     _ASSERTE((m_pStgIO->GetCurrentOffset() % 4) == 0);
     return S_OK;
@@ -348,7 +358,7 @@ TiggerStorage::GetStreamSaveSize(
     UINT32 cbTotalSize;            // Add up each element.
 
     // Find out how large the name will be.
-    cbTotalSize = ::WszWideCharToMultiByte(CP_ACP, 0, szStreamName, -1, 0, 0, 0, 0);
+    cbTotalSize = ::WideCharToMultiByte(CP_ACP, 0, szStreamName, -1, 0, 0, 0, 0);
     _ASSERTE(cbTotalSize != 0);
 
     // Add the size of the stream header minus the static name array.
@@ -431,7 +441,7 @@ HRESULT STDMETHODCALLTYPE TiggerStorage::CreateStream(
     IStream     **ppstm)
 {
     char        rcStream[MAXSTREAMNAME];// For converted name.
-    VERIFY(Wsz_wcstombs(rcStream, pwcsName, sizeof(rcStream)));
+    VERIFY(WideCharToMultiByte(CP_ACP, 0, pwcsName, -1, rcStream, sizeof(rcStream), 0, 0));
     return (CreateStream(rcStream, grfMode, reserved1, reserved2, ppstm));
 }
 
@@ -620,7 +630,7 @@ HRESULT STDMETHODCALLTYPE TiggerStorage::OpenStream(
     HRESULT     hr;
 
     // Convert the name for internal use.
-    VERIFY(::WszWideCharToMultiByte(CP_ACP, 0, szStream, -1, rcName, sizeof(rcName), 0, 0));
+    VERIFY(::WideCharToMultiByte(CP_ACP, 0, szStream, -1, rcName, sizeof(rcName), 0, 0));
 
     // Look for the stream which must be found for this to work.  Note that
     // this error is explicitly not posted as an error object since unfound streams
@@ -715,7 +725,7 @@ TiggerStorage::FindStream(
         PSTORAGESTREAM p = m_pStreamList;
 
         SIZE_T pStartMD = (SIZE_T)(m_pStgIO->m_pData);
-        SIZE_T pEndMD = NULL;
+        SIZE_T pEndMD = 0;
 
         if (!ClrSafeInt<SIZE_T>::addition(pStartMD, m_pStgIO->m_cbData, pEndMD))
         {
@@ -783,7 +793,7 @@ TiggerStorage::WriteSignature(
     sSig.SetSignature(STORAGE_MAGIC_SIG);
     sSig.SetMajorVer(FILE_VER_MAJOR);
     sSig.SetMinorVer(FILE_VER_MINOR);
-    sSig.SetExtraDataOffset(0); // We have no extra inforation
+    sSig.SetExtraDataOffset(0); // We have no extra information
     sSig.SetVersionStringLength(alignedVersionSize);
     IfFailRet(m_pStgIO->Write(&sSig, sizeof(STORAGESIGNATURE), &cbWritten));
     IfFailRet(m_pStgIO->Write(pVersion, versionSize, &cbWritten));
@@ -957,7 +967,7 @@ ULONG TiggerStorage::PrintSizeInfo(bool verbose)
         for (int i = 0; i < m_StgHdr.GetiStreams(); i++)
         {
             pNext = storStream->NextStream();
-            printf("Stream #%d (%s) Header: %zd, Data: %lu\n",i,storStream->GetName(), (size_t)((BYTE*)pNext - (BYTE*)storStream), storStream->GetSize());
+            printf("Stream #%d (%s) Header: %zd, Data: %u\n",i,storStream->GetName(), (size_t)((BYTE*)pNext - (BYTE*)storStream), storStream->GetSize());
             total += storStream->GetSize();
             storStream = pNext;
         }

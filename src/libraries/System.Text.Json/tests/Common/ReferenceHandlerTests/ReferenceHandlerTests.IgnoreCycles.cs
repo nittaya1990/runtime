@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
@@ -13,8 +14,8 @@ namespace System.Text.Json.Serialization.Tests
 {
     public abstract partial class ReferenceHandlerTests_IgnoreCycles : SerializerTests
     {
-        public ReferenceHandlerTests_IgnoreCycles(JsonSerializerWrapperForString stringSerializer, JsonSerializerWrapperForStream streamSerializer)
-            : base(stringSerializer, streamSerializer)
+        public ReferenceHandlerTests_IgnoreCycles(JsonSerializerWrapper stringSerializer)
+            : base(stringSerializer)
         {
         }
 
@@ -133,9 +134,6 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact]
-#if BUILDING_SOURCE_GENERATOR_TESTS
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/66421")]
-#endif
         public async Task IgnoreCycles_OnRecursiveDictionary()
         {
             var root = new RecursiveDictionary();
@@ -182,9 +180,6 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact]
-#if BUILDING_SOURCE_GENERATOR_TESTS
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/66421")]
-#endif
         public async Task IgnoreCycles_OnRecursiveList()
         {
             var root = new RecursiveList();
@@ -239,22 +234,24 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact]
-#if BUILDING_SOURCE_GENERATOR_TESTS
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/66421")]
-#endif
         public async Task IgnoreCycles_DoesNotSupportPreserveSemantics()
         {
+            if (StreamingSerializer is null)
+            {
+                return;
+            }
+
             // Object
             var node = new NodeWithExtensionData();
             node.Next = node;
             string json = await SerializeWithPreserve(node);
 
-            node = await JsonSerializerWrapperForString.DeserializeWrapper<NodeWithExtensionData>(json, s_optionsIgnoreCycles);
+            node = await Serializer.DeserializeWrapper<NodeWithExtensionData>(json, s_optionsIgnoreCycles);
             Assert.True(node.MyOverflow.ContainsKey("$id"));
             Assert.True(node.Next.MyOverflow.ContainsKey("$ref"));
 
             using var ms = new MemoryStream(Encoding.UTF8.GetBytes(json));
-            node = await JsonSerializer.DeserializeAsync<NodeWithExtensionData>(ms, s_optionsIgnoreCycles);
+            node = await StreamingSerializer.DeserializeWrapper<NodeWithExtensionData>(ms, s_optionsIgnoreCycles);
             Assert.True(node.MyOverflow.ContainsKey("$id"));
             Assert.True(node.Next.MyOverflow.ContainsKey("$ref"));
 
@@ -263,37 +260,39 @@ namespace System.Text.Json.Serialization.Tests
             dictionary.Add("self", dictionary);
             json = await SerializeWithPreserve(dictionary);
 
-            await Assert.ThrowsAsync<JsonException>(async () => await JsonSerializerWrapperForString.DeserializeWrapper<RecursiveDictionary>(json, s_optionsIgnoreCycles));
+            await Assert.ThrowsAsync<JsonException>(async () => await Serializer.DeserializeWrapper<RecursiveDictionary>(json, s_optionsIgnoreCycles));
             using var ms2 = new MemoryStream(Encoding.UTF8.GetBytes(json));
-            await Assert.ThrowsAsync<JsonException>(() => JsonSerializer.DeserializeAsync<RecursiveDictionary>(ms2, s_optionsIgnoreCycles).AsTask());
+            await Assert.ThrowsAsync<JsonException>(() => StreamingSerializer.DeserializeWrapper<RecursiveDictionary>(ms2, s_optionsIgnoreCycles));
 
             // List
             var list = new RecursiveList();
             list.Add(list);
             json = await SerializeWithPreserve(list);
 
-            await Assert.ThrowsAsync<JsonException>(async () => await JsonSerializerWrapperForString.DeserializeWrapper<RecursiveList>(json, s_optionsIgnoreCycles));
+            await Assert.ThrowsAsync<JsonException>(async () => await Serializer.DeserializeWrapper<RecursiveList>(json, s_optionsIgnoreCycles));
             using var ms3 = new MemoryStream(Encoding.UTF8.GetBytes(json));
-            await Assert.ThrowsAsync<JsonException>(() => JsonSerializer.DeserializeAsync<RecursiveList>(ms3, s_optionsIgnoreCycles).AsTask());
+            await Assert.ThrowsAsync<JsonException>(() => StreamingSerializer.DeserializeWrapper<RecursiveList>(ms3, s_optionsIgnoreCycles));
         }
 
         [Fact]
-#if BUILDING_SOURCE_GENERATOR_TESTS
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/66421")]
-#endif
         public async Task IgnoreCycles_DoesNotSupportPreserveSemantics_Polymorphic()
         {
+            if (StreamingSerializer is null)
+            {
+                return;
+            }
+
             // Object
             var node = new NodeWithObjectProperty();
             node.Next = node;
             string json = await SerializeWithPreserve(node);
 
-            node = await JsonSerializerWrapperForString.DeserializeWrapper<NodeWithObjectProperty>(json, s_optionsIgnoreCycles);
+            node = await Serializer.DeserializeWrapper<NodeWithObjectProperty>(json, s_optionsIgnoreCycles);
             JsonElement nodeAsJsonElement = Assert.IsType<JsonElement>(node.Next);
             Assert.True(nodeAsJsonElement.GetProperty("$ref").GetString() == "1");
 
             using var ms = new MemoryStream(Encoding.UTF8.GetBytes(json));
-            node = await JsonSerializer.DeserializeAsync<NodeWithObjectProperty>(ms, s_optionsIgnoreCycles);
+            node = await StreamingSerializer.DeserializeWrapper<NodeWithObjectProperty>(ms, s_optionsIgnoreCycles);
             nodeAsJsonElement = Assert.IsType<JsonElement>(node.Next);
             Assert.True(nodeAsJsonElement.GetProperty("$ref").GetString() == "1");
 
@@ -302,13 +301,13 @@ namespace System.Text.Json.Serialization.Tests
             dictionary.Add("self", dictionary);
             json = await SerializeWithPreserve(dictionary);
 
-            dictionary = await JsonSerializerWrapperForString.DeserializeWrapper<Dictionary<string, object>>(json, s_optionsIgnoreCycles);
+            dictionary = await Serializer.DeserializeWrapper<Dictionary<string, object>>(json, s_optionsIgnoreCycles);
         }
 
         private async Task<string> SerializeWithPreserve<T>(T value)
         {
             var opts = new JsonSerializerOptions { ReferenceHandler = ReferenceHandler.Preserve };
-            return await JsonSerializerWrapperForString.SerializeWrapper(value, opts);
+            return await Serializer.SerializeWrapper(value, opts);
         }
 
         [Fact]
@@ -394,7 +393,7 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact] // https://github.com/dotnet/runtime/issues/51837
-        public async void IgnoreCycles_StringShouldNotBeIgnored()
+        public async Task IgnoreCycles_StringShouldNotBeIgnored()
         {
             var stringReference = "John";
             
@@ -411,7 +410,7 @@ namespace System.Text.Json.Serialization.Tests
         }
 
         [Fact]
-        public async void IgnoreCycles_BoxedValueShouldNotBeIgnored()
+        public async Task IgnoreCycles_BoxedValueShouldNotBeIgnored()
         {
             object dayOfBirthAsObject = 15;
 
@@ -456,21 +455,11 @@ namespace System.Text.Json.Serialization.Tests
 
             if (objType != typeof(object))
             {
-                json = await JsonSerializerWrapperForString.SerializeWrapper(obj, options);
-                Assert.Equal(expected, json);
-
-                using var ms1 = new MemoryStream();
-                await JsonSerializerWrapperForStream.SerializeWrapper(ms1, obj, options).ConfigureAwait(false);
-                json = Encoding.UTF8.GetString(ms1.ToArray());
+                json = await Serializer.SerializeWrapper(obj, options);
                 Assert.Equal(expected, json);
             }
 
-            json = await JsonSerializerWrapperForString.SerializeWrapper(obj, objType, options);
-            Assert.Equal(expected, json);
-
-            using var ms2 = new MemoryStream();
-            await JsonSerializerWrapperForStream.SerializeWrapper(ms2, obj, objType, options).ConfigureAwait(false);
-            json = Encoding.UTF8.GetString(ms2.ToArray());
+            json = await Serializer.SerializeWrapper(obj, objType, options);
             Assert.Equal(expected, json);
         }
 
@@ -481,23 +470,12 @@ namespace System.Text.Json.Serialization.Tests
 
             if (objType != typeof(object))
             {
-                json = await JsonSerializerWrapperForString.SerializeWrapper(obj, options);
-                VerifySubstringExistsNTimes(json, expectedSubstring, expectedTimes);
-
-                using var ms1 = new MemoryStream();
-                await JsonSerializerWrapperForStream.SerializeWrapper(ms1, obj, options).ConfigureAwait(false);
-                json = Encoding.UTF8.GetString(ms1.ToArray());
+                json = await Serializer.SerializeWrapper(obj, options);
                 VerifySubstringExistsNTimes(json, expectedSubstring, expectedTimes);
             }
 
-            json = await JsonSerializerWrapperForString.SerializeWrapper(obj, objType, options);
+            json = await Serializer.SerializeWrapper(obj, objType, options);
             VerifySubstringExistsNTimes(json, expectedSubstring, expectedTimes);
-
-            using var ms2 = new MemoryStream();
-            await JsonSerializerWrapperForStream.SerializeWrapper(ms2, obj, objType, options).ConfigureAwait(false);
-            json = Encoding.UTF8.GetString(ms2.ToArray());
-            VerifySubstringExistsNTimes(json, expectedSubstring, expectedTimes);
-
 
             static void VerifySubstringExistsNTimes(string actualString, string expectedSubstring, int expectedTimes)
             {
@@ -519,12 +497,12 @@ namespace System.Text.Json.Serialization.Tests
 
         public class NodeWithObjectProperty
         {
-            public object Next { get; set; }
+            public object? Next { get; set; }
         }
 
         public class NodeWithNodeProperty
         {
-            public NodeWithNodeProperty Next { get; set; }
+            public NodeWithNodeProperty? Next { get; set; }
         }
 
         public class ClassWithGenericProperty<T>
@@ -540,22 +518,22 @@ namespace System.Text.Json.Serialization.Tests
 
         public interface IValueNodeWithObjectProperty
         {
-            public object Next { get; set; }
+            public object? Next { get; set; }
         }
 
         public struct ValueNodeWithObjectProperty : IValueNodeWithObjectProperty
         {
-            public object Next { get; set; }
+            public object? Next { get; set; }
         }
 
         public interface IValueNodeWithIValueNodeProperty
         {
-            public IValueNodeWithIValueNodeProperty Next { get; set; }
+            public IValueNodeWithIValueNodeProperty? Next { get; set; }
         }
 
         public struct ValueNodeWithIValueNodeProperty : IValueNodeWithIValueNodeProperty
         {
-            public IValueNodeWithIValueNodeProperty Next { get; set; }
+            public IValueNodeWithIValueNodeProperty? Next { get; set; }
         }
 
         public class EmptyClass { }
@@ -581,8 +559,8 @@ namespace System.Text.Json.Serialization.Tests
         public class Person
         {
             public string Name { get; set; }
-            public object DayOfBirth { get; set; }
-            public Person Parent { get; set; }
+            public object? DayOfBirth { get; set; }
+            public Person? Parent { get; set; }
         }
 
         class PersonConverter : JsonConverter<Person>

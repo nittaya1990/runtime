@@ -5,6 +5,8 @@ using Microsoft.DotNet.Cli.Build;
 using Microsoft.DotNet.Cli.Build.Framework;
 using Xunit;
 
+using static Microsoft.DotNet.CoreSetup.Test.Constants;
+
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 {
     public class RollForwardSettings :
@@ -24,12 +26,12 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [Fact]
         public void Default()
         {
+            string requestedVersion = "4.0.0";
             RunTest(
                 new TestSettings()
                     .WithRuntimeConfigCustomizer(runtimeConfig => runtimeConfig
                         .WithFramework(MicrosoftNETCoreApp, "4.0.0")))
-                .Should().Fail()
-                .And.DidNotFindCompatibleFrameworkVersion();
+                .ShouldFailToFindCompatibleFrameworkVersion(MicrosoftNETCoreApp, requestedVersion);
 
             RunTest(
                 new TestSettings()
@@ -138,7 +140,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         // RuntimeOptions and FrameworkReference settings are not inherited to inner reference
         [InlineData(SettingLocation.FrameworkReference, false)]
         // Since none is specified for the inner reference, environment is used
-        [InlineData(SettingLocation.Environment,        true)]     
+        [InlineData(SettingLocation.Environment,        true)]
         public void NoInheritance_MoreRelaxed(SettingLocation settingLocation, bool appWins)
         {
             RunTest(
@@ -161,7 +163,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         // RuntimeOptions and FrameworkReference settings are not inherited to inner reference
         [InlineData(SettingLocation.FrameworkReference, false)]
         // Since none is specified for the inner reference, environment is used
-        [InlineData(SettingLocation.Environment,        true)]           
+        [InlineData(SettingLocation.Environment,        true)]
         public void NoInheritance_MoreRestrictive(SettingLocation settingLocation, bool appWins)
         {
             RunTest(

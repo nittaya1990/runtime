@@ -22,7 +22,7 @@ Using `pluginDependency` to determine the `AssemblyLoadContext` used for loading
 ### Failing Scenarios
 #### Xunit story
 
-We have been working on building a test harness in Xunit for running the CoreFX test suite inside `AssemblyLoadContext`s (each test case in its own context).  This has proven to be somewhat difficult due to Xunit being a very reflection heavy codebase with tons of instances of types, assemblies, etc. being converted to strings and then fed through `Activator`.  One of the main learnings is that it is not always obvious what will stay inside the “bounds” of an `AssemblyLoadContext` and what won’t.  The basic rule of thumb is that any `Assembly.Load()` will result in the assembly being loaded onto the `AssemblyLoadContext` of the calling code, so if code loaded by an ALC calls `Assembly.Load(...)`, the resulting assembly will be within the “bounds” of the ALC.  This unfortunately breaks down in some cases, specifically when code calls `Activator` which lives in `System.Private.CoreLib` which is always shared.
+We have been working on building a test harness in Xunit for running the core libraries test suite inside `AssemblyLoadContext`s (each test case in its own context).  This has proven to be somewhat difficult due to Xunit being a very reflection heavy codebase with tons of instances of types, assemblies, etc. being converted to strings and then fed through `Activator`.  One of the main learnings is that it is not always obvious what will stay inside the “bounds” of an `AssemblyLoadContext` and what won’t.  The basic rule of thumb is that any `Assembly.Load()` will result in the assembly being loaded onto the `AssemblyLoadContext` of the calling code, so if code loaded by an ALC calls `Assembly.Load(...)`, the resulting assembly will be within the “bounds” of the ALC.  This unfortunately breaks down in some cases, specifically when code calls `Activator` which lives in `System.Private.CoreLib` which is always shared.
 
 #### System.Xaml
 This problem also manifests when using an `Object` deserialization framework which allows specifying assembly qualified type names.
@@ -243,7 +243,7 @@ After a thread or asynchronous task completes, the `AsyncLocal<AssemblyLoadConte
 ```C#
 /// <summary>Opaque disposable struct used to restore CurrentContextualReflectionContext</summary>
 /// <remarks>
-/// This is an implmentation detail of the AssemblyLoadContext.EnterContextualReflection APIs.
+/// This is an implementation detail of the AssemblyLoadContext.EnterContextualReflection APIs.
 /// It is a struct, to avoid heap allocation.
 /// It is required to be public to avoid boxing.
 /// <see cref="System.Runtime.Loader.AssemblyLoadContext.EnterContextualReflection"/>

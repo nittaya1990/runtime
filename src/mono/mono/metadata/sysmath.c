@@ -44,12 +44,6 @@ ves_icall_System_Math_Round (gdouble x)
 }
 
 gdouble
-ves_icall_System_Math_FMod (gdouble x, gdouble y)
-{
-	return fmod (x, y);
-}
-
-gdouble
 ves_icall_System_Math_ModF (gdouble x, gdouble *d)
 {
 	return modf (x, d);
@@ -214,7 +208,7 @@ ves_icall_System_MathF_Asinh  (float x)
 float
 ves_icall_System_MathF_Atan  (float x)
 {
-	return atan (x);
+	return atanf (x);
 }
 
 float
@@ -292,7 +286,7 @@ ves_icall_System_MathF_Sin (float x)
 float
 ves_icall_System_MathF_Sinh (float x)
 {
-	return sinh (x);
+	return sinhf (x);
 }
 
 float
@@ -310,13 +304,7 @@ ves_icall_System_MathF_Tan (float x)
 float
 ves_icall_System_MathF_Tanh (float x)
 {
-	return tanh (x);
-}
-
-float
-ves_icall_System_MathF_FMod (float x, float y)
-{
-	return fmodf (x, y);
+	return tanhf (x);
 }
 
 float

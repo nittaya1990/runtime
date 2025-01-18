@@ -2,10 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
-namespace JitTest
+namespace JitTest_array2_refany_cs
 {
-    internal class Test
+    public class Test
     {
         private static void TestRef(TypedReference _ref)
         {
@@ -21,7 +23,9 @@ namespace JitTest
             }
         }
 
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             ulong[,] aul2 = new ulong[,] { { 1, 2, 3 }, { 4, 5, 6 } };
             TestRef(__makeref(aul2));

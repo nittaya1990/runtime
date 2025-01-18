@@ -4,7 +4,7 @@
 using System;
 using Xunit;
 
-namespace JitTest
+namespace JitTest_han2_cs
 {
     public struct Ring
     {
@@ -67,14 +67,14 @@ namespace JitTest
         }
 
         [Fact]
-        public static int TestEntryPoint()
+        [OuterLoop]
+        public static void TestEntryPoint()
         {
             int NUM = 17;
             Column[] cols = new Column[3];
             cols[0].Init(NUM, NUM);
             cols[1].Init(NUM, 0);
             cols[2].Init(NUM, 0);
-            return 100;
         }
     }
 }

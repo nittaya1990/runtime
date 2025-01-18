@@ -88,7 +88,7 @@ inline unsigned Pack8_24(unsigned up, unsigned low)
 //   m_JitInfoArray is an array of RecorderInfo (12 bytes on 32-bit systems, 16 bytes on 64-bit systems), with MAX_METHODS elements.
 //
 //   1. Modules.
-//     For modules RecorderInfo::data2 and RecorderInfo::ptr are set to 0. RecorderInfo::ptr == 0 is also a flag that RecorderInfo correponds to module.
+//     For modules RecorderInfo::data2 and RecorderInfo::ptr are set to 0. RecorderInfo::ptr == 0 is also a flag that RecorderInfo corresponds to module.
 //     RecorderInfo::data1 is non-zero and represents info for module.
 //
 //     Info for module includes module index and requested load level, with some additional data in higher bits (MULTICOREJIT_MODULEDEPENDENCY_RECORD_ID tag).
@@ -253,7 +253,7 @@ class MulticoreJitModuleEnumerator
 
 public:
     HRESULT EnumerateLoadedModules(AppDomain * pDomain);
-    HRESULT HandleAssembly(DomainAssembly * pAssembly);
+    HRESULT HandleAssembly(Assembly * pAssembly);
 };
 
 
@@ -306,7 +306,7 @@ private:
 
     HRESULT ReadCheckFile(const WCHAR * pFileName);
 
-    DomainAssembly * LoadAssembly(SString & assemblyName);
+    Assembly * LoadAssembly(SString & assemblyName);
 
 public:
 
@@ -632,8 +632,6 @@ private:
     unsigned RecordModuleInfo(Module * pModule);
     void RecordOrUpdateModuleInfo(FileLoadLevel needLevel, unsigned moduleIndex);
 
-    void AddAllModulesInAsm(DomainAssembly * pAssembly);
-
     HRESULT WriteOutput(IStream * pStream);
 
     HRESULT WriteOutput();
@@ -646,7 +644,7 @@ private:
 
 public:
 
-    MulticoreJitRecorder(AppDomain * pDomain, AssemblyBinder * pBinder, bool fRecorderActive)
+    MulticoreJitRecorder(AppDomain * pDomain, AssemblyBinder * pBinder)
         : m_stats(pDomain->GetMulticoreJitManager().GetStats())
         , m_ModuleList(nullptr)
         , m_JitInfoArray(nullptr)
@@ -656,18 +654,8 @@ public:
         m_pDomain = pDomain;
         m_pBinder = pBinder;
 
-        if (fRecorderActive)
-        {
-            m_ModuleList = new (nothrow) RecorderModuleInfo[MAX_MODULES];
-        }
-
         m_ModuleCount = 0;
         m_ModuleDepCount = 0;
-
-        if (fRecorderActive)
-        {
-            m_JitInfoArray = new (nothrow) RecorderInfo[MAX_METHODS];
-        }
 
         m_JitInfoCount = 0;
         m_fFirstMethod = true;
@@ -713,6 +701,14 @@ public:
 
         return (m_JitInfoCount >= (LONG) MAX_METHODS) ||
                (m_ModuleCount  >= MAX_MODULES);
+    }
+
+    void Activate()
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        m_ModuleList = new (nothrow) RecorderModuleInfo[MAX_MODULES];
+        m_JitInfoArray = new (nothrow) RecorderInfo[MAX_METHODS];
     }
 
     void RecordMethodJitOrLoad(MethodDesc * pMethod, bool application);

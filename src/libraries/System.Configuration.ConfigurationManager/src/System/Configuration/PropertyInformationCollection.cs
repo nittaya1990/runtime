@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.Specialized;
 using System.Collections;
+using System.Collections.Specialized;
 using System.Runtime.Serialization;
 
 namespace System.Configuration
@@ -39,8 +39,13 @@ namespace System.Configuration
         internal PropertyInformation this[int index] => (PropertyInformation)BaseGet(BaseGetKey(index));
 
 
-        public void CopyTo(PropertyInformation[] array!!, int index)
+        public void CopyTo(PropertyInformation[] array, int index)
         {
+            if (array is null)
+            {
+                throw new ArgumentNullException(nameof(array));
+            }
+
             if (array.Length < Count + index) throw new ArgumentOutOfRangeException(nameof(index));
 
             foreach (PropertyInformation pi in this) array[index++] = pi;

@@ -3,9 +3,9 @@
 
 using System.Collections.Generic;
 using System.ComponentModel.Composition.Primitives;
-using System.Linq;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 
 namespace System.ComponentModel.Composition.Hosting
 {
@@ -17,8 +17,11 @@ namespace System.ComponentModel.Composition.Hosting
             private readonly Func<ImportDefinition, bool> _importFilter;
             private Dictionary<string, List<ComposablePartDefinition>>? _exportersIndex;
 
-            public DependenciesTraversal(FilteredCatalog catalog!!, Func<ImportDefinition, bool> importFilter!!)
+            public DependenciesTraversal(FilteredCatalog catalog, Func<ImportDefinition, bool> importFilter)
             {
+                ArgumentNullException.ThrowIfNull(catalog);
+                ArgumentNullException.ThrowIfNull(importFilter);
+
                 _parts = catalog._innerCatalog;
                 _importFilter = importFilter;
             }
@@ -72,10 +75,7 @@ namespace System.ComponentModel.Composition.Hosting
                                 {
                                     if (import.IsImportDependentOnPart(candidateReachablePart, export, part.IsGeneric() != candidateReachablePart.IsGeneric()))
                                     {
-                                        if (reachablePartList == null)
-                                        {
-                                            reachablePartList = new List<ComposablePartDefinition>();
-                                        }
+                                        reachablePartList ??= new List<ComposablePartDefinition>();
                                         reachablePartList.Add(candidateReachablePart);
                                     }
                                 }

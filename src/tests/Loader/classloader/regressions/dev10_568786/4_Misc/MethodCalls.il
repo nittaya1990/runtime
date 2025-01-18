@@ -4,12 +4,6 @@
 .assembly extern System.Console { }
 .assembly extern xunit.core {}
 
-//  Microsoft (R) .NET Framework IL Disassembler.  Version 4.0.20529.0
-//  Copyright (c) Microsoft Corporation.  All rights reserved.
-
-
-
-// Metadata version: v4.0.20529
 .assembly extern mscorlib
 {
   .publickeytoken = (B7 7A 5C 56 19 34 E0 89 )                         // .z\V.4..
@@ -350,10 +344,10 @@
 
 } // end of class Caller`4
 
-.class private auto ansi beforefieldinit Test_MethodCalls
+.class public auto ansi beforefieldinit Test_MethodCalls
        extends [mscorlib]System.Object
 {
-  .method private hidebysig static int32 
+  .method public hidebysig static int32 
           Main() cil managed
   {
     .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (

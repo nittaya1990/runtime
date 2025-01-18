@@ -1,20 +1,31 @@
 <Project>
   <PropertyGroup>
-    <TargetFrameworks>$(NetCoreAppCurrent);$(NetFrameworkCurrent)</TargetFrameworks>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetFrameworkMinimum)</TargetFrameworks>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <IgnoreForCI Condition="'$(TargetsMobile)' == 'true' or '$(TargetsLinuxBionic)' == 'true' or '$(TargetArchitecture)' == 'ARMv6'">true</IgnoreForCI> 
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis" Version="$(RoslynApiVersion)" />
+    <!-- Ensure we are using live dependencies for CodeAnalysis rather than old packages -->
+    <PackageReference Include="NETStandard.Library" Version="$(NETStandardLibraryVersion)" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Composition\src\System.Composition.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.IO.Pipelines\src\System.IO.Pipelines.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Metadata\src\System.Reflection.Metadata.csproj" />
 
     <ProjectReference Include="..\..\src\System.Text.Json.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="$(CommonPath)..\tests\SourceGenerators\GeneratorTestHelpers.cs" Link="SourceGenerators\GeneratorTestHelpers.cs" />
     <Compile Include="CompilationHelper.cs" />
     <Compile Include="JsonSourceGeneratorDiagnosticsTests.cs" />
+    <Compile Include="JsonSourceGeneratorIncrementalTests.cs" />
     <Compile Include="JsonSourceGeneratorTests.cs" />
-    <Compile Include="TypeWrapperTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <Reference Include="System" />
   </ItemGroup>
 
   <Target Name="FixIncrementalCoreCompileWithAnalyzers" BeforeTargets="CoreCompile">

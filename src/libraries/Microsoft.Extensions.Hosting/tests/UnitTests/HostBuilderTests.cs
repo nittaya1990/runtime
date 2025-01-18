@@ -174,11 +174,11 @@ namespace Microsoft.Extensions.Hosting.Tests
                 {
                     var env = hostContext.HostingEnvironment;
                     Assert.Equal(Environments.Production, env.EnvironmentName);
-#if NETCOREAPP
+#if NET
                     Assert.NotNull(env.ApplicationName);
 #elif NETFRAMEWORK
                     // Note GetEntryAssembly returns null for the net4x console test runner.
-                    Assert.Null(env.ApplicationName);
+                    Assert.Equal(string.Empty, env.ApplicationName);
 #else
 #error TFMs need to be updated
 #endif
@@ -190,11 +190,11 @@ namespace Microsoft.Extensions.Hosting.Tests
             {
                 var env = host.Services.GetRequiredService<IHostEnvironment>();
                 Assert.Equal(Environments.Production, env.EnvironmentName);
-#if NETCOREAPP
+#if NET
                 Assert.NotNull(env.ApplicationName);
 #elif NETFRAMEWORK
                 // Note GetEntryAssembly returns null for the net4x console test runner.
-                Assert.Null(env.ApplicationName);
+                Assert.Equal(string.Empty, env.ApplicationName);
 #else
 #error TFMs need to be updated
 #endif
@@ -235,7 +235,7 @@ namespace Microsoft.Extensions.Hosting.Tests
         }
 
         [Fact]
-        public void UseEnvironmentIsNotOverriden()
+        public void UseEnvironmentIsNotOverridden()
         {
             var vals = new Dictionary<string, string>
             {
@@ -246,7 +246,6 @@ namespace Microsoft.Extensions.Hosting.Tests
             var config = builder.Build();
 
             var expected = "MY_TEST_ENVIRONMENT";
-
 
             using (var host = new HostBuilder()
                 .ConfigureHostConfiguration(configBuilder => configBuilder.AddConfiguration(config))
@@ -535,6 +534,85 @@ namespace Microsoft.Extensions.Hosting.Tests
         }
 
         [Fact]
+        public void ScopeValidationEnabledInDevelopment()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddScoped<ServiceA>();
+                })
+                .Build();
+
+            Assert.Throws<InvalidOperationException>(() => { host.Services.GetRequiredService<ServiceA>(); });
+        }
+
+        [Fact]
+        public void ValidateOnBuildEnabledInDevelopment()
+        {
+            var hostBuilder = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddSingleton<ServiceC>();
+                });
+
+            Assert.Throws<AggregateException>(() => hostBuilder.Build());
+        }
+
+        [Fact]
+        public void ScopeValidationNotEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddScoped<ServiceA>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateScopes = false;
+                })
+                .Build();
+
+            Assert.NotNull(host.Services.GetRequiredService<ServiceA>());
+        }
+        [Fact]
+        public void ScopeValidationtEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(services =>
+                {
+                    services.AddScoped<ServiceA>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateScopes = true;
+                })
+                .Build();
+
+            Assert.Throws<InvalidOperationException>(() => host.Services.GetRequiredService<ServiceA>());
+        }
+        [Fact]
+        public void ValidateOnBuildNotEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddSingleton<ServiceC>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateOnBuild = false;
+                })
+                .Build();
+
+            Assert.NotNull(host);
+        }
+
+        [Fact]
         public void HostingContextContainsAppConfigurationDuringConfigureLogging()
         {
             var hostBuilder = new HostBuilder()
@@ -644,7 +722,9 @@ namespace Microsoft.Extensions.Hosting.Tests
             var hostBuilder = Host.CreateDefaultBuilder();
             var host = hostBuilder.Build();
 
-            var type = hostBuilder.GetType();
+            // Use typeof so that trimming can see the field being used below
+            var type = typeof(HostBuilder);
+            Assert.Equal(hostBuilder.GetType(), type);
             var field = type.GetField("_appServices", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var appServicesFromHostBuilder = (IServiceProvider)field.GetValue(hostBuilder)!;
             Assert.Same(appServicesFromHostBuilder, host.Services);
@@ -661,6 +741,28 @@ namespace Microsoft.Extensions.Hosting.Tests
 
             var expectedContentRootPath = Directory.GetCurrentDirectory();
             Assert.Equal(expectedContentRootPath, env.ContentRootPath);
+        }
+
+        [Fact]
+        public void HostBuilderConfigureDefaultsDoesntThrowInDevelopment()
+        {
+            using (var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "MyProjectReference"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, Environments.Development)
+                    });
+                })
+                .Build())
+            {
+                var env = host.Services.GetRequiredService<IHostEnvironment>();
+
+                Assert.Equal("MyProjectReference", env.ApplicationName);
+                Assert.Equal(Environments.Development, env.EnvironmentName);
+            }
         }
 
         [Theory]

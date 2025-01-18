@@ -23,11 +23,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOff()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
                 .CaptureStdOut()
                 .CaptureStdErr()
                 .Execute()
@@ -39,14 +35,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOnDefault()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .CaptureStdOut()
-                .CaptureStdErr()
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableTracingAndCaptureOutputs()
                 .Execute()
                 .Should().Pass()
                 .And.HaveStdOutContaining("Hello World")
@@ -57,15 +47,9 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOnVerbose()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .EnvironmentVariable("COREHOST_TRACE_VERBOSITY", "4")
-                .CaptureStdOut()
-                .CaptureStdErr()
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableTracingAndCaptureOutputs()
+                .EnvironmentVariable(Constants.HostTracing.VerbosityEnvironmentVariable, "4")
                 .Execute()
                 .Should().Pass()
                 .And.HaveStdOutContaining("Hello World")
@@ -76,15 +60,9 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOnInfo()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .EnvironmentVariable("COREHOST_TRACE_VERBOSITY", "3")
-                .CaptureStdOut()
-                .CaptureStdErr()
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableTracingAndCaptureOutputs()
+                .EnvironmentVariable(Constants.HostTracing.VerbosityEnvironmentVariable, "3")
                 .Execute()
                 .Should().Pass()
                 .And.HaveStdOutContaining("Hello World")
@@ -95,15 +73,9 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOnWarning()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .EnvironmentVariable("COREHOST_TRACE_VERBOSITY", "2")
-                .CaptureStdOut()
-                .CaptureStdErr()
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableTracingAndCaptureOutputs()
+                .EnvironmentVariable(Constants.HostTracing.VerbosityEnvironmentVariable, "2")
                 .Execute()
                 .Should().Pass()
                 .And.HaveStdOutContaining("Hello World")
@@ -114,13 +86,10 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
         [Fact]
         public void TracingOnToFileDefault()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
 
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .EnvironmentVariable("COREHOST_TRACEFILE", "TracingOnToFileDefault.log")
+            string traceFilePath;
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableHostTracingToFile(out traceFilePath)
                 .CaptureStdOut()
                 .CaptureStdErr()
                 .Execute()
@@ -128,22 +97,18 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
                 .And.HaveStdOutContaining("Hello World")
                 .And.NotHaveStdErrContaining(ExpectedInfoMessage)
                 .And.NotHaveStdErrContaining(ExpectedVerboseMessage)
-                .And.FileExists("TracingOnToFileDefault.log")
-                .And.FileContains("TracingOnToFileDefault.log", ExpectedVerboseMessage);
+                .And.FileExists(traceFilePath)
+                .And.FileContains(traceFilePath, ExpectedVerboseMessage);
+
+            FileUtils.DeleteFileIfPossible(traceFilePath);
         }
 
         [Fact]
         public void TracingOnToFileBadPathDefault()
         {
-            var fixture = sharedTestState.PortableAppFixture.Copy();
-            var dotnet = fixture.BuiltDotnet;
-            var appDll = fixture.TestProject.AppDll;
-
-            dotnet.Exec(appDll)
-                .EnvironmentVariable("COREHOST_TRACE", "1")
-                .EnvironmentVariable("COREHOST_TRACEFILE", "badpath/TracingOnToFileBadPathDefault.log")
-                .CaptureStdOut()
-                .CaptureStdErr()
+            TestContext.BuiltDotNet.Exec(sharedTestState.App.AppDll)
+                .EnableTracingAndCaptureOutputs()
+                .EnvironmentVariable(Constants.HostTracing.TraceFileEnvironmentVariable, "badpath/TracingOnToFileBadPathDefault.log")
                 .Execute()
                 .Should().Pass()
                 .And.HaveStdOutContaining("Hello World")
@@ -154,25 +119,17 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation
 
         public class SharedTestState : IDisposable
         {
-            // Entry point projects
-            public TestProjectFixture PortableAppFixture { get; }
-
-            public RepoDirectoriesProvider RepoDirectories { get; }
+            public TestApp App { get; }
 
             public SharedTestState()
             {
-                RepoDirectories = new RepoDirectoriesProvider();
-
-                // Entry point projects
-                PortableAppFixture = new TestProjectFixture("PortableApp", RepoDirectories)
-                    .EnsureRestored()
-                    .PublishProject();
+                App = TestApp.CreateFromBuiltAssets("HelloWorld");
+                App.CreateAppHost();
             }
 
             public void Dispose()
             {
-                // Entry point projects
-                PortableAppFixture.Dispose();
+                App?.Dispose();
             }
         }
     }

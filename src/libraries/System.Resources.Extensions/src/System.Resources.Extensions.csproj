@@ -1,20 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetCoreAppPrevious);$(NetCoreAppMinimum);netstandard2.0;$(NetFrameworkMinimum)</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>$(NetCoreAppCurrent);$(NetCoreAppMinimum);netstandard2.0;$(NetFrameworkMinimum)</TargetFrameworks>
     <DefineConstants>$(DefineConstants);RESOURCES_EXTENSIONS</DefineConstants>
-    <Nullable>enable</Nullable>
+    <EnableAOTAnalyzer>false</EnableAOTAnalyzer>
+    <IncludeInternalObsoleteAttribute>true</IncludeInternalObsoleteAttribute>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
     <IsPackable>true</IsPackable>
-    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);GeneratePackageTargetsFile</TargetsForTfmSpecificContentInPackage>
-    <DisableNETStandardCompatErrorForNETFramework>true</DisableNETStandardCompatErrorForNETFramework>
+    <SuggestedBindingRedirectsPackageFile>$(BaseIntermediateOutputPath)SuggestedBindingRedirects.targets</SuggestedBindingRedirectsPackageFile>
+    <BeforePack>$(BeforePack);GeneratePackageTargetsFile</BeforePack>
     <PackageDescription>Provides classes which read and write resources in a format that supports non-primitive objects.
 
 Commonly Used Types:
 System.Resources.Extensions.DeserializingResourceReader
 System.Resources.Extensions.PreserializedResourceWriter</PackageDescription>
+    <!-- TODO: Add package README file: https://github.com/dotnet/runtime/issues/99358 -->
+    <EnableDefaultPackageReadmeFile>false</EnableDefaultPackageReadmeFile>
+    <!-- SYSLIB5005: System.Formats.Nrbf is experimental -->
+    <NoWarn>$(NoWarn);SYSLIB5005</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="$(CommonPath)System\Obsoletions.cs"
+             Link="Common\System\Obsoletions.cs" />
     <Compile Include="$(CommonPath)System\Resources\ResourceWriter.cs"
              Link="System\Resources\Extensions\ResourceWriter.cs" />
     <Compile Include="$(CoreLibSharedDir)System\IO\PinnedBufferMemoryStream.cs"
@@ -33,8 +42,33 @@ System.Resources.Extensions.PreserializedResourceWriter</PackageDescription>
     <Compile Include="System\Resources\Extensions\PreserializedResourceWriter.cs" />
     <Compile Include="System\Resources\Extensions\SerializationFormat.cs" />
     <Compile Include="System\Resources\Extensions\TypeNameComparer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.IParseState.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.ITypeResolver.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.Options.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.ParseState.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\BinaryFormattedObject.TypeResolver.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\SerializationEvents.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\SerializationExtensions.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\SerializationInfoExtensions.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ArrayRecordDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ArrayUpdater.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ClassRecordDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ClassRecordFieldInfoDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ClassRecordSerializationInfoDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\Deserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\FieldValueUpdater.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\IDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ObjectRecordDeserializer.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\PendingSerializationInfo.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\SerializationInfoValueUpdater.cs" />
+    <Compile Include="System\Resources\Extensions\BinaryFormat\Deserializer\ValueUpdater.cs" />
     <Compile Include="$(CoreLibSharedDir)System\Numerics\Hashing\HashHelpers.cs"
              Link="System\Numerics\Hashing\HashHelpers.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(LibrariesProjectRoot)\System.Formats.Nrbf\src\System.Formats.Nrbf.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFrameworkIdentifier)' != '.NETCoreApp'">
@@ -42,32 +76,30 @@ System.Resources.Extensions.PreserializedResourceWriter</PackageDescription>
              Link="System\Diagnostics\CodeAnalysis\RequiresUnreferencedCodeAttribute.cs" />
     <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\UnconditionalSuppressMessageAttribute.cs"
              Link="System\Diagnostics\CodeAnalysis\UnconditionalSuppressMessageAttribute.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp'">
-    <Reference Include="System.Collections" />
-    <Reference Include="System.ComponentModel.TypeConverter" />
-    <Reference Include="System.Memory" />
-    <Reference Include="System.Resources.Writer" />
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Runtime.Serialization.Formatters" />
-    <Reference Include="System.Threading" />
+    <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\DynamicDependencyAttribute.cs"
+             Link="System\Diagnostics\CodeAnalysis\DynamicDependencyAttribute.cs" />
+    <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\DynamicallyAccessedMembersAttribute.cs"
+             Link="System\Diagnostics\CodeAnalysis\DynamicallyAccessedMembersAttribute.cs" />
+    <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\DynamicallyAccessedMemberTypes.cs"
+             Link="System\Diagnostics\CodeAnalysis\DynamicallyAccessedMemberTypes.cs" />
+    <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\RequiresDynamicCodeAttribute.cs"
+             Link="System\Diagnostics\CodeAnalysis\RequiresDynamicCodeAttribute.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFrameworkIdentifier)' != '.NETCoreApp'">
     <PackageReference Include="System.Memory" Version="$(SystemMemoryVersion)" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <_packageTargetsFile>$(IntermediateOutputPath)$(AssemblyName).targets</_packageTargetsFile>
-  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' != '.NETCoreApp' or $([MSBuild]::VersionLessThan('$(TargetFrameworkVersion)', '9.0'))">
+    <Compile Include="$(CoreLibSharedDir)System\Diagnostics\CodeAnalysis\FeatureSwitchDefinitionAttribute.cs" />
+  </ItemGroup>
 
   <Target Name="GeneratePackageTargetsFile" 
-          Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
           Inputs="$(MSBuildAllProjects)"
-          Outputs="$(_packageTargetsFile)">
+          Outputs="$(SuggestedBindingRedirectsPackageFile)"
+          Condition="'$(NetFrameworkMinimum)' != ''">
     <PropertyGroup>
-      <_packageTargetsFileContent><![CDATA[<Project>
+      <SuggestedBindingRedirectsPackageFileContent><![CDATA[<Project>
   <!-- ResolveAssemblyReferences will never see the assembly reference embedded in the resources type,
        force a binding redirect ourselves so that we'll always unify to the System.Resources.Extensions
        version provided by this package -->
@@ -75,16 +107,17 @@ System.Resources.Extensions.PreserializedResourceWriter</PackageDescription>
     <SuggestedBindingRedirects Include="$(AssemblyName), Culture=neutral, PublicKeyToken=$(PublicKeyToken)" MaxVersion="$(AssemblyVersion)" />
   </ItemGroup>
 </Project>
-]]></_packageTargetsFileContent>
+]]></SuggestedBindingRedirectsPackageFileContent>
     </PropertyGroup>
 
-    <WriteLinesToFile File="$(_packageTargetsFile)"
-                      Lines="$(_packageTargetsFileContent)"
+    <WriteLinesToFile File="$(SuggestedBindingRedirectsPackageFile)"
+                      Lines="$(SuggestedBindingRedirectsPackageFileContent)"
                       Overwrite="true" />
 
     <ItemGroup>
-      <TfmSpecificPackageFile Include="$(_packageTargetsFile)"
-                              PackagePath="buildTransitive/$(TargetFramework)" />
+      <Content Include="$(SuggestedBindingRedirectsPackageFile)"
+               PackagePath="buildTransitive\$(NetFrameworkMinimum)\$(PackageId).targets" />
     </ItemGroup>
   </Target>
+
 </Project>

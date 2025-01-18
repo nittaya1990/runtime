@@ -25,7 +25,7 @@ LEAF_ENTRY RhpNewFast, _TEXT
 
         mov         rax, [rdx + OFFSETOF__Thread__m_alloc_context__alloc_ptr]
         add         r8, rax
-        cmp         r8, [rdx + OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        cmp         r8, [rdx + OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         ja          RhpNewFast_RarePath
 
         ;; set the new alloc pointer
@@ -118,7 +118,7 @@ LEAF_ENTRY RhNewString, _TEXT
         ; rdx == element count
         ; r8 == array size
         ; r10 == thread
-        cmp         rax, [r10 + OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        cmp         rax, [r10 + OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         ja          RhpNewArrayRare
 
         mov         [r10 + OFFSETOF__Thread__m_alloc_context__alloc_ptr], rax
@@ -179,7 +179,7 @@ LEAF_ENTRY RhpNewArray, _TEXT
         ; rdx == element count
         ; r8 == array size
         ; r10 == thread
-        cmp         rax, [r10 + OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        cmp         rax, [r10 + OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         ja          RhpNewArrayRare
 
         mov         [r10 + OFFSETOF__Thread__m_alloc_context__alloc_ptr], rax
@@ -218,7 +218,7 @@ NESTED_ENTRY RhpNewArrayRare, _TEXT
         ; passing MethodTable in rcx
         mov         r8, rdx         ; numElements
         xor         rdx, rdx        ; uFlags
-        ; pasing pTransitionFrame in r9
+        ; passing pTransitionFrame in r9
 
         ; Call the rest of the allocation helper.
         ; void* RhpGcAlloc(MethodTable *pEEType, uint32_t uFlags, uintptr_t numElements, void * pTransitionFrame)

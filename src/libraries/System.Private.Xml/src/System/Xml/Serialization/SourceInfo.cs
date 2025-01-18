@@ -8,7 +8,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.RegularExpressions;
-using System.Xml.Extensions;
 
 namespace System.Xml.Serialization
 {
@@ -16,12 +15,12 @@ namespace System.Xml.Serialization
     {
         //a[ia]
         //((global::System.Xml.Serialization.XmlSerializerNamespaces)p[0])
-        [RegexGenerator("([(][(](?<t>[^)]+)[)])?(?<a>[^[]+)[[](?<ia>.+)[]][)]?")]
-        private static partial Regex Regex1();
+        [GeneratedRegex("([(][(](?<t>[^)]+)[)])?(?<a>[^[]+)[[](?<ia>.+)[]][)]?")]
+        private static partial Regex Regex1 { get; }
 
         //((global::Microsoft.CFx.Test.Common.TypeLibrary.IXSType_9)o), @"IXSType_9", @"", true, true);
-        [RegexGenerator("[(][(](?<cast>[^)]+)[)](?<arg>[^)]+)[)]")]
-        private static partial Regex Regex2();
+        [GeneratedRegex("[(][(](?<cast>[^)]+)[)](?<arg>[^)]+)[)]")]
+        private static partial Regex Regex2 { get; }
 
         private static readonly Lazy<MethodInfo> s_iListGetItemMethod = new Lazy<MethodInfo>(
             () =>
@@ -36,12 +35,10 @@ namespace System.Xml.Serialization
         public readonly string Arg;
         public readonly MemberInfo? MemberInfo;
 
-        [DynamicallyAccessedMembers(TrimmerConstants.AllMethods)]
         public readonly Type? Type;
         public readonly CodeGenerator ILG;
 
-        public SourceInfo(string source, string? arg, MemberInfo? memberInfo,
-            [DynamicallyAccessedMembers(TrimmerConstants.AllMethods)] Type? type, CodeGenerator ilg)
+        public SourceInfo(string source, string? arg, MemberInfo? memberInfo, Type? type, CodeGenerator ilg)
         {
             this.Source = source;
             this.Arg = arg ?? source;
@@ -70,11 +67,11 @@ namespace System.Xml.Serialization
         [RequiresUnreferencedCode("calls LoadMemberAddress")]
         private void InternalLoad(Type? elementType, bool asAddress = false)
         {
-            Match match = Regex1().Match(Arg);
+            Match match = Regex1.Match(Arg);
             if (match.Success)
             {
                 object varA = ILG.GetVariable(match.Groups["a"].Value);
-                Type varType = ILG.GetVariableType(varA);
+                Type varType = CodeGenerator.GetVariableType(varA);
                 object varIA = ILG.GetVariable(match.Groups["ia"].Value);
                 if (varType.IsArray)
                 {
@@ -104,7 +101,7 @@ namespace System.Xml.Serialization
                 }
                 else
                 {
-                    ILG.Load(varA);
+                    ILG.LoadAddress(varA);
                     ILG.Load(varIA);
                     MethodInfo get_Item = varType.GetMethod(
                         "get_Item",
@@ -148,7 +145,7 @@ namespace System.Xml.Serialization
                 if (Arg.StartsWith("o.@", StringComparison.Ordinal) || MemberInfo != null)
                 {
                     var = ILG.GetVariable(Arg.StartsWith("o.@", StringComparison.Ordinal) ? "o" : Arg);
-                    varType = ILG.GetVariableType(var);
+                    varType = CodeGenerator.GetVariableType(var);
                     if (varType.IsValueType)
                         ILG.LoadAddress(var);
                     else
@@ -157,7 +154,7 @@ namespace System.Xml.Serialization
                 else
                 {
                     var = ILG.GetVariable(Arg);
-                    varType = ILG.GetVariableType(var);
+                    varType = CodeGenerator.GetVariableType(var);
 
                     if (CodeGenerator.IsNullableGenericType(varType) &&
                         varType.GetGenericArguments()[0] == elementType)
@@ -191,7 +188,7 @@ namespace System.Xml.Serialization
                 }
                 else
                 {
-                    match = Regex2().Match(Source);
+                    match = Regex2.Match(Source);
                     if (match.Success)
                     {
                         Debug.Assert(match.Groups["arg"].Value == Arg);

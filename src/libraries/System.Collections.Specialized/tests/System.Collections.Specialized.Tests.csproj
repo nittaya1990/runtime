@@ -57,7 +57,6 @@
     <Compile Include="NameValueCollection\NameValueCollection.RemoveTests.cs" />
     <Compile Include="NameValueCollection\NameValueCollection.SetItemTests.cs" />
     <Compile Include="NameValueCollection\NameValueCollection.SetTests.cs" />
-    <Compile Include="OrderedDictionary\CaseInsensitiveEqualityComparer.cs" />
     <Compile Include="OrderedDictionary\OrderedDictionaryTests.cs" />
     <Compile Include="StringCollectionTests.cs" />
     <Compile Include="StringDictionary\StringDictionary.AddTests.cs" />
@@ -76,5 +75,10 @@
     <Compile Include="$(CommonTestPath)System\Collections\IEnumerable.NonGeneric.Serialization.Tests.cs"
              Link="Common\System\Collections\IEnumerable.NonGeneric.Serialization.Tests.cs" />
     <Compile Include="NameObjectCollectionBase\NameObjectCollectionBase.ConstructorTests.cs" />
+
+    <!-- Reference the `NetCoreAppMinimum` build which has a functional BinaryFormatter and force a private copy to ensure it's not excluded -->
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime.Serialization.Formatters\src\System.Runtime.Serialization.Formatters.csproj"
+                      Private="true"
+                      SetTargetFramework="TargetFramework=$(NetCoreAppMinimum)" />
   </ItemGroup>
 </Project>

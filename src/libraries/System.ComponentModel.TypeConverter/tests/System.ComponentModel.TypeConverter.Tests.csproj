@@ -6,6 +6,11 @@
     <AssemblyVersion>9.9.9.9</AssemblyVersion>
     <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetsAppleMobile)' == 'true' and '$(EnableAggressiveTrimming)' == 'true' and '$(UseNativeAotRuntime)' != 'true'">
+    <OverrideDefaultValueAndDesignerHostSupport>true</OverrideDefaultValueAndDesignerHostSupport>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="Drawing\ColorConverterTests.cs" />
     <Compile Include="Drawing\PointConverterTests.cs" />
@@ -65,6 +70,7 @@
     <Compile Include="DataObjectMethodAttributeTests.cs" />
     <Compile Include="DataObjectFieldAttributeTests.cs" />
     <Compile Include="DataObjectAttributeTests.cs" />
+    <Compile Include="DateOnlyConverterTests.cs" />
     <Compile Include="DateTimeConverterTests.cs" />
     <Compile Include="DateTimeOffsetConverterTests.cs" />
     <Compile Include="DecimalConverterTests.cs" />
@@ -94,6 +100,7 @@
     <Compile Include="EventDescriptorCollectionTests.cs" />
     <Compile Include="EventDescriptorTests.cs" />
     <Compile Include="GuidConverterTests.cs" />
+    <Compile Include="Int128ConverterTests.cs" />
     <Compile Include="Int16ConverterTests.cs" />
     <Compile Include="Int32ConverterTests.cs" />
     <Compile Include="Int64ConverterTests.cs" />
@@ -117,8 +124,11 @@
     <Compile Include="SampleClasses.cs" />
     <Compile Include="SByteConverterTests.cs" />
     <Compile Include="SingleConverterTests.cs" />
+    <Compile Include="HalfConverterTests.cs" />
+    <Compile Include="RegisteredTypesTests.cs" />
     <Compile Include="StringConverterTests.cs" />
     <Compile Include="Timers\TimersDescriptionAttributeTests.cs" />
+    <Compile Include="TimeOnlyConverterTests.cs" />
     <Compile Include="TimeSpanConverterTests.cs" />
     <Compile Include="TypeConverterAttributeTests.cs" />
     <Compile Include="TypeConverterTests.cs" />
@@ -127,6 +137,7 @@
     <Compile Include="TypeDescriptionProviderAttributeTests.cs" />
     <Compile Include="TypeDescriptorTests.cs" />
     <Compile Include="TypeListConverterTests.cs" />
+    <Compile Include="UInt128ConverterTests.cs" />
     <Compile Include="UInt16ConverterTests.cs" />
     <Compile Include="UInt32ConverterTests.cs" />
     <Compile Include="UInt64ConverterTests.cs" />
@@ -154,13 +165,16 @@
     <Compile Include="Security\Authentication\ExtendedProtection\ExtendedProtectionPolicyTypeConverterTests.cs" />
     <Compile Include="XTypeDescriptionProviderTests.cs" />
 
-    <Compile Include="$(CommonTestPath)TestUtilities\System\DisableParallelization.cs"
-        Link="Common\TestUtilities\System\DisableParallelization.cs" />
+    <Compile Include="$(CommonTestPath)TestUtilities\System\DisableParallelization.cs" Link="Common\TestUtilities\System\DisableParallelization.cs" />
     <TrimmerRootDescriptor Include="$(ILLinkDescriptorsPath)ILLink.Descriptors.Castle.xml" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.ComponentModel.TypeConverter.TestData" Version="$(SystemComponentModelTypeConverterTestDataVersion)" />
     <PackageReference Include="Moq" Version="$(MoqVersion)" />
+    <!-- Reference the `NetCoreAppMinimum` build which has a functional BinaryFormatter and force a private copy to ensure it's not excluded -->
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime.Serialization.Formatters\src\System.Runtime.Serialization.Formatters.csproj"
+                      Private="true"
+                      SetTargetFramework="TargetFramework=$(NetCoreAppMinimum)" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\TestResx.resx">

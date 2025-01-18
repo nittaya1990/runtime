@@ -297,11 +297,11 @@ void (*CallCountingStub::CallCountingStubCode)();
 void CallCountingStub::StaticInitialize()
 {
 #if defined(TARGET_ARM64) && defined(TARGET_UNIX)
-    int pageSize = GetOsPageSize();
+    int pageSize = GetStubCodePageSize();
     #define ENUM_PAGE_SIZE(size) \
         case size: \
             CallCountingStubCode = CallCountingStubCode##size; \
-            _ASSERTE(((BYTE*)CallCountingStubCode##size##_End - (BYTE*)CallCountingStubCode##size) <= CallCountingStub::CodeSize); \
+            _ASSERTE((SIZE_T)((BYTE*)CallCountingStubCode##size##_End - (BYTE*)CallCountingStubCode##size) <= CallCountingStub::CodeSize); \
             break;
 
     switch (pageSize)
@@ -312,16 +312,14 @@ void CallCountingStub::StaticInitialize()
     }
     #undef ENUM_PAGE_SIZE
 #else
-    _ASSERTE(((BYTE*)CallCountingStubCode_End - (BYTE*)CallCountingStubCode) <= CallCountingStub::CodeSize);
+    _ASSERTE((SIZE_T)((BYTE*)CallCountingStubCode_End - (BYTE*)CallCountingStubCode) <= CallCountingStub::CodeSize);
 #endif
 }
 
 #endif // DACCESS_COMPILE
 
-void CallCountingStub::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX)
+void CallCountingStub::GenerateCodePage(BYTE* pageBase, BYTE* pageBaseRX, SIZE_T pageSize)
 {
-    int pageSize = GetOsPageSize();
-
 #ifdef TARGET_X86
     int totalCodeSize = (pageSize / CallCountingStub::CodeSize) * CallCountingStub::CodeSize;
 
@@ -367,7 +365,7 @@ NOINLINE LoaderHeap *CallCountingManager::CallCountingStubAllocator::AllocateHea
 bool CallCountingManager::CallCountingStubAllocator::IsStub(TADDR entryPoint)
 {
     WRAPPER_NO_CONTRACT;
-    _ASSERTE(entryPoint != NULL);
+    _ASSERTE(entryPoint != (TADDR)NULL);
 
     return !!m_heapRangeList.IsInRange(entryPoint);
 }
@@ -553,20 +551,8 @@ bool CallCountingManager::SetCodeEntryPoint(
     {
         THROWS;
         GC_NOTRIGGER;
-
-        // Backpatching entry point slots requires cooperative GC mode, see MethodDescBackpatchInfoTracker::Backpatch_Locked().
-        // The code version manager's table lock is an unsafe lock that may be taken in any GC mode. The lock is taken in
-        // cooperative GC mode on other paths, so the caller must use the same ordering to prevent deadlock (switch to
-        // cooperative GC mode before taking the lock).
         PRECONDITION(!activeCodeVersion.IsNull());
-        if (activeCodeVersion.GetMethodDesc()->MayHaveEntryPointSlotsToBackpatch())
-        {
-            MODE_COOPERATIVE;
-        }
-        else
-        {
-            MODE_ANY;
-        }
+        MODE_ANY;
     }
     CONTRACTL_END;
 
@@ -576,7 +562,7 @@ bool CallCountingManager::SetCodeEntryPoint(
     _ASSERTE(
         activeCodeVersion ==
         methodDesc->GetCodeVersionManager()->GetActiveILCodeVersion(methodDesc).GetActiveNativeCodeVersion(methodDesc));
-    _ASSERTE(codeEntryPoint != NULL);
+    _ASSERTE(codeEntryPoint != (PCODE)NULL);
     _ASSERTE(codeEntryPoint == activeCodeVersion.GetNativeCode());
     _ASSERTE(!wasMethodCalled || createTieringBackgroundWorkerRef != nullptr);
     _ASSERTE(createTieringBackgroundWorkerRef == nullptr || !*createTieringBackgroundWorkerRef);
@@ -586,7 +572,7 @@ bool CallCountingManager::SetCodeEntryPoint(
             // For a default code version that is not tier 0, call counting will have been disabled by this time (checked
             // below). Avoid the redundant and not-insignificant expense of GetOptimizationTier() on a default code version.
             !activeCodeVersion.IsDefaultVersion() &&
-            activeCodeVersion.GetOptimizationTier() != NativeCodeVersion::OptimizationTier0
+            activeCodeVersion.IsFinalTier()
         ) ||
         !g_pConfig->TieredCompilation_CallCounting())
     {
@@ -614,7 +600,7 @@ bool CallCountingManager::SetCodeEntryPoint(
                 return true;
             }
 
-            _ASSERTE(activeCodeVersion.GetOptimizationTier() == NativeCodeVersion::OptimizationTier0);
+            _ASSERTE(!activeCodeVersion.IsFinalTier());
 
             // If the tiering delay is active, postpone further work
             if (GetAppDomain()
@@ -661,7 +647,7 @@ bool CallCountingManager::SetCodeEntryPoint(
         }
         else
         {
-            _ASSERTE(activeCodeVersion.GetOptimizationTier() == NativeCodeVersion::OptimizationTier0);
+            _ASSERTE(!activeCodeVersion.IsFinalTier());
 
             // If the tiering delay is active, postpone further work
             if (GetAppDomain()
@@ -671,8 +657,15 @@ bool CallCountingManager::SetCodeEntryPoint(
                 return true;
             }
 
-            CallCount callCountThreshold = (CallCount)g_pConfig->TieredCompilation_CallCountThreshold();
+            CallCount callCountThreshold = g_pConfig->TieredCompilation_CallCountThreshold();
             _ASSERTE(callCountThreshold != 0);
+
+            // Let's tier up all cast helpers faster than other methods. This is because we want to import them as
+            // direct calls in codegen and they need to be promoted earlier than their callers.
+            if (methodDesc->GetMethodTable() == g_pCastHelpers)
+            {
+                callCountThreshold = max<CallCount>(1, (CallCount)(callCountThreshold / 2));
+            }
 
             NewHolder<CallCountingInfo> callCountingInfoHolder = new CallCountingInfo(activeCodeVersion, callCountThreshold);
             callCountingInfoByCodeVersionHash.Add(callCountingInfoHolder);
@@ -716,7 +709,7 @@ bool CallCountingManager::SetCodeEntryPoint(
         //   may cause many methods that are currently fully interruptible to have to be partially interruptible and record
         //   extra GC info instead. This would be nontrivial and there would be tradeoffs.
         // - For any method that may have an entry point slot that would be backpatched with the call counting stub's entry
-        //   point, a small forwarder stub (precode) is created. The forwarder stub has loader allocator lifetime and fowards to
+        //   point, a small forwarder stub (precode) is created. The forwarder stub has loader allocator lifetime and forwards to
         //   the larger call counting stub. This is a simple solution for now and seems to have negligible impact.
         // - Reusing FuncPtrStubs was considered. FuncPtrStubs are currently not used as a code entry point for a virtual or
         //   interface method and may be bypassed. For example, a call may call through the vtable slot, or a devirtualized call
@@ -765,7 +758,7 @@ PCODE CallCountingManager::OnCallCountThresholdReached(TransitionBlock *transiti
     STATIC_CONTRACT_GC_TRIGGERS;
     STATIC_CONTRACT_MODE_COOPERATIVE;
 
-    PCODE codeEntryPoint = NULL;
+    PCODE codeEntryPoint = 0;
 
     BEGIN_PRESERVE_LAST_ERROR;
 
@@ -792,7 +785,7 @@ PCODE CallCountingManager::OnCallCountThresholdReached(TransitionBlock *transiti
     // used going forward under appropriate locking to synchronize further with deletion.
     GCX_PREEMP_THREAD_EXISTS(CURRENT_THREAD);
 
-    _ASSERTE(codeVersion.GetOptimizationTier() == NativeCodeVersion::OptimizationTier0);
+    _ASSERTE(!codeVersion.IsFinalTier());
 
     codeEntryPoint = codeVersion.GetNativeCode();
     do
@@ -874,13 +867,7 @@ void CallCountingManager::CompleteCallCounting()
     TieredCompilationManager *tieredCompilationManager = appDomain->GetTieredCompilationManager();
     CodeVersionManager *codeVersionManager = appDomain->GetCodeVersionManager();
 
-    MethodDescBackpatchInfoTracker::ConditionalLockHolderForGCCoop slotBackpatchLockHolder;
-
-    // Backpatching entry point slots requires cooperative GC mode, see
-    // MethodDescBackpatchInfoTracker::Backpatch_Locked(). The code version manager's table lock is an unsafe lock that
-    // may be taken in any GC mode. The lock is taken in cooperative GC mode on some other paths, so the same ordering
-    // must be used here to prevent deadlock.
-    GCX_COOP();
+    MethodDescBackpatchInfoTracker::ConditionalLockHolder slotBackpatchLockHolder;
     CodeVersionManager::LockHolder codeVersioningLockHolder;
 
     for (auto itEnd = s_callCountingManagers->End(), it = s_callCountingManagers->Begin(); it != itEnd; ++it)
@@ -938,7 +925,7 @@ void CallCountingManager::CompleteCallCounting()
                     if (!activeCodeVersion.IsNull())
                     {
                         PCODE activeNativeCode = activeCodeVersion.GetNativeCode();
-                        if (activeNativeCode != NULL)
+                        if (activeNativeCode != 0)
                         {
                             methodDesc->SetCodeEntryPoint(activeNativeCode);
                             break;
@@ -1002,8 +989,6 @@ void CallCountingManager::StopAndDeleteAllCallCountingStubs()
 
     TieredCompilationManager *tieredCompilationManager = GetAppDomain()->GetTieredCompilationManager();
 
-    MethodDescBackpatchInfoTracker::ConditionalLockHolderForGCCoop slotBackpatchLockHolder;
-
     ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_OTHER);
     struct AutoRestartEE
     {
@@ -1014,11 +999,7 @@ void CallCountingManager::StopAndDeleteAllCallCountingStubs()
         }
     } autoRestartEE;
 
-    // Backpatching entry point slots requires cooperative GC mode, see
-    // MethodDescBackpatchInfoTracker::Backpatch_Locked(). The code version manager's table lock is an unsafe lock that
-    // may be taken in any GC mode. The lock is taken in cooperative GC mode on some other paths, so the same ordering
-    // must be used here to prevent deadlock.
-    GCX_COOP();
+    MethodDescBackpatchInfoTracker::ConditionalLockHolder slotBackpatchLockHolder;
     CodeVersionManager::LockHolder codeVersioningLockHolder;
 
     // After the following, no method's entry point would be pointing to a call counting stub
@@ -1272,7 +1253,7 @@ bool CallCountingManager::IsCallCountingStub(PCODE entryPoint)
     CONTRACTL_END;
 
     TADDR entryAddress = PCODEToPINSTR(entryPoint);
-    _ASSERTE(entryAddress != NULL);
+    _ASSERTE(entryAddress != (PCODE)NULL);
 
     CodeVersionManager::LockHolder codeVersioningLockHolder;
 

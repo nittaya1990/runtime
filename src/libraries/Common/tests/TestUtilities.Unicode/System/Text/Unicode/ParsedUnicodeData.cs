@@ -65,7 +65,7 @@ namespace System.Text.Unicode
 
             Dictionary<int, int> dict = new Dictionary<int, int>();
 
-            string thisLine;
+            string? thisLine;
             while ((thisLine = reader.ReadLine()) != null)
             {
                 // Ignore blank lines or comment lines
@@ -103,10 +103,10 @@ namespace System.Text.Unicode
 
             Dictionary<int, BidiClass> dict = new Dictionary<int, BidiClass>();
 
-            string thisLine;
+            string? thisLine;
             while ((thisLine = reader.ReadLine()) != null)
             {
-                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry value))
+                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry? value))
                 {
                     BidiClass bidiClass = BidiClassMap[value.PropName];
 
@@ -130,17 +130,28 @@ namespace System.Text.Unicode
 
             Dictionary<int, string> dict = new Dictionary<int, string>();
 
-            string thisLine;
+            string? thisLine;
             while ((thisLine = reader.ReadLine()) != null)
             {
-                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry value))
+                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry? value))
                 {
                     if (value.IsSingleCodePoint)
                     {
-                        // Single code point of format "XXXX ; <Name>" (name shouldn't end with '*')
+                        // Single code point of format "XXXX ; <Name>"
+                        // It is possible to get a * at the end of the line, to add one codepoint to previously added range.
+                        // example:
+                        //     18B00..18CD5  ; KHITAN SMALL SCRIPT CHARACTER-*   <<<< IsSingleCodePoint is false
+                        //     18CFF         ; KHITAN SMALL SCRIPT CHARACTER-*   <<<< IsSingleCodePoint is true
 
-                        Assert.False(value.PropName.EndsWith('*'));
-                        dict.Add(value.FirstCodePoint, value.PropName);
+                        if (value.PropName.EndsWith('*'))
+                        {
+                            string baseName = value.PropName[..^1];
+                            dict.Add(value.FirstCodePoint, $"{baseName}{value.FirstCodePoint:X4}");
+                        }
+                        else
+                        {
+                            dict.Add(value.FirstCodePoint, value.PropName);
+                        }
                     }
                     else
                     {
@@ -172,10 +183,10 @@ namespace System.Text.Unicode
                 using Stream stream = Resources.OpenResource(resourceName);
                 using StreamReader reader = new StreamReader(stream);
 
-                string thisLine;
+                string? thisLine;
                 while ((thisLine = reader.ReadLine()) != null)
                 {
-                    if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry value))
+                    if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry? value))
                     {
                         if (Enum.TryParse<GraphemeClusterBreakProperty>(value.PropName, out GraphemeClusterBreakProperty property))
                         {
@@ -201,12 +212,12 @@ namespace System.Text.Unicode
 
             Dictionary<int, CodePointFlags> dict = new Dictionary<int, CodePointFlags>();
 
-            string thisLine;
+            string? thisLine;
             while ((thisLine = reader.ReadLine()) != null)
             {
                 // Expect "XXXX[..YYYY] ; <prop_name> # <comment>"
 
-                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry value))
+                if (PropsFileEntry.TryParseLine(thisLine, out PropsFileEntry? value))
                 {
                     CodePointFlags newFlag = Enum.Parse<CodePointFlags>(value.PropName);
                     for (int i = value.FirstCodePoint; i <= value.LastCodePoint /* inclusive */; i++)
@@ -231,7 +242,7 @@ namespace System.Text.Unicode
 
             Dictionary<int, UnicodeDataFileEntry> dict = new Dictionary<int, UnicodeDataFileEntry>();
 
-            string thisLine;
+            string? thisLine;
             while ((thisLine = reader.ReadLine()) != null)
             {
                 // Skip blank lines at beginning or end of the file
@@ -245,7 +256,7 @@ namespace System.Text.Unicode
                     // This is an entry of the form XXXX;<Name, First>;...
                     // We expect it to be followed by YYYY;<Name, Last>;...
 
-                    UnicodeDataFileEntry nextEntry = new UnicodeDataFileEntry(reader.ReadLine());
+                    UnicodeDataFileEntry nextEntry = new UnicodeDataFileEntry(reader.ReadLine()!);
                     Assert.EndsWith(", Last>", nextEntry.Name, StringComparison.Ordinal);
                     Assert.Equal(entry.Name[..^", First>".Length], nextEntry.Name[..^", Last>".Length]);
 

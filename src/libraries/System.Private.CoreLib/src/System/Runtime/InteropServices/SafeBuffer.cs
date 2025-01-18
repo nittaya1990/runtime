@@ -187,21 +187,18 @@ namespace System.Runtime.InteropServices
             byte* ptr = (byte*)handle + byteOffset;
             SpaceCheck(ptr, sizeofT);
 
-            // return *(T*) (_ptr + byteOffset);
-            T value = default;
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                Buffer.Memmove(ref Unsafe.As<T, byte>(ref value), ref *ptr, sizeofT);
+                return Unsafe.ReadUnaligned<T>(ptr);
             }
             finally
             {
                 if (mustCallRelease)
                     DangerousRelease();
             }
-            return value;
         }
 
         /// <summary>
@@ -212,13 +209,13 @@ namespace System.Runtime.InteropServices
         /// <param name="index">The location in the output array to begin writing to.</param>
         /// <param name="count">The number of value types to read from the input array and to write to the output array.</param>
         [CLSCompliant(false)]
-        public void ReadArray<T>(ulong byteOffset, T[] array!!, int index, int count)
+        public void ReadArray<T>(ulong byteOffset, T[] array, int index, int count)
             where T : struct
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (array.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -248,7 +245,9 @@ namespace System.Runtime.InteropServices
 
                 ref T structure = ref MemoryMarshal.GetReference(buffer);
                 for (int i = 0; i < buffer.Length; i++)
-                    Buffer.Memmove(ref Unsafe.Add(ref structure, i), ref Unsafe.AsRef<T>(ptr + alignedSizeofT * i), 1);
+                {
+                    Unsafe.Add(ref structure, (nint)(uint)i) = Unsafe.ReadUnaligned<T>(ptr + alignedSizeofT * (uint)i);
+                }
             }
             finally
             {
@@ -275,13 +274,12 @@ namespace System.Runtime.InteropServices
             byte* ptr = (byte*)handle + byteOffset;
             SpaceCheck(ptr, sizeofT);
 
-            // *((T*) (_ptr + byteOffset)) = value;
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                Buffer.Memmove(ref *ptr, ref Unsafe.As<T, byte>(ref value), sizeofT);
+                Unsafe.WriteUnaligned(ptr, value);
             }
             finally
             {
@@ -299,13 +297,13 @@ namespace System.Runtime.InteropServices
         /// <param name="index">The offset in the array to start reading from.</param>
         /// <param name="count">The number of value types to write.</param>
         [CLSCompliant(false)]
-        public void WriteArray<T>(ulong byteOffset, T[] array!!, int index, int count)
+        public void WriteArray<T>(ulong byteOffset, T[] array, int index, int count)
             where T : struct
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (array.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -336,7 +334,9 @@ namespace System.Runtime.InteropServices
 
                 ref T structure = ref MemoryMarshal.GetReference(data);
                 for (int i = 0; i < data.Length; i++)
-                    Buffer.Memmove(ref Unsafe.AsRef<T>(ptr + alignedSizeofT * i), ref Unsafe.Add(ref structure, i), 1);
+                {
+                    Unsafe.WriteUnaligned(ptr + alignedSizeofT * (uint)i, Unsafe.Add(ref structure, (nint)(uint)i));
+                }
             }
             finally
             {
@@ -405,7 +405,7 @@ namespace System.Runtime.InteropServices
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
                 throw new ArgumentException(SR.Argument_NeedStructWithNoRefs);
 
-            return (uint)Unsafe.SizeOf<T>();
+            return (uint)sizeof(T);
         }
     }
 }

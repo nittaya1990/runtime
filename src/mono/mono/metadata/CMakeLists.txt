@@ -1,9 +1,14 @@
+project(metadata C)
+
 #
 # This library contains the icall tables if the runtime was configured with DISABLE_ICALL_TABLES
 #
 if(DISABLE_ICALL_TABLES)
-add_library(mono-icall-table STATIC "../metadata/icall-table.c")
-target_link_libraries(mono-icall-table monoapi)
+add_library(mono-icall-table STATIC "icall-table.c")
+target_link_libraries(mono-icall-table PRIVATE monoapi eglib_api)
+target_include_directories(mono-icall-table PRIVATE ${PROJECT_BINARY_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/..)
 install(TARGETS mono-icall-table LIBRARY)
 else()
 set(icall_table_sources "icall-table.c")
@@ -16,20 +21,14 @@ set(ilgen_base_sources
     method-builder-ilgen.c
     method-builder-ilgen.h
     method-builder-ilgen-internals.h
-    marshal-ilgen.c
-    marshal-ilgen.h
+    marshal-lightweight.c
+    marshal-lightweight.h
+    marshal-shared.c
+    marshal-shared.h
     sgen-mono-ilgen.c
     sgen-mono-ilgen.h)
 
-if(NOT ENABLE_ILGEN)
-    addprefix(mono_ilgen_sources ../metadata "${ilgen_base_sources}")
-    set_source_files_properties(${mono_ilgen_sources} PROPERTIES COMPILE_DEFINITIONS "HAVE_SGEN_GC")
-    add_library(mono-ilgen STATIC "${mono_ilgen_sources}")
-    target_link_libraries(mono-ilgen monoapi)
-    install(TARGETS mono-ilgen LIBRARY)
-else()
-    set(ilgen_sources ${ilgen_base_sources})
-endif()
+set(ilgen_sources ${ilgen_base_sources})
 
 set(metadata_win32_sources
     w32event-win32.c)
@@ -49,6 +48,8 @@ set(metadata_common_sources
     appdomain-icalls.h
     assembly.c
     assembly-internals.h
+    bundled-resources.c
+    bundled-resources-internals.h
     cil-coff.h
     class.c
     class-getters.h
@@ -60,13 +61,8 @@ set(metadata_common_sources
     class-private-definition.h
     class-accessors.c
     class-setup-vtable.c
-    cominterop.c
-    cominterop.h
     components.h
     components.c
-    coree.c
-    coree.h
-    coree-internals.h
     debug-helpers.c
     debug-mono-symfile.c
     debug-mono-ppdb.h
@@ -84,6 +80,8 @@ set(metadata_common_sources
     icall-eventpipe.c
     image.c
     image-internals.h
+    webcil-loader.h
+    webcil-loader.c
     jit-info.h
     jit-info.c
     loader.c
@@ -92,7 +90,6 @@ set(metadata_common_sources
     marshal.c
     marshal.h
     marshal-internals.h
-    marshal-noilgen.c
     mempool.c
     mempool.h
     mempool-internals.h
@@ -114,9 +111,8 @@ set(metadata_common_sources
     mono-hash.h
     mono-conc-hash.c
     mono-conc-hash.h
-    mono-perfcounters.c
-    mono-perfcounters.h
-    mono-perfcounters-def.h
+    weak-hash.c
+    weak-hash.h
     mono-ptr-array.h
     monitor.h
     object.c
@@ -170,8 +166,8 @@ set(metadata_common_sources
     abi-details.h
     abi.c
     memory-manager.c
-    mono-config-dirs.h
-    mono-config-dirs.c
+    unsafe-accessor.h
+    unsafe-accessor.c
     icall-table.h
     ${icall_table_sources})
 
@@ -184,7 +180,6 @@ if(MONO_GC STREQUAL "sgen")
     set(metadata_gc_sources
         sgen-bridge.c
         sgen-bridge-internals.h
-        sgen-old-bridge.c
         sgen-new-bridge.c
         sgen-tarjan-bridge.c
         sgen-toggleref.c
@@ -200,20 +195,44 @@ elseif(MONO_GC STREQUAL "boehm")
     set(metadata_compile_definitions "HAVE_BOEHM_GC")
 endif()
 
-addprefix(metadata_gc_dependent_real_sources ../metadata "${metadata_gc_dependent_sources}")
-addprefix(metadata_gc_real_sources ../metadata "${metadata_gc_sources}")
-addprefix(ilgen_real_sources ../metadata "${ilgen_sources}")
-set_source_files_properties(${metadata_gc_real_sources};${metadata_gc_dependent_real_sources};${ilgen_real_sources} PROPERTIES COMPILE_DEFINITIONS "${metadata_compile_definitions}")
+set(metadata_sources "${metadata_platform_sources};${metadata_common_sources};${metadata_gc_dependent_sources};${metadata_gc_sources};${ilgen_sources}")
 
-#
-# We localize the usage of MONO_BINDIR etc. to just one source file, thus enabling
-# ccache to work even if the value of these defines change.
-#
-set(bindir "${CMAKE_INSTALL_FULL_BINDIR}")
-set(assembliesdir "${CMAKE_INSTALL_FULL_LIBDIR}")
-set(confdir "${CMAKE_INSTALL_FULL_SYSCONFDIR}")
-set(reloc_libdir "${CMAKE_INSTALL_LIBDIR}")
+if(HOST_WIN32 AND NOT DISABLE_SHARED_LIBS)
+    add_library(metadata_objects_shared OBJECT ${metadata_sources})
+    target_compile_definitions(metadata_objects_shared PRIVATE ${metadata_compile_definitions})
+    
+    set(METADATAOBJECTSSHARED_LINKABLE_LIBS "")
+    list(APPEND METADATAOBJECTSSHARED_LINKABLE_LIBS monoapi eglib_api utils_objects_shared)
+    if (NOT CLR_CMAKE_USE_SYSTEM_ZLIB)
+        list(APPEND METADATAOBJECTSSHARED_LINKABLE_LIBS zlib)
+    endif()
+    target_link_libraries(metadata_objects_shared PRIVATE ${METADATAOBJECTSSHARED_LINKABLE_LIBS})
+    
+    # note: metadata_objects is an object library, so this doesn't force linking with sgen,
+    # it just adds the relevant include directories - which we need even with Boehm
+    target_link_libraries(metadata_objects_shared PRIVATE sgen_objects_shared)
+    target_compile_definitions(metadata_objects_shared PRIVATE -DMONO_DLL_EXPORT)
+    target_include_directories(metadata_objects_shared PRIVATE ${PROJECT_BINARY_DIR}/../..
+        ${PROJECT_SOURCE_DIR}/../..
+        ${PROJECT_SOURCE_DIR}/..)
+endif()
 
-set_source_files_properties(../metadata/mono-config-dirs.c PROPERTIES COMPILE_DEFINITIONS "MONO_BINDIR=\"${bindir}\";MONO_ASSEMBLIES=\"${assembliesdir}\";MONO_CFG_DIR=\"${confdir}\";MONO_RELOC_LIBDIR=\"../${reloc_libdir}\"")
+add_library(metadata_objects OBJECT ${metadata_sources})
+target_compile_definitions(metadata_objects PRIVATE ${metadata_compile_definitions})
 
-addprefix(metadata_sources ../metadata/ "${metadata_platform_sources};${metadata_common_sources};${metadata_gc_dependent_sources};${metadata_gc_sources};${ilgen_sources}")
+set(METADATAOBJECTS_LINKABLE_LIBS "")
+list(APPEND METADATAOBJECTS_LINKABLE_LIBS monoapi eglib_api utils_objects)
+if (NOT CLR_CMAKE_USE_SYSTEM_ZLIB)
+    list(APPEND METADATAOBJECTS_LINKABLE_LIBS zlib)
+endif()
+target_link_libraries(metadata_objects PRIVATE ${METADATAOBJECTS_LINKABLE_LIBS})
+
+# note: metadata_objects is an object library, so this doesn't force linking with sgen,
+# it just adds the relevant include directories - which we need even with Boehm
+target_link_libraries(metadata_objects PRIVATE sgen_objects)
+if(NOT HOST_WIN32)
+    target_compile_definitions(metadata_objects PRIVATE -DMONO_DLL_EXPORT)
+endif()
+target_include_directories(metadata_objects PRIVATE ${PROJECT_BINARY_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/../..
+  ${PROJECT_SOURCE_DIR}/..)

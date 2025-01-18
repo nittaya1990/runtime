@@ -8,12 +8,14 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json.Reflection;
+using System.Text.Json.Serialization.Metadata;
 
 namespace System.Text.Json.Serialization.Converters
 {
     /// <summary>
     /// Converter factory for all IEnumerable types.
     /// </summary>
+    [RequiresDynamicCode(JsonSerializer.SerializationRequiresDynamicCodeMessage)]
     internal sealed class IEnumerableConverterFactory : JsonConverterFactory
     {
         private static readonly IDictionaryConverter<IDictionary> s_converterForIDictionary = new IDictionaryConverter<IDictionary>();
@@ -44,7 +46,7 @@ namespace System.Text.Json.Serialization.Converters
                 // Verify that we don't have a multidimensional array.
                 if (typeToConvert.GetArrayRank() > 1)
                 {
-                    ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(typeToConvert);
+                    return UnsupportedTypeConverterFactory.CreateUnsupportedConverterForType(typeToConvert);
                 }
 
                 converterType = typeof(ArrayConverter<,>);
@@ -184,11 +186,17 @@ namespace System.Text.Json.Serialization.Converters
             }
             else if (numberOfGenericArgs == 2)
             {
+                JsonTypeInfo.ValidateType(elementType!);
+
                 genericType = converterType.MakeGenericType(typeToConvert, elementType!);
             }
             else
             {
                 Debug.Assert(numberOfGenericArgs == 3);
+
+                JsonTypeInfo.ValidateType(elementType!);
+                JsonTypeInfo.ValidateType(dictionaryKeyType!);
+
                 genericType = converterType.MakeGenericType(typeToConvert, dictionaryKeyType!, elementType!);
             }
 

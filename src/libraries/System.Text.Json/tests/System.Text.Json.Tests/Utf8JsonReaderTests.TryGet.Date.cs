@@ -116,7 +116,7 @@ namespace System.Text.Json.Tests
                 try
                 {
                     DateTime value = json.GetDateTime();
-                    Assert.True(false, "Expected GetDateTime to throw FormatException due to invalid ISO 8601 input.");
+                    Assert.Fail("Expected GetDateTime to throw FormatException due to invalid ISO 8601 input.");
                 }
                 catch (FormatException)
                 { }
@@ -140,7 +140,7 @@ namespace System.Text.Json.Tests
                     try
                     {
                         DateTimeOffset value = json.GetDateTimeOffset();
-                        Assert.True(false, "Expected GetDateTimeOffset to throw FormatException due to invalid ISO 8601 input.");
+                        Assert.Fail("Expected GetDateTimeOffset to throw FormatException due to invalid ISO 8601 input.");
                     }
                     catch (FormatException)
                     { }
@@ -221,7 +221,7 @@ namespace System.Text.Json.Tests
                 Assert.False(json.TryGetDateTime(out DateTime actual), "json.TryGetDateTime(out DateTime actual)");
                 Assert.Equal(DateTime.MinValue, actual);
 
-                JsonTestHelper.AssertThrows<FormatException>(json, (jsonReader) => jsonReader.GetDateTime());
+                JsonTestHelper.AssertThrows<FormatException>(ref json, (ref Utf8JsonReader jsonReader) => jsonReader.GetDateTime());
             }
 
             Test(testString, isFinalBlock: true);
@@ -246,7 +246,7 @@ namespace System.Text.Json.Tests
                 Assert.False(json.TryGetDateTimeOffset(out DateTimeOffset actual), "json.TryGetDateTimeOffset(out DateTimeOffset actual)");
                 Assert.Equal(DateTimeOffset.MinValue, actual);
 
-                JsonTestHelper.AssertThrows<FormatException>(json, (jsonReader) => jsonReader.GetDateTimeOffset());
+                JsonTestHelper.AssertThrows<FormatException>(ref json, (ref Utf8JsonReader jsonReader) => jsonReader.GetDateTimeOffset());
             }
 
             Test(testString, isFinalBlock: true);
@@ -264,11 +264,11 @@ namespace System.Text.Json.Tests
 
             Assert.False(json.TryGetDateTime(out var dateTime));
             Assert.Equal(default, dateTime);
-            JsonTestHelper.AssertThrows<FormatException>(json, (json) => json.GetDateTime());
+            JsonTestHelper.AssertThrows<FormatException>(ref json, (ref Utf8JsonReader json) => json.GetDateTime());
 
             Assert.False(json.TryGetDateTimeOffset(out var dateTimeOffset));
             Assert.Equal(default, dateTimeOffset);
-            JsonTestHelper.AssertThrows<FormatException>(json, (json) => json.GetDateTimeOffset());
+            JsonTestHelper.AssertThrows<FormatException>(ref json, (ref Utf8JsonReader json) => json.GetDateTimeOffset());
         }
     }
 }

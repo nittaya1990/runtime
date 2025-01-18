@@ -9,7 +9,7 @@ internal static partial class Interop
     internal static partial class Ole32
     {
         /// <summary>
-        /// COM IStream interface. <see href="https://docs.microsoft.com/windows/desktop/api/objidl/nn-objidl-istream"/>
+        /// COM IStream interface. <see href="https://learn.microsoft.com/windows/desktop/api/objidl/nn-objidl-istream"/>
         /// </summary>
         /// <remarks>
         /// The definition in <see cref="System.Runtime.InteropServices.ComTypes"/> does not lend
@@ -26,7 +26,7 @@ internal static partial class Interop
             // pcbWritten is optional so it must be a pointer
             unsafe void Write(byte* pv, uint cb, uint* pcbWritten);
 
-            // SeekOrgin matches the native values, plibNewPosition is optional
+            // SeekOrigin matches the native values, plibNewPosition is optional
             unsafe void Seek(long dlibMove, SeekOrigin dwOrigin, ulong* plibNewPosition);
 
             void SetSize(ulong libNewSize);

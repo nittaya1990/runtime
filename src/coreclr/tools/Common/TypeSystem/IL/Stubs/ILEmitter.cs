@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
-
-using Internal.IL;
+using System.Runtime.CompilerServices;
 using Internal.TypeSystem;
 
 using Debug = System.Diagnostics.Debug;
@@ -50,23 +50,33 @@ namespace Internal.IL.Stubs
 
         private void EmitByte(byte b)
         {
-            if (_instructions.Length == _length)
-                Array.Resize<byte>(ref _instructions, 2 * _instructions.Length + 10);
+            if (_length == _instructions.Length)
+                Grow();
             _instructions[_length++] = b;
         }
 
         private void EmitUInt16(ushort value)
         {
-            EmitByte((byte)value);
-            EmitByte((byte)(value >> 8));
+            if (_length + sizeof(ushort) > _instructions.Length)
+                Grow();
+
+            BinaryPrimitives.WriteUInt16LittleEndian(_instructions.AsSpan(_length, sizeof(ushort)), value);
+            _length += sizeof(ushort);
         }
 
         private void EmitUInt32(int value)
         {
-            EmitByte((byte)value);
-            EmitByte((byte)(value >> 8));
-            EmitByte((byte)(value >> 16));
-            EmitByte((byte)(value >> 24));
+            if (_length + sizeof(int) > _instructions.Length)
+                Grow();
+
+            BinaryPrimitives.WriteInt32LittleEndian(_instructions.AsSpan(_length, sizeof(int)), value);
+            _length += sizeof(int);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void Grow()
+        {
+            Array.Resize(ref _instructions, 2 * _instructions.Length + 10);
         }
 
         public void Emit(ILOpcode opcode)
@@ -469,19 +479,13 @@ namespace Internal.IL.Stubs
                 Debug.Assert(patch.Label.IsPlaced);
                 Debug.Assert(_startOffsetForLinking != StartOffsetNotSet);
 
-                int offset = patch.Offset;
+                Span<byte> offsetSpan = _instructions.AsSpan(patch.Offset, sizeof(int));
 
-                int delta = _instructions[offset + 3] << 24 |
-                    _instructions[offset + 2] << 16 |
-                    _instructions[offset + 1] << 8 |
-                    _instructions[offset];
+                int delta = BinaryPrimitives.ReadInt32LittleEndian(offsetSpan);
 
                 int value = patch.Label.AbsoluteOffset - _startOffsetForLinking - patch.Offset - delta;
 
-                _instructions[offset] = (byte)value;
-                _instructions[offset + 1] = (byte)(value >> 8);
-                _instructions[offset + 2] = (byte)(value >> 16);
-                _instructions[offset + 3] = (byte)(value >> 24);
+                BinaryPrimitives.WriteInt32LittleEndian(offsetSpan, value);
             }
         }
 
@@ -521,7 +525,7 @@ namespace Internal.IL.Stubs
         internal int TryLength => _endTryStream.RelativeToAbsoluteOffset(_endTryOffset) - TryOffset;
         internal int HandlerOffset => _beginHandlerStream.RelativeToAbsoluteOffset(_beginHandlerOffset);
         internal int HandlerLength => _endHandlerStream.RelativeToAbsoluteOffset(_endHandlerOffset) - HandlerOffset;
-        
+
         internal bool IsDefined =>
             _beginTryStream != null && _endTryStream != null
             && _beginHandlerStream != null && _endHandlerStream != null;
@@ -542,7 +546,7 @@ namespace Internal.IL.Stubs
     {
         private readonly byte[] _ilBytes;
         private readonly LocalVariableDefinition[] _locals;
-        private readonly Object[] _tokens;
+        private readonly object[] _tokens;
         private readonly MethodDesc _method;
         private readonly ILExceptionRegion[] _exceptionRegions;
         private readonly MethodDebugInformation _debugInformation;
@@ -550,7 +554,7 @@ namespace Internal.IL.Stubs
         private const int MaxStackNotSet = -1;
         private int _maxStack;
 
-        public ILStubMethodIL(MethodDesc owningMethod, byte[] ilBytes, LocalVariableDefinition[] locals, Object[] tokens, ILExceptionRegion[] exceptionRegions = null, MethodDebugInformation debugInfo = null)
+        public ILStubMethodIL(MethodDesc owningMethod, byte[] ilBytes, LocalVariableDefinition[] locals, object[] tokens, ILExceptionRegion[] exceptionRegions = null, MethodDebugInformation debugInfo = null)
         {
             _ilBytes = ilBytes;
             _locals = locals;
@@ -558,12 +562,10 @@ namespace Internal.IL.Stubs
             _method = owningMethod;
             _maxStack = MaxStackNotSet;
 
-            if (exceptionRegions == null)
-                exceptionRegions = Array.Empty<ILExceptionRegion>();
+            exceptionRegions ??= Array.Empty<ILExceptionRegion>();
             _exceptionRegions = exceptionRegions;
 
-            if (debugInfo == null)
-                debugInfo = MethodDebugInformation.None;
+            debugInfo ??= MethodDebugInformation.None;
             _debugInformation = debugInfo;
         }
 
@@ -622,7 +624,7 @@ namespace Internal.IL.Stubs
         {
             return _locals;
         }
-        public override Object GetObject(int token, NotFoundBehavior notFoundBehavior)
+        public override object GetObject(int token, NotFoundBehavior notFoundBehavior)
         {
             return _tokens[(token & 0xFFFFFF) - 1];
         }
@@ -666,7 +668,7 @@ namespace Internal.IL.Stubs
     {
         private ArrayBuilder<ILCodeStream> _codeStreams;
         private ArrayBuilder<LocalVariableDefinition> _locals;
-        private ArrayBuilder<Object> _tokens;
+        private ArrayBuilder<object> _tokens;
         private ArrayBuilder<ILExceptionRegionBuilder> _finallyRegions;
 
         public ILEmitter()
@@ -680,7 +682,7 @@ namespace Internal.IL.Stubs
             return stream;
         }
 
-        private ILToken NewToken(Object value, int tokenType)
+        private ILToken NewToken(object value, int tokenType)
         {
             Debug.Assert(value != null);
             _tokens.Add(value);
@@ -689,27 +691,27 @@ namespace Internal.IL.Stubs
 
         public ILToken NewToken(TypeDesc value)
         {
-            return NewToken(value, 0x01000000);
+            return NewToken(value, 0x01000000); // mdtTypeRef
         }
 
         public ILToken NewToken(MethodDesc value)
         {
-            return NewToken(value, 0x0a000000);
+            return NewToken(value, 0x0a000000); // mdtMemberRef
         }
 
         public ILToken NewToken(FieldDesc value)
         {
-            return NewToken(value, 0x0a000000);
+            return NewToken(value, 0x0a000000); // mdtMemberRef
         }
 
         public ILToken NewToken(string value)
         {
-            return NewToken(value, 0x70000000);
+            return NewToken(value, 0x70000000); // mdtString
         }
 
         public ILToken NewToken(MethodSignature value)
         {
-            return NewToken(value, 0x11000000);
+            return NewToken(value, 0x11000000); // mdtSignature
         }
 
         public ILLocalVariable NewLocal(TypeDesc localType, bool isPinned = false)
@@ -802,7 +804,7 @@ namespace Internal.IL.Stubs
             return result;
         }
 
-        private class EmittedMethodDebugInformation : MethodDebugInformation
+        private sealed class EmittedMethodDebugInformation : MethodDebugInformation
         {
             private readonly ILSequencePoint[] _sequencePoints;
 
@@ -821,6 +823,16 @@ namespace Internal.IL.Stubs
     public abstract partial class ILStubMethod : MethodDesc
     {
         public abstract MethodIL EmitIL();
+
+        public override bool HasCustomAttribute(string attributeNamespace, string attributeName)
+        {
+            return false;
+        }
+    }
+
+    public abstract partial class SpecializableILStubMethod : ILStubMethod
+    {
+        public abstract MethodIL EmitIL(MethodDesc specializedMethod);
 
         public override bool HasCustomAttribute(string attributeNamespace, string attributeName)
         {

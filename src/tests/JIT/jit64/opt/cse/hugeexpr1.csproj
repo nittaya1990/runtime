@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- Needed for GCStressIncompatible, JitOptimizationSensitive -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
     <GCStressIncompatible>true</GCStressIncompatible>
     <CLRTestPriority>1</CLRTestPriority>
-    <!-- ilasm round-trip testing test failure: https://github.com/dotnet/runtime/issues/38515 -->
-    <IlasmRoundTripIncompatible>true</IlasmRoundTripIncompatible>
+    <!-- Takes long time to compile and not interesting from AOT perspective -->
+    <NativeAotIncompatible>true</NativeAotIncompatible>
   </PropertyGroup>
   <PropertyGroup>
     <DebugType>Full</DebugType>

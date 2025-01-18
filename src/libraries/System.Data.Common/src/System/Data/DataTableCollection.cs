@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections;
-using System.ComponentModel;
-using System.Globalization;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace System.Data
 {
@@ -701,7 +701,7 @@ namespace System.Data
         /// <summary>
         /// Makes a default name with the given index.  e.g. Table1, Table2, ... Tablei
         /// </summary>
-        private string MakeName(int index) => 1 == index ?
+        private static string MakeName(int index) => 1 == index ?
             "Table1" :
             "Table" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
 

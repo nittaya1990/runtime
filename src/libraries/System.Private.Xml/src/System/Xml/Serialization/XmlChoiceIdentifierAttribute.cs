@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml.Schema;
-using System.Reflection;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Xml.Schema;
 
 namespace System.Xml.Serialization
 {
@@ -38,7 +38,7 @@ namespace System.Xml.Serialization
         [AllowNull]
         public string MemberName
         {
-            get { return _name == null ? string.Empty : _name; }
+            get { return _name ?? string.Empty; }
             set { _name = value; }
         }
 

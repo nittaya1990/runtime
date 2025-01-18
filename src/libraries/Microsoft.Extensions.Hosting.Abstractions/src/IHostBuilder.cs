@@ -14,12 +14,12 @@ namespace Microsoft.Extensions.Hosting
     public interface IHostBuilder
     {
         /// <summary>
-        /// A central location for sharing state between components during the host building process.
+        /// Gets a central location for sharing state between components during the host building process.
         /// </summary>
         IDictionary<object, object> Properties { get; }
 
         /// <summary>
-        /// Set up the configuration for the builder itself. This will be used to initialize the <see cref="IHostEnvironment"/>
+        /// Sets up the configuration for the builder itself. This will be used to initialize the <see cref="IHostEnvironment"/>
         /// for use later in the build process. This can be called multiple times and the results will be additive.
         /// </summary>
         /// <param name="configureDelegate">The delegate for configuring the <see cref="IConfigurationBuilder"/> that will be used
@@ -57,6 +57,7 @@ namespace Microsoft.Extensions.Hosting
         /// Overrides the factory used to create the service provider.
         /// </summary>
         /// <typeparam name="TContainerBuilder">The type of builder.</typeparam>
+        /// <param name="factory">The factory to register.</param>
         /// <returns>The same instance of the <see cref="IHostBuilder"/> for chaining.</returns>
         IHostBuilder UseServiceProviderFactory<TContainerBuilder>(Func<HostBuilderContext, IServiceProviderFactory<TContainerBuilder>> factory) where TContainerBuilder : notnull;
 
@@ -70,7 +71,7 @@ namespace Microsoft.Extensions.Hosting
         IHostBuilder ConfigureContainer<TContainerBuilder>(Action<HostBuilderContext, TContainerBuilder> configureDelegate);
 
         /// <summary>
-        /// Run the given actions to initialize the host. This can only be called once.
+        /// Runs the given actions to initialize the host. This can only be called once.
         /// </summary>
         /// <returns>An initialized <see cref="IHost"/>.</returns>
         IHost Build();

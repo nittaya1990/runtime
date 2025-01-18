@@ -892,7 +892,7 @@ Namespace Microsoft.VisualBasic.FileIO
         Private Shared Sub CopyOrMoveDirectory(ByVal operation As CopyOrMove,
                                                ByVal sourceDirectoryName As String, ByVal destinationDirectoryName As String,
                                                ByVal overwrite As Boolean, ByVal showUI As UIOptionInternal, ByVal onUserCancel As UICancelOption)
-            Debug.Assert(System.Enum.IsDefined(GetType(CopyOrMove), operation), "Invalid Operation")
+            Debug.Assert([Enum].IsDefined(operation), "Invalid Operation")
 
             ' Verify enums.
             VerifyUICancelOption("onUserCancel", onUserCancel)
@@ -961,7 +961,7 @@ Namespace Microsoft.VisualBasic.FileIO
         Private Shared Sub FxCopyOrMoveDirectory(ByVal operation As CopyOrMove,
                                                  ByVal sourceDirectoryPath As String, ByVal targetDirectoryPath As String, ByVal overwrite As Boolean)
 
-            Debug.Assert(System.Enum.IsDefined(GetType(CopyOrMove), operation), "Invalid Operation")
+            Debug.Assert([Enum].IsDefined(operation), "Invalid Operation")
             Debug.Assert(sourceDirectoryPath <> "" And IO.Path.IsPathRooted(sourceDirectoryPath), "Invalid Source")
             Debug.Assert(targetDirectoryPath <> "" And IO.Path.IsPathRooted(targetDirectoryPath), "Invalid Target")
 
@@ -1010,7 +1010,7 @@ Namespace Microsoft.VisualBasic.FileIO
         Private Shared Sub CopyOrMoveDirectoryNode(ByVal Operation As CopyOrMove,
                                                    ByVal SourceDirectoryNode As DirectoryNode, ByVal Overwrite As Boolean, ByVal Exceptions As ListDictionary)
 
-            Debug.Assert(System.Enum.IsDefined(GetType(CopyOrMove), Operation), "Invalid Operation")
+            Debug.Assert([Enum].IsDefined(Operation), "Invalid Operation")
             Debug.Assert(Exceptions IsNot Nothing, "Null exception list")
             Debug.Assert(SourceDirectoryNode IsNot Nothing, "Null source node")
 
@@ -1092,7 +1092,7 @@ Namespace Microsoft.VisualBasic.FileIO
                                           ByVal sourceFileName As String, ByVal destinationFileName As String,
                                           ByVal overwrite As Boolean, ByVal showUI As UIOptionInternal, ByVal onUserCancel As UICancelOption
                                           )
-            Debug.Assert(System.Enum.IsDefined(GetType(CopyOrMove), operation), "Invalid Operation")
+            Debug.Assert([Enum].IsDefined(operation), "Invalid Operation")
 
             ' Verify enums.
             VerifyUICancelOption("onUserCancel", onUserCancel)
@@ -1597,8 +1597,8 @@ Namespace Microsoft.VisualBasic.FileIO
         ''' </remarks>
         Private Shared Sub ShellCopyOrMove(ByVal Operation As CopyOrMove, ByVal TargetType As FileOrDirectory,
             ByVal FullSourcePath As String, ByVal FullTargetPath As String, ByVal ShowUI As UIOptionInternal, ByVal OnUserCancel As UICancelOption)
-            Debug.Assert(System.Enum.IsDefined(GetType(CopyOrMove), Operation))
-            Debug.Assert(System.Enum.IsDefined(GetType(FileOrDirectory), TargetType))
+            Debug.Assert([Enum].IsDefined(Operation))
+            Debug.Assert([Enum].IsDefined(TargetType))
             Debug.Assert(FullSourcePath <> "" And IO.Path.IsPathRooted(FullSourcePath), "Invalid FullSourcePath")
             Debug.Assert(FullTargetPath <> "" And IO.Path.IsPathRooted(FullTargetPath), "Invalid FullTargetPath")
             Debug.Assert(ShowUI <> UIOptionInternal.NoUI, "Why call ShellDelete if ShowUI is NoUI???")
@@ -1693,7 +1693,7 @@ Namespace Microsoft.VisualBasic.FileIO
         Private Shared Sub ShellFileOperation(ByVal OperationType As SHFileOperationType, ByVal OperationFlags As ShFileOperationFlags,
             ByVal FullSource As String, ByVal FullTarget As String, ByVal OnUserCancel As UICancelOption, ByVal FileOrDirectory As FileOrDirectory)
 
-            Debug.Assert(System.Enum.IsDefined(GetType(SHFileOperationType), OperationType))
+            Debug.Assert([Enum].IsDefined(OperationType))
             Debug.Assert(OperationType <> SHFileOperationType.FO_RENAME, "Don't call Shell to rename")
             Debug.Assert(FullSource <> "" And IO.Path.IsPathRooted(FullSource), "Invalid FullSource path")
             Debug.Assert(OperationType = SHFileOperationType.FO_DELETE OrElse (FullTarget <> "" And IO.Path.IsPathRooted(FullTarget)), "Invalid FullTarget path")
@@ -1719,7 +1719,7 @@ Namespace Microsoft.VisualBasic.FileIO
                     Throw New OperationCanceledException()
                 End If
             ElseIf Result <> 0 Then
-                ThrowWinIOError(Result)
+                ThrowWinIOError(ToWinIOErrorCode(Result))
             End If
         End Sub
 
@@ -1750,7 +1750,7 @@ Namespace Microsoft.VisualBasic.FileIO
         Private Shared Function GetShellOperationInfo(
                             ByVal OperationType As SHFileOperationType, ByVal OperationFlags As ShFileOperationFlags,
                             ByVal SourcePaths() As String, Optional ByVal TargetPath As String = Nothing) As SHFILEOPSTRUCT
-            Debug.Assert(System.Enum.IsDefined(GetType(SHFileOperationType), OperationType), "Invalid OperationType")
+            Debug.Assert([Enum].IsDefined(OperationType), "Invalid OperationType")
             Debug.Assert(TargetPath = "" Or IO.Path.IsPathRooted(TargetPath), "Invalid TargetPath")
             Debug.Assert(SourcePaths IsNot Nothing AndAlso SourcePaths.Length > 0, "Invalid SourcePaths")
 
@@ -1904,6 +1904,70 @@ Namespace Microsoft.VisualBasic.FileIO
                     Throw New System.ComponentModel.InvalidEnumArgumentException("showUI", showUI, GetType(UIOption))
             End Select
         End Function
+
+#If TARGET_WINDOWS Then
+        ''' <summary>
+        ''' Convert SHFileOperation error code to Win IO error code.
+        ''' </summary>
+        ''' <param name="errorCode">SHFileOperation error code.</param>
+        ''' <returns>Win IO error code.</returns>
+        Private Shared Function ToWinIOErrorCode(ByVal errorCode As Integer) As Integer
+            Select Case errorCode
+                Case NativeTypes.DE_SAMEFILE
+                    Return NativeTypes.ERROR_ALREADY_EXISTS
+                Case NativeTypes.DE_MANYSRC1DEST
+                    Return NativeTypes.ERROR_INVALID_PARAMETER
+                Case NativeTypes.DE_DIFFDIR
+                    Return NativeTypes.ERROR_NOT_SAME_DEVICE
+                Case NativeTypes.DE_ROOTDIR
+                    Return NativeTypes.ERROR_ACCESS_DENIED
+                Case NativeTypes.DE_OPCANCELLED
+                    Return NativeTypes.ERROR_CANCELLED
+                Case NativeTypes.DE_DESTSUBTREE
+                    Return NativeTypes.ERROR_BAD_PATHNAME
+                Case NativeTypes.DE_ACCESSDENIEDSRC
+                    Return NativeTypes.ERROR_ACCESS_DENIED
+                Case NativeTypes.DE_PATHTOODEEP
+                    Return NativeTypes.ERROR_FILENAME_EXCED_RANGE
+                Case NativeTypes.DE_MANYDEST
+                    Return NativeTypes.ERROR_INVALID_PARAMETER
+                Case NativeTypes.DE_INVALIDFILES
+                    Return NativeTypes.ERROR_BAD_PATHNAME
+                Case NativeTypes.DE_DESTSAMETREE
+                    Return NativeTypes.ERROR_INVALID_PARAMETER
+                Case NativeTypes.DE_FLDDESTISFILE
+                    Return NativeTypes.ERROR_ALREADY_EXISTS
+                Case NativeTypes.DE_FILEDESTISFLD
+                    Return NativeTypes.ERROR_ALREADY_EXISTS
+                Case NativeTypes.DE_FILENAMETOOLONG
+                    Return NativeTypes.ERROR_FILENAME_EXCED_RANGE
+                Case NativeTypes.DE_DEST_IS_CDROM
+                    Return NativeTypes.ERROR_WRITE_FAULT
+                Case NativeTypes.DE_DEST_IS_DVD
+                    Return NativeTypes.ERROR_WRITE_FAULT
+                Case NativeTypes.DE_DEST_IS_CDRECORD
+                    Return NativeTypes.ERROR_WRITE_FAULT
+                Case NativeTypes.DE_FILE_TOO_LARGE
+                    Return NativeTypes.ERROR_FILE_TOO_LARGE
+                Case NativeTypes.DE_SRC_IS_CDROM
+                    Return NativeTypes.ERROR_READ_FAULT
+                Case NativeTypes.DE_SRC_IS_DVD
+                    Return NativeTypes.ERROR_READ_FAULT
+                Case NativeTypes.DE_SRC_IS_CDRECORD
+                    Return NativeTypes.ERROR_READ_FAULT
+                Case NativeTypes.DE_ERROR_MAX
+                    Return NativeTypes.ERROR_FILENAME_EXCED_RANGE
+                Case NativeTypes.DE_ERROR_UNKNOWN
+                    Return NativeTypes.ERROR_PATH_NOT_FOUND
+                Case NativeTypes.ERRORONDEST
+                    Return NativeTypes.ERROR_GEN_FAILURE
+                Case NativeTypes.DE_ROOTDIR_ERRORONDEST
+                    Return NativeTypes.ERROR_ACCESS_DENIED
+                Case Else
+                    Return errorCode
+            End Select
+        End Function
+#End If
 
         ''' <summary>
         ''' Verify that the given argument value is a valid DeleteDirectoryOption. If not, throw InvalidEnumArgumentException.
@@ -2123,7 +2187,7 @@ Namespace Microsoft.VisualBasic.FileIO
                 If m_CheckPreamble Then
                     If BytesMatch(ByteBuffer, m_Preamble) Then
                         ByteBufferStartIndex = m_Preamble.Length
-                        Count -= m_Preamble.Length ' Reduce the valid byte count if ByteBuffer was shrinked.
+                        Count -= m_Preamble.Length ' Reduce the valid byte count if ByteBuffer was shrunk.
                     End If
                     m_CheckPreamble = False
                     ' In case of an empty file with BOM at the beginning return FALSE.
@@ -2159,7 +2223,7 @@ Namespace Microsoft.VisualBasic.FileIO
 
                 ' If user wants to ignore case, convert new string to lower case. m_SearchText was converted in constructor.
                 If m_IgnoreCase Then
-                    Return New String(CharBuffer).ToUpper(CultureInfo.CurrentCulture).Contains(m_SearchText)
+                    Return New String(CharBuffer).Contains(m_SearchText, StringComparison.OrdinalIgnoreCase)
                 Else
                     Return New String(CharBuffer).Contains(m_SearchText)
                 End If

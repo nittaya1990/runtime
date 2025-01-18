@@ -28,8 +28,6 @@
 #define _INTEGRAL_MAX_BITS  64
 #endif  /* _INTEGRAL_MAX_BITS */
 
-// typedef __int64_t __int64;
-
 #ifndef FALSE
 #define FALSE 0
 #endif
@@ -46,9 +44,9 @@
 
 #define _istspace(x)    isspace((unsigned char)x)
 
-#define _malloc_crt PAL_malloc
-#define _realloc_crt PAL_realloc
-#define _free_crt PAL_free
+#define _malloc_crt malloc
+#define _realloc_crt realloc
+#define _free_crt free
 
 #define _FASSIGN(flag, argument, number, dec_point, locale) _safecrt_fassign((flag), (argument), (number))
 #define _WFASSIGN(flag, argument, number, dec_point, locale) _safecrt_wfassign((flag), (argument), (number))
@@ -351,6 +349,7 @@ static int __check_float_string(size_t nFloatStrUsed,
                             break;
 
 #if _INTEGRAL_MAX_BITS >= 64
+                        case _T('z'):
                         case _T('I'):
                             if ( (*(format + 1) == _T('6')) &&
                                  (*(format + 2) == _T('4')) )
@@ -372,14 +371,14 @@ static int __check_float_string(size_t nFloatStrUsed,
                                       (*(format + 1) == _T('x')) ||
                                       (*(format + 1) == _T('X')) )
                             {
-                                if (sizeof(void*) == sizeof(__int64))
+                                if (sizeof(void*) == sizeof(int64_t))
                                 {
                                     ++integer64;
                                     num64 = 0;
                                 }
                                 break;
                             }
-                            if (sizeof(void*) == sizeof(__int64))
+                            if (sizeof(void*) == sizeof(int64_t))
                             {
                                     ++integer64;
                                     num64 = 0;
@@ -665,7 +664,7 @@ scanit:
                                     } else
 #else  /* _UNICODE */
                                     if (fl_wchar_arg) {
-                                        *(char16_t UNALIGNED *)pointer = ch;
+                                        *(char16_t UNALIGNED *)pointer = (char16_t)ch;
                                         pointer = (char16_t *)pointer + 1;
 #ifdef _SECURE_SCANF
                                         --array_width;
@@ -773,7 +772,7 @@ scanit:
                             }
                             else
                             {
-                                // supress set, do nothing
+                                // suppress set, do nothing
                             }
                         }
                         else
@@ -867,7 +866,7 @@ getnum:
 
                                     if (_ISXDIGIT(ch)) {
                                         num64 <<= 4;
-                                        ch = _hextodec(ch);
+                                        ch = _hextodec((_TCHAR)ch);
                                     }
                                     else
                                         ++done_flag;
@@ -900,7 +899,7 @@ getnum:
                             } /* end of WHILE loop */
 
                             if (negative)
-                                num64 = (uint64_t )(-(__int64)num64);
+                                num64 = (uint64_t )(-(int64_t)num64);
                         }
                         else {
 #endif  /* _INTEGRAL_MAX_BITS >= 64    */
@@ -910,7 +909,7 @@ getnum:
 
                                     if (_ISXDIGIT(ch)) {
                                         number = (number << 4);
-                                        ch = _hextodec(ch);
+                                        ch = _hextodec((_TCHAR)ch);
                                     }
                                     else
                                         ++done_flag;
@@ -957,7 +956,7 @@ getnum:
 assign_num:
 #if _INTEGRAL_MAX_BITS >= 64
                                 if ( integer64 )
-                                    *(__int64 UNALIGNED *)pointer = ( uint64_t )num64;
+                                    *(int64_t UNALIGNED *)pointer = ( uint64_t )num64;
                                 else
 #endif  /* _INTEGRAL_MAX_BITS >= 64    */
                                 if (longone)
@@ -1262,7 +1261,7 @@ static int __cdecl _inc(miniFILE* fileptr)
 static void __cdecl _un_inc(int chr, miniFILE* fileptr)
 {
     if (_TEOF != chr) {
-        _ungettc_nolock(chr,fileptr);
+        _ungettc_nolock((char)chr,fileptr);
     }
 }
 

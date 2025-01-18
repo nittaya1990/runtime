@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -30,6 +32,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
 
         private static readonly ParameterExpression CaptureDisposableParameter = Expression.Parameter(typeof(object));
         private static readonly LambdaExpression CaptureDisposable = Expression.Lambda(
+                    delegateType: typeof(Func<object?, object?>),
                     Expression.Call(ScopeParameter, ServiceLookupHelpers.CaptureDisposableMethodInfo, CaptureDisposableParameter),
                     CaptureDisposableParameter);
 
@@ -112,14 +115,32 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
 
         protected override Expression VisitIEnumerable(IEnumerableCallSite callSite, object? context)
         {
+            [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
+                Justification = "VerifyAotCompatibility ensures elementType is not a ValueType")]
+            static MethodInfo GetArrayEmptyMethodInfo(Type elementType)
+            {
+                Debug.Assert(!ServiceProvider.VerifyAotCompatibility || !elementType.IsValueType, "VerifyAotCompatibility=true will throw during building the IEnumerableCallSite if elementType is a ValueType.");
+
+                return ServiceLookupHelpers.GetArrayEmptyMethodInfo(elementType);
+            }
+
+            [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
+                Justification = "VerifyAotCompatibility ensures elementType is not a ValueType")]
+            static NewArrayExpression NewArrayInit(Type elementType, IEnumerable<Expression> expr)
+            {
+                Debug.Assert(!ServiceProvider.VerifyAotCompatibility || !elementType.IsValueType, "VerifyAotCompatibility=true will throw during building the IEnumerableCallSite if elementType is a ValueType.");
+
+                return Expression.NewArrayInit(elementType, expr);
+            }
+
             if (callSite.ServiceCallSites.Length == 0)
             {
                 return Expression.Constant(
-                    ServiceLookupHelpers.GetArrayEmptyMethodInfo(callSite.ItemType)
+                    GetArrayEmptyMethodInfo(callSite.ItemType)
                     .Invoke(obj: null, parameters: Array.Empty<object>()));
             }
 
-            return Expression.NewArrayInit(
+            return NewArrayInit(
                 callSite.ItemType,
                 callSite.ServiceCallSites.Select(cs =>
                     Convert(
@@ -136,7 +157,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
                 VisitCallSiteMain(callSite, context));
         }
 
-        private Expression TryCaptureDisposable(ServiceCallSite callSite, ParameterExpression scope, Expression service)
+        private static Expression TryCaptureDisposable(ServiceCallSite callSite, ParameterExpression scope, Expression service)
         {
             if (!callSite.CaptureDisposable)
             {
@@ -190,7 +211,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
         }
 
         // Move off the main stack
-        private Expression BuildScopedExpression(ServiceCallSite callSite)
+        private ConditionalExpression BuildScopedExpression(ServiceCallSite callSite)
         {
             ConstantExpression callSiteExpression = Expression.Constant(
                 callSite,
@@ -269,7 +290,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
                 );
         }
 
-        public Expression GetCaptureDisposable(ParameterExpression scope)
+        public static Expression GetCaptureDisposable(ParameterExpression scope)
         {
             if (scope != ScopeParameter)
             {

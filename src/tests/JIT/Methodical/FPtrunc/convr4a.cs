@@ -4,6 +4,9 @@
 //testing float narrowing upon conv.r4 explicit cast
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.FPtrunc.convr4a;
 
 public struct VT
 {
@@ -85,7 +88,9 @@ public class ConvR4test
         return s_f1 / s_a1;
     }
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         bool pass = true;
 

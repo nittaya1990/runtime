@@ -5,7 +5,12 @@ using System;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Diagnostics.CodeAnalysis;
 
+[UnconditionalSuppressMessage("Trimming", "IL2055", Justification = "MakeGenericType - Intentional")]
+[UnconditionalSuppressMessage("Trimming", "IL2060", Justification = "MakeGenericMethod - Intentional")]
+[UnconditionalSuppressMessage("AOT", "IL3050", Justification = "MakeGenericType/MakeGenericMethod - Intentional")]
+[UnconditionalSuppressMessage("AOT", "IL3054", Justification = "Generic expansion aborted - Intentional")]
 class Generics
 {
     internal static int Run()
@@ -13,6 +18,7 @@ class Generics
         TestDictionaryDependencyTracking.Run();
         TestStaticBaseLookups.Run();
         TestInitThisClass.Run();
+        TestSynchronizedMethods.Run();
         TestDelegateFatFunctionPointers.Run();
         TestDelegateToCanonMethods.Run();
         TestVirtualMethodUseTracking.Run();
@@ -27,6 +33,8 @@ class Generics
         TestGvmDelegates.Run();
         TestGvmDependencies.Run();
         TestGvmLookups.Run();
+        TestGvmOnInterface.Run();
+        TestSharedAndUnsharedGvmAnalysisRegression.Run();
         TestInterfaceVTableTracking.Run();
         TestClassVTableTracking.Run();
         TestReflectionInvoke.Run();
@@ -43,15 +51,25 @@ class Generics
         TestSimpleGenericRecursion.Run();
         TestGenericRecursionFromNpgsql.Run();
         TestRecursionInGenericVirtualMethods.Run();
+        TestRecursionInGenericInterfaceMethods.Run();
         TestRecursionThroughGenericLookups.Run();
+        TestRecursionInFields.Run();
         TestGvmLookupDependency.Run();
-#if !CODEGEN_CPP
+        Test99198Regression.Run();
+        Test102259Regression.Run();
+        Test104913Regression.Run();
+        Test105397Regression.Run();
+        Test105880Regression.Run();
+        TestInvokeMemberCornerCaseInGenerics.Run();
+        TestRefAny.Run();
         TestNullableCasting.Run();
         TestVariantCasting.Run();
+        TestVariantDispatchUnconstructedTypes.Run();
         TestMDArrayAddressMethod.Run();
         TestNativeLayoutGeneration.Run();
         TestByRefLikeVTables.Run();
-#endif
+        TestFunctionPointerLoading.Run();
+
         return 100;
     }
 
@@ -596,6 +614,54 @@ class Generics
         }
     }
 
+    class TestSynchronizedMethods
+    {
+        static class Gen<T>
+        {
+            [MethodImpl(MethodImplOptions.Synchronized)]
+            public static int Synchronize() => 42;
+        }
+
+        static class NonGen
+        {
+            [MethodImpl(MethodImplOptions.Synchronized)]
+            public static int Synchronize<T>() => 42;
+        }
+
+        static class GenReflected<T>
+        {
+            [MethodImpl(MethodImplOptions.Synchronized)]
+            public static int Synchronize() => 42;
+        }
+
+        static class NonGenReflected
+        {
+            [MethodImpl(MethodImplOptions.Synchronized)]
+            public static int Synchronize<T>() => 42;
+        }
+
+        static Type s_genReflectedType = typeof(GenReflected<>);
+        static MethodInfo s_nonGenReflectedSynchronizeMethod = typeof(NonGenReflected).GetMethod("Synchronize");
+
+        public static void Run()
+        {
+            Gen<object>.Synchronize();
+            NonGen.Synchronize<object>();
+            Gen<int>.Synchronize();
+            NonGen.Synchronize<int>();
+
+            {
+                var mi = (MethodInfo)s_genReflectedType.MakeGenericType(typeof(object)).GetMemberWithSameMetadataDefinitionAs(typeof(GenReflected<>).GetMethod("Synchronize"));
+                mi.Invoke(null, Array.Empty<object>());
+            }
+
+            {
+                var mi = s_nonGenReflectedSynchronizeMethod.MakeGenericMethod(typeof(object));
+                mi.Invoke(null, Array.Empty<object>());
+            }
+        }
+    }
+
     /// <summary>
     /// Tests that lazily built vtables for canonically equivalent types have the same shape.
     /// </summary>
@@ -805,7 +871,7 @@ class Generics
                     s_NumErrors++;
             }
 
-            // Uncomment when we have the type loader to buld invoke stub dictionaries.
+            // Uncomment when we have the type loader to build invoke stub dictionaries.
             {
                 MethodInfo mi = typeof(Foo<string>).GetTypeInfo().GetDeclaredMethod("SetAndCheck").MakeGenericMethod(typeof(object));
                 if ((bool)mi.Invoke(o, new object[] { 123, new object() }))
@@ -909,7 +975,6 @@ class Generics
 
                 // BaseClass<int>.Method1 has the same slot as BaseClass<float>.Method3 on CoreRT, because vtable entries
                 // get populated on demand (the first type won't get a Method3 entry, and the latter won't get a Method1 entry)
-                // On ProjectN, both types will get vtable entries for both methods.
                 new BaseClass<int>().Method1(1);
                 m1 = typeof(BaseClass<int>).GetTypeInfo().GetDeclaredMethod("Method1");
                 Verify("BaseClass.Method1", m1.Invoke(new BaseClass<int>(), new object[] { (int)1 }));
@@ -1101,6 +1166,24 @@ class Generics
 
             var foo = (Foo<string>)s_foo;
             if (foo.Value != 42)
+                throw new Exception();
+        }
+    }
+
+    class TestVariantDispatchUnconstructedTypes
+    {
+        interface IFoo { }
+        class Foo : IFoo { }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static IEnumerable<IFoo> GetFoos() => new Foo[5];
+
+        public static void Run()
+        {
+            int j = 0;
+            foreach (var f in GetFoos())
+                j++;
+            if (j != 5)
                 throw new Exception();
         }
     }
@@ -1663,6 +1746,86 @@ class Generics
         }
     }
 
+    class TestGvmOnInterface
+    {
+        interface IGvmMethods
+        {
+            static abstract int StaticAbstractGvm<T>();
+            int InstanceGvm<T>();
+            int InstanceDefaultGvm<T>() { return 0; }
+            static void StaticGeneric<T>() { }
+        }
+
+        class BaseWithInterface : IGvmMethods
+        {
+            public static int StaticAbstractGvm<T>() { return 1; }
+            public int InstanceGvm<T>() { return 1; }
+            int IGvmMethods.InstanceDefaultGvm<T>() { return 1; }
+        }
+
+        static void TestInContext<T>()
+        {
+            BaseWithInterface b = new BaseWithInterface();
+            IGvmMethods i = new BaseWithInterface();
+
+            if (BaseWithInterface.StaticAbstractGvm<T>() != 1)
+                throw new Exception();
+
+            if (b.InstanceGvm<T>() != 1)
+                throw new Exception();
+
+            if (i.InstanceGvm<T>() != 1)
+                throw new Exception();
+
+            if (i.InstanceDefaultGvm<T>() != 1)
+                throw new Exception();
+        }
+
+        static void TestStaticAbstractGvm<T, TMethods>() where TMethods : IGvmMethods
+        {
+            if (TMethods.StaticAbstractGvm<T>() != 1)
+                throw new Exception();
+        }
+
+        public static void Run()
+        {
+            TestInContext<object>();
+            TestInContext<int>();
+            TestStaticAbstractGvm<object, BaseWithInterface>();
+            TestStaticAbstractGvm<int, BaseWithInterface>();
+        }
+    }
+
+    class TestSharedAndUnsharedGvmAnalysisRegression
+    {
+        interface IAtom { }
+        interface IPhantom { }
+        class Atom : IAtom, IPhantom { }
+
+        class Lol<TLeft> where TLeft : IAtom, IPhantom
+        {
+            public static void Run() => ((IPartitionedStreamRecipient<int>)new RightChildResultsRecipient<TLeft, int>()).ReceivePackage<int>();
+        }
+
+        interface IPartitionedStreamRecipient<T>
+        {
+            void ReceivePackage<U>();
+        }
+
+        sealed class RightChildResultsRecipient<TLeftInput, TRightInput> : IPartitionedStreamRecipient<TRightInput>
+        {
+            public void ReceivePackage<U>() => Console.WriteLine("Accepted");
+        }
+
+        static Type s_atom = typeof(Atom);
+
+        public static void Run()
+        {
+            // Make sure the compiler never saw anything more concrete than Lol<__Canon>.
+            typeof(Lol<>).MakeGenericType(s_atom).GetMethod("Run").Invoke(null, Array.Empty<object>());
+        }
+    }
+
     class TestFieldAccess
     {
         class ClassType { }
@@ -1818,8 +1981,10 @@ class Generics
             Foo<object>.s_floatField = 12.34f;
             Foo<object>.s_longField1 = 0x1111;
 
-            var fooDynamicOfClassType = typeof(Foo<>).MakeGenericType(typeof(ClassType)).GetTypeInfo();
-            var fooDynamicOfClassType2 = typeof(Foo<>).MakeGenericType(typeof(ClassType2)).GetTypeInfo();
+            var fooDynamicOfClassType = typeof(Foo<>).MakeGenericType(GetClassType()).GetTypeInfo();
+            static Type GetClassType() => typeof(ClassType);
+            var fooDynamicOfClassType2 = typeof(Foo<>).MakeGenericType(GetClassType2()).GetTypeInfo();
+            static Type GetClassType2() => typeof(ClassType2);
 
             FieldInfo fi = fooDynamicOfClassType.GetDeclaredField("s_intField");
             FieldInfo fi2 = fooDynamicOfClassType2.GetDeclaredField("s_intField");
@@ -1873,7 +2038,8 @@ class Generics
             heh2.GenericVirtualMethod(new Program(), "ayy");
 
             // Simple method invocation
-            var dynamicBaseOfString = typeof(DynamicBase<>).MakeGenericType(typeof(string));
+            var dynamicBaseOfString = typeof(DynamicBase<>).MakeGenericType(GetString());
+            static Type GetString() => typeof(string);
             object obj = Activator.CreateInstance(dynamicBaseOfString);
             {
                 var simpleMethod = dynamicBaseOfString.GetTypeInfo().GetDeclaredMethod("SimpleMethod");
@@ -1896,7 +2062,7 @@ class Generics
             }
 
             {
-                var dynamicDerivedOfString = typeof(DynamicDerived<>).MakeGenericType(typeof(string));
+                var dynamicDerivedOfString = typeof(DynamicDerived<>).MakeGenericType(GetString());
                 object dynamicDerivedObj = Activator.CreateInstance(dynamicDerivedOfString);
                 var virtualMethodDynamicDerived = dynamicDerivedOfString.GetTypeInfo().GetDeclaredMethod("VirtualMethod");
                 string result = (string)virtualMethodDynamicDerived.Invoke(dynamicDerivedObj, new[] { "fad" });
@@ -1905,7 +2071,7 @@ class Generics
 
             // Test generic method invocation
             {
-                var genericMethod = dynamicBaseOfString.GetTypeInfo().GetDeclaredMethod("GenericMethod").MakeGenericMethod(new[] { typeof(string) });
+                var genericMethod = dynamicBaseOfString.GetTypeInfo().GetDeclaredMethod("GenericMethod").MakeGenericMethod(new[] { GetString() });
                 string result = (string)genericMethod.Invoke(obj, new[] { "hey", "hello" });
 
                 Verify("System.Stringhello", result);
@@ -1914,15 +2080,15 @@ class Generics
             // Test GVM invocation
             {
                 var genericMethod = dynamicBaseOfString.GetTypeInfo().GetDeclaredMethod("GenericVirtualMethod");
-                genericMethod = genericMethod.MakeGenericMethod(new[] { typeof(string) });
+                genericMethod = genericMethod.MakeGenericMethod(new[] { GetString() });
                 string result = (string)genericMethod.Invoke(obj, new[] { "hey", "hello" });
                 Verify("DynamicBaseSystem.Stringhello", result);
             }
 
             {
-                var dynamicDerivedOfString = typeof(DynamicDerived<>).MakeGenericType(typeof(string));
+                var dynamicDerivedOfString = typeof(DynamicDerived<>).MakeGenericType(GetString());
                 object dynamicDerivedObj = Activator.CreateInstance(dynamicDerivedOfString);
-                var virtualMethodDynamicDerived = dynamicDerivedOfString.GetTypeInfo().GetDeclaredMethod("GenericVirtualMethod").MakeGenericMethod(new[] { typeof(string) });
+                var virtualMethodDynamicDerived = dynamicDerivedOfString.GetTypeInfo().GetDeclaredMethod("GenericVirtualMethod").MakeGenericMethod(new[] { GetString() });
                 string result = (string)virtualMethodDynamicDerived.Invoke(dynamicDerivedObj, new[] { "hey", "fad" });
                 Verify("DynamicDerivedSystem.Stringfad", result);
             }
@@ -2193,9 +2359,29 @@ class Generics
             }
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void DeepAV(int x)
+        {
+            if (x > 0)
+                DeepAV(x - 1);
+
+            // Call an instance method on something we never allocated, but overrides a used virtual.
+            // This asserted the compiler when trying to build a template for Unused<__Canon>.
+            ((Unused<object>)s_ref).Blagh();
+        }
+
         public static void Run()
         {
             new Used().DoStuff();
+
+            for (int i = 0; i < 10; i++)
+            try
+            {
+                DeepAV(i);
+            }
+            catch (NullReferenceException)
+            {
+            }
 
             try
             {
@@ -2348,6 +2534,97 @@ class Generics
             RefStruct<string> r = default;
             if (r.ToString() != "System.String")
                 throw new Exception();
+        }
+    }
+
+    class TestFunctionPointerLoading
+    {
+        interface IFace
+        {
+            Type GrabManagedFnptr();
+            Type GrabManagedRefFnptr();
+            Type GrabUnmanagedFnptr();
+            Type GrabUnmanagedStdcallFnptr();
+            Type GrabUnmanagedStdcallSuppressGCFnptr();
+            Array GetFunctionPointerArray();
+            Array GetFunctionPointerMdArray();
+            Type GrabManagedFnptrOverAlsoGen();
+            Type GrabManagedFnptrOverAlsoAlsoGen();
+        }
+
+        unsafe class Gen<T> : IFace
+        {
+            public Type GrabManagedFnptr() => typeof(delegate*<T>);
+            public Type GrabManagedRefFnptr() => typeof(delegate*<ref T>);
+            public Type GrabUnmanagedFnptr() => typeof(delegate* unmanaged<T>);
+            public Type GrabUnmanagedStdcallFnptr() => typeof(delegate* unmanaged[Stdcall]<T>);
+            public Type GrabUnmanagedStdcallSuppressGCFnptr() => typeof(delegate* unmanaged[Stdcall, SuppressGCTransition]<T>);
+            public Array GetFunctionPointerArray() => new delegate*<T[,]>[1];
+            public Array GetFunctionPointerMdArray() => new delegate*<T[,]>[1, 1];
+            public Type GrabManagedFnptrOverAlsoGen() => typeof(delegate*<MyGen<T>, AlsoGen<T>>);
+            public Type GrabManagedFnptrOverAlsoAlsoGen() => typeof(delegate*<AlsoAlsoGen<T>, MyGen<T>>);
+        }
+
+        class MyGen<T> { }
+
+        class AlsoGen<T> { }
+
+        class AlsoAlsoGen<T> { }
+
+        class Atom { }
+
+        static Type s_atomType = typeof(Atom);
+
+        public static void Run()
+        {
+            var o = (IFace)Activator.CreateInstance(typeof(Gen<>).MakeGenericType(s_atomType));
+
+            {
+                Type t = o.GrabManagedFnptr();
+                if (!t.IsFunctionPointer || t.GetFunctionPointerReturnType() != typeof(Atom) || t.IsUnmanagedFunctionPointer)
+                    throw new Exception();
+            }
+
+            {
+                Type t = o.GrabManagedRefFnptr();
+                if (!t.IsFunctionPointer || t.GetFunctionPointerReturnType() != typeof(Atom).MakeByRefType() || t.IsUnmanagedFunctionPointer)
+                    throw new Exception();
+            }
+
+            {
+                Type t = o.GrabUnmanagedFnptr();
+                if (!t.IsFunctionPointer || t.GetFunctionPointerReturnType() != typeof(Atom) || !t.IsUnmanagedFunctionPointer)
+                    throw new Exception();
+
+                if (t != o.GrabUnmanagedStdcallFnptr() || t != o.GrabUnmanagedStdcallSuppressGCFnptr())
+                    throw new Exception();
+            }
+
+            {
+                Array arr = o.GetFunctionPointerArray();
+                if (!arr.GetType().GetElementType().IsFunctionPointer)
+                    throw new Exception();
+            }
+
+            {
+                Array arr = o.GetFunctionPointerMdArray();
+                if (!arr.GetType().GetElementType().IsFunctionPointer)
+                    throw new Exception();
+            }
+
+            {
+                Type t = o.GrabManagedFnptrOverAlsoGen();
+                if (!t.IsFunctionPointer
+                    || t.GetFunctionPointerReturnType().GetGenericTypeDefinition() != typeof(AlsoGen<>)
+                    || t.GetFunctionPointerReturnType().GetGenericArguments()[0] != typeof(Atom))
+                    throw new Exception();
+            }
+
+            {
+                Type t = o.GrabManagedFnptrOverAlsoAlsoGen();
+                if (!t.TypeHandle.Equals(typeof(delegate*<AlsoAlsoGen<Atom>, MyGen<Atom>>).TypeHandle))
+                    throw new Exception();
+            }
         }
     }
 
@@ -3120,6 +3397,47 @@ class Generics
         }
     }
 
+    class TestRecursionInGenericInterfaceMethods
+    {
+        interface IFoo
+        {
+            void Recurse<T>(int val);
+        }
+
+        class Foo : IFoo
+        {
+            void IFoo.Recurse<T>(int val)
+            {
+                if (val > 0)
+                    ((IFoo)this).Recurse<S<T>>(val - 1);
+            }
+        }
+
+        struct S<T>
+        {
+            public T Field;
+        }
+
+        public static void Run()
+        {
+            IFoo f = new Foo();
+
+            f.Recurse<int>(2);
+
+            bool thrown = false;
+            try
+            {
+                f.Recurse<int>(100);
+            }
+            catch (TypeLoadException)
+            {
+                thrown = true;
+            }
+            if (!thrown)
+                throw new Exception();
+        }
+    }
+
     class TestRecursionThroughGenericLookups
     {
         abstract class Handler<T>
@@ -3149,6 +3467,24 @@ class Generics
         }
     }
 
+    class TestRecursionInFields
+    {
+        class Chunk<T>
+        {
+            public Chunk<T[]> TheChunk;
+            public Chunk()
+            {
+                if (typeof(T).ToString().Length < 100)
+                    TheChunk = new Chunk<T[]>();
+            }
+        }
+
+        public static void Run()
+        {
+            typeof(Chunk<byte>).GetFields();
+        }
+    }
+
     static class TestGvmLookupDependency
     {
         struct SmallCat<T> { }
@@ -3167,5 +3503,237 @@ class Generics
             CatConcepts<Technique, int>();
             CatConcepts<Technique, object>();
         }
+    }
+
+    class Test99198Regression
+    {
+        delegate void Set<T>(ref T t, IFoo ifoo);
+
+        interface IFoo
+        {
+            void Do<T>();
+        }
+
+        class Atom { }
+
+        struct Foo<T> : IFoo
+        {
+            public nint Cookie1;
+            public nint Cookie2;
+
+            public void Do<T1>()
+            {
+                Cookie1 = 42;
+            }
+        }
+
+        class C<T> where T : IFoo
+        {
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public static void Set(ref T t, IFoo ifoo)
+            {
+                t.Do<T>();
+                ifoo.Do<T>();
+            }
+        }
+
+        public static void RunDynamic<T>()
+        {
+            static Type GetObject() => typeof(Foo<T>);
+            var s = typeof(C<>).MakeGenericType(GetObject()).GetMethod("Set").CreateDelegate<Set<Foo<T>>>();
+
+            Foo<T> ob = default;
+            IFoo boxed = ob;
+
+            s(ref ob, boxed);
+
+            if (ob.Cookie1 != 42 || ob.Cookie2 != 0)
+                throw new Exception();
+
+            ob = (Foo<T>)boxed;
+            if (ob.Cookie1 != 42 || ob.Cookie2 != 0)
+                throw new Exception();
+        }
+
+        public static void Run()
+        {
+            new C<Foo<string>>().ToString();
+
+            static Type GetObject() => typeof(Foo<object>);
+            var s = typeof(C<>).MakeGenericType(GetObject()).GetMethod("Set").CreateDelegate<Set<Foo<object>>>();
+
+            Foo<object> ob = default;
+            IFoo boxed = ob;
+
+            s(ref ob, boxed);
+
+            if (ob.Cookie1 != 42 || ob.Cookie2 != 0)
+                throw new Exception();
+
+            ob = (Foo<object>)boxed;
+            if (ob.Cookie1 != 42 || ob.Cookie2 != 0)
+                throw new Exception();
+
+            static Type GetAtom() => typeof(Atom);
+            typeof(Test99198Regression).GetMethod(nameof(RunDynamic)).MakeGenericMethod(GetAtom()).Invoke(null, []);
+        }
+    }
+
+    class Test102259Regression
+    {
+        class Gen<T>
+        {
+            static Func<T, object> _theval;
+
+            public static object TheFunc(object obj) => obj;
+
+            static Gen()
+            {
+                _theval = typeof(Gen<T>).GetMethod(nameof(TheFunc), BindingFlags.Public | BindingFlags.Static).CreateDelegate<Func<T, object>>().WithObjectTResult();
+            }
+        }
+
+        public static void Run()
+        {
+            new Gen<object>();
+        }
+    }
+
+    class Test104913Regression
+    {
+        interface IFoo
+        {
+            (Type, Type) InvokeInstance<T>() where T : IBar;
+        }
+
+        class Foo : IFoo
+        {
+            public (Type, Type) InvokeInstance<T>() where T : IBar
+                => (typeof(T), T.InvokeStatic<int>());
+        }
+
+        interface IBar
+        {
+            static abstract Type InvokeStatic<T>();
+        }
+
+        class Bar : IBar
+        {
+            public static Type InvokeStatic<T>()
+                => typeof(T);
+        }
+
+        public static void Run()
+        {
+            (Type t1, Type t2) = ((IFoo)new Foo()).InvokeInstance<Bar>();
+            if (t1 != typeof(Bar) || t2 != typeof(int))
+                throw new Exception();
+        }
+    }
+
+    class Test105397Regression
+    {
+        interface IEnumerable<T> { }
+
+        interface ITest<TResult>
+        {
+            TReturn UsingDatabaseResult<TState, TReturn>(TState state, Func<TResult, TState, TReturn> @using);
+        }
+        class Test<TResult> : ITest<TResult>
+        {
+            public TReturn UsingDatabaseResult<TState, TReturn>(TState state, Func<TResult, TState, TReturn> @using)
+            {
+                return default;
+            }
+        }
+
+        struct GenStruct<T> { }
+
+        public static void Run()
+        {
+            ITest<object> t = new Test<object>();
+            t.UsingDatabaseResult<IEnumerable<IEnumerable<GenStruct<double>>>, int>(null, (x, y) => 1);
+        }
+    }
+
+    class Test105880Regression
+    {
+        public interface IFoo<T>
+        {
+            static abstract void Method<U>();
+        }
+
+        interface IBar<T> : IFoo<T>
+        {
+            static void IFoo<T>.Method<U>() => Console.WriteLine();
+        }
+
+        class Baz : IBar<Atom> { }
+
+        public struct Atom { }
+
+        public static void Run()
+        {
+            Console.WriteLine(new Baz());
+        }
+    }
+
+    class TestInvokeMemberCornerCaseInGenerics
+    {
+        class Generic<T>
+        {
+            public void Method(params T[] ts) { }
+        }
+
+        class Atom { }
+
+        static Generic<Atom> s_instance = new Generic<Atom>();
+        static Type s_atomType = typeof(Atom);
+
+        public static void Run()
+        {
+            s_instance.Method(null);
+
+            // Regression test for https://github.com/dotnet/runtime/issues/65612
+            // This requires MethodTable for "Atom[]" - just make sure the compiler didn't crash and we can invoke
+            typeof(Generic<>).MakeGenericType(s_atomType).InvokeMember("Method", BindingFlags.Public | BindingFlags.InvokeMethod | BindingFlags.Instance, null, s_instance, new object[] { new Atom() });
+        }
+    }
+
+    static class TestRefAny
+    {
+        static T TestAll<T>(ref T value, Type expectedType)
+        {
+            TypedReference typedRef = __makeref(value);
+            if (__reftype(typedRef) != expectedType)
+                throw new Exception();
+
+            return __refvalue(typedRef, T);
+        }
+
+        public static void Run()
+        {
+            string classValue = "Hello";
+            int structValue = 123;
+
+            if (TestAll(ref classValue, typeof(string)) != classValue)
+                throw new Exception();
+
+            if (TestAll(ref structValue, typeof(int)) != structValue)
+                throw new Exception();
+        }
+    }
+}
+
+static class Ext
+{
+    public static Func<T, object> WithObjectTResult<T, TResult>(this Func<T, TResult> function)
+    {
+        return function.InvokeWithObjectTResult;
+    }
+
+    private static object InvokeWithObjectTResult<T, TResult>(this Func<T, TResult> func, T arg)
+    {
+        return func(arg);
     }
 }

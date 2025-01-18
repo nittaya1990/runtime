@@ -44,7 +44,7 @@ namespace System.Collections.ObjectModel
         /// same order they are read by the enumerator of the collection.
         /// </remarks>
         /// <exception cref="ArgumentNullException"> collection is a null reference </exception>
-        public ObservableCollection(IEnumerable<T> collection!!) : base(new List<T>(collection))
+        public ObservableCollection(IEnumerable<T> collection) : base(new List<T>(collection ?? throw new ArgumentNullException(nameof(collection))))
         {
         }
 
@@ -58,7 +58,7 @@ namespace System.Collections.ObjectModel
         /// same order they are read by the enumerator of the list.
         /// </remarks>
         /// <exception cref="ArgumentNullException"> list is a null reference </exception>
-        public ObservableCollection(List<T> list!!) : base(new List<T>(list))
+        public ObservableCollection(List<T> list) : base(new List<T>(list ?? throw new ArgumentNullException(nameof(list))))
         {
         }
 
@@ -80,9 +80,6 @@ namespace System.Collections.ObjectModel
         /// <summary>
         /// Occurs when the collection changes, either by adding or removing an item.
         /// </summary>
-        /// <remarks>
-        /// see <seealso cref="INotifyCollectionChanged"/>
-        /// </remarks>
         [field: NonSerialized]
         public virtual event NotifyCollectionChangedEventHandler? CollectionChanged;
 
@@ -231,7 +228,8 @@ namespace System.Collections.ObjectModel
                 // only arises if reentrant changes make the original event args
                 // invalid for later listeners.  This keeps existing code working
                 // (e.g. Selector.SelectedItems).
-                if (CollectionChanged?.GetInvocationList().Length > 1)
+                NotifyCollectionChangedEventHandler? handler = CollectionChanged;
+                if (handler != null && !handler.HasSingleTarget)
                     throw new InvalidOperationException(SR.ObservableCollectionReentrancyNotAllowed);
             }
         }

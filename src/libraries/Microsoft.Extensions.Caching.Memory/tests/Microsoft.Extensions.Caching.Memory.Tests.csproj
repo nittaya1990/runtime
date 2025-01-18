@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFrameworks>$(NetCoreAppCurrent);$(NetFrameworkMinimum)</TargetFrameworks>
     <EnableDefaultItems>true</EnableDefaultItems>
+    <!-- ActiveIssue in AssemblyInfo.cs for Mono -->
+    <IgnoreForCI Condition="'$(RuntimeFlavor)' == 'Mono'">true</IgnoreForCI>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,7 +13,8 @@
   </ItemGroup>
   
   <ItemGroup>
-    <ProjectReference Include="..\src\Microsoft.Extensions.Caching.Memory.csproj" SkipUseReferenceAssembly="true" />
+    <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Extensions.Caching.Abstractions\src\Microsoft.Extensions.Caching.Abstractions.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Extensions.Caching.Memory\src\Microsoft.Extensions.Caching.Memory.csproj" SkipUseReferenceAssembly="true" />
     <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Extensions.DependencyInjection\src\Microsoft.Extensions.DependencyInjection.csproj" />
   </ItemGroup>
 

@@ -23,17 +23,12 @@
 #endif
 #include <stdlib.h>
 #ifndef DISABLE_LOG_PROFILER_GZ
-#ifdef INTERNAL_ZLIB
-#include <external/zlib/zlib.h>
-#else
 #include <zlib.h>
-#endif
-#endif
+#endif // DISABLE_LOG_PROFILER_GZ
 #include <glib.h>
 #include <mono/metadata/profiler.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/debug-helpers.h>
-#include <mono/utils/mono-counters.h>
 
 #define HASH_SIZE 9371
 #define SMALL_HASH_SIZE 31

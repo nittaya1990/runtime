@@ -4,7 +4,7 @@
 using System;
 using Xunit;
 
-namespace JitTest
+namespace JitTest_han3_ref_cs
 {
     public struct Ring
     {
@@ -70,6 +70,7 @@ namespace JitTest
         }
 
         [Fact]
+        [OuterLoop]
         public static int TestEntryPoint()
         {
             Column c1 = new Column(17, 17);

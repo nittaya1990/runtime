@@ -81,6 +81,7 @@ LEAF_END CONTEXT_CaptureContext, _TEXT
 
 LEAF_ENTRY RtlCaptureContext, _TEXT
     mov     DWORD PTR [rdi + CONTEXT_ContextFlags], (CONTEXT_AMD64 | CONTEXT_FULL | CONTEXT_SEGMENTS)
+    mov     QWORD PTR [rdi + CONTEXT_XStateFeaturesMask], 0
     jmp     C_FUNC(CONTEXT_CaptureContext)
 LEAF_END RtlCaptureContext, _TEXT
 
@@ -88,7 +89,7 @@ LEAF_ENTRY RtlRestoreContext, _TEXT
     push_nonvol_reg rbp
     alloc_stack (IRetFrameLengthAligned)
 
-#ifdef HAS_ASAN
+#ifdef HAS_ADDRESS_SANITIZER
     test    BYTE PTR [rdi + CONTEXT_ContextFlags], CONTEXT_CONTROL
     je      LOCAL_LABEL(Restore_CONTEXT_FLOATING_POINT)
 
@@ -107,23 +108,121 @@ LOCAL_LABEL(Done_Restore_CONTEXT_FLOATING_POINT):
     test    BYTE PTR [rdi + CONTEXT_ContextFlags], CONTEXT_XSTATE
     je      LOCAL_LABEL(Done_Restore_CONTEXT_XSTATE)
 
-    // Restore the extended state (for now, this is just the upper halves of YMM registers)
-    vinsertf128 ymm0, ymm0, xmmword ptr [rdi + (CONTEXT_VectorRegister + 0 * 16)], 1
-    vinsertf128 ymm1, ymm1, xmmword ptr [rdi + (CONTEXT_VectorRegister + 1 * 16)], 1
-    vinsertf128 ymm2, ymm2, xmmword ptr [rdi + (CONTEXT_VectorRegister + 2 * 16)], 1
-    vinsertf128 ymm3, ymm3, xmmword ptr [rdi + (CONTEXT_VectorRegister + 3 * 16)], 1
-    vinsertf128 ymm4, ymm4, xmmword ptr [rdi + (CONTEXT_VectorRegister + 4 * 16)], 1
-    vinsertf128 ymm5, ymm5, xmmword ptr [rdi + (CONTEXT_VectorRegister + 5 * 16)], 1
-    vinsertf128 ymm6, ymm6, xmmword ptr [rdi + (CONTEXT_VectorRegister + 6 * 16)], 1
-    vinsertf128 ymm7, ymm7, xmmword ptr [rdi + (CONTEXT_VectorRegister + 7 * 16)], 1
-    vinsertf128 ymm8, ymm8, xmmword ptr [rdi + (CONTEXT_VectorRegister + 8 * 16)], 1
-    vinsertf128 ymm9, ymm9, xmmword ptr [rdi + (CONTEXT_VectorRegister + 9 * 16)], 1
-    vinsertf128 ymm10, ymm10, xmmword ptr [rdi + (CONTEXT_VectorRegister + 10 * 16)], 1
-    vinsertf128 ymm11, ymm11, xmmword ptr [rdi + (CONTEXT_VectorRegister + 11 * 16)], 1
-    vinsertf128 ymm12, ymm12, xmmword ptr [rdi + (CONTEXT_VectorRegister + 12 * 16)], 1
-    vinsertf128 ymm13, ymm13, xmmword ptr [rdi + (CONTEXT_VectorRegister + 13 * 16)], 1
-    vinsertf128 ymm14, ymm14, xmmword ptr [rdi + (CONTEXT_VectorRegister + 14 * 16)], 1
-    vinsertf128 ymm15, ymm15, xmmword ptr [rdi + (CONTEXT_VectorRegister + 15 * 16)], 1
+    // Restore the YMM state
+    vinsertf128 ymm0, ymm0, xmmword ptr [rdi + (CONTEXT_Ymm0H + 0 * 16)], 1
+    vinsertf128 ymm1, ymm1, xmmword ptr [rdi + (CONTEXT_Ymm0H + 1 * 16)], 1
+    vinsertf128 ymm2, ymm2, xmmword ptr [rdi + (CONTEXT_Ymm0H + 2 * 16)], 1
+    vinsertf128 ymm3, ymm3, xmmword ptr [rdi + (CONTEXT_Ymm0H + 3 * 16)], 1
+    vinsertf128 ymm4, ymm4, xmmword ptr [rdi + (CONTEXT_Ymm0H + 4 * 16)], 1
+    vinsertf128 ymm5, ymm5, xmmword ptr [rdi + (CONTEXT_Ymm0H + 5 * 16)], 1
+    vinsertf128 ymm6, ymm6, xmmword ptr [rdi + (CONTEXT_Ymm0H + 6 * 16)], 1
+    vinsertf128 ymm7, ymm7, xmmword ptr [rdi + (CONTEXT_Ymm0H + 7 * 16)], 1
+    vinsertf128 ymm8, ymm8, xmmword ptr [rdi + (CONTEXT_Ymm0H + 8 * 16)], 1
+    vinsertf128 ymm9, ymm9, xmmword ptr [rdi + (CONTEXT_Ymm0H + 9 * 16)], 1
+    vinsertf128 ymm10, ymm10, xmmword ptr [rdi + (CONTEXT_Ymm0H + 10 * 16)], 1
+    vinsertf128 ymm11, ymm11, xmmword ptr [rdi + (CONTEXT_Ymm0H + 11 * 16)], 1
+    vinsertf128 ymm12, ymm12, xmmword ptr [rdi + (CONTEXT_Ymm0H + 12 * 16)], 1
+    vinsertf128 ymm13, ymm13, xmmword ptr [rdi + (CONTEXT_Ymm0H + 13 * 16)], 1
+    vinsertf128 ymm14, ymm14, xmmword ptr [rdi + (CONTEXT_Ymm0H + 14 * 16)], 1
+    vinsertf128 ymm15, ymm15, xmmword ptr [rdi + (CONTEXT_Ymm0H + 15 * 16)], 1
+
+    test    BYTE PTR [rdi + CONTEXT_XStateFeaturesMask], XSTATE_MASK_AVX512
+    je      LOCAL_LABEL(Done_Restore_CONTEXT_XSTATE)
+
+    // MacOS has specialized behavior where it reports AVX512 support but doesnt
+    // actually enable AVX512 until the first instruction is executed and does so
+    // on a per thread basis. It does this by catching the faulting instruction and
+    // checking for the EVEX encoding. The kmov instructions, despite being part
+    // of the AVX512 instruction set are VEX encoded and dont trigger the enablement
+    //
+    // See https://github.com/apple/darwin-xnu/blob/main/osfmk/i386/fpu.c#L174
+
+    // Restore the ZMM_Hi256 state
+    vinsertf64x4 zmm0, zmm0, ymmword ptr [rdi + (CONTEXT_Zmm0H + 0 * 32)], 1
+    vinsertf64x4 zmm1, zmm1, ymmword ptr [rdi + (CONTEXT_Zmm0H + 1 * 32)], 1
+    vinsertf64x4 zmm2, zmm2, ymmword ptr [rdi + (CONTEXT_Zmm0H + 2 * 32)], 1
+    vinsertf64x4 zmm3, zmm3, ymmword ptr [rdi + (CONTEXT_Zmm0H + 3 * 32)], 1
+    vinsertf64x4 zmm4, zmm4, ymmword ptr [rdi + (CONTEXT_Zmm0H + 4 * 32)], 1
+    vinsertf64x4 zmm5, zmm5, ymmword ptr [rdi + (CONTEXT_Zmm0H + 5 * 32)], 1
+    vinsertf64x4 zmm6, zmm6, ymmword ptr [rdi + (CONTEXT_Zmm0H + 6 * 32)], 1
+    vinsertf64x4 zmm7, zmm7, ymmword ptr [rdi + (CONTEXT_Zmm0H + 7 * 32)], 1
+    vinsertf64x4 zmm8, zmm8, ymmword ptr [rdi + (CONTEXT_Zmm0H + 8 * 32)], 1
+    vinsertf64x4 zmm9, zmm9, ymmword ptr [rdi + (CONTEXT_Zmm0H + 9 * 32)], 1
+    vinsertf64x4 zmm10, zmm10, ymmword ptr [rdi + (CONTEXT_Zmm0H + 10 * 32)], 1
+    vinsertf64x4 zmm11, zmm11, ymmword ptr [rdi + (CONTEXT_Zmm0H + 11 * 32)], 1
+    vinsertf64x4 zmm12, zmm12, ymmword ptr [rdi + (CONTEXT_Zmm0H + 12 * 32)], 1
+    vinsertf64x4 zmm13, zmm13, ymmword ptr [rdi + (CONTEXT_Zmm0H + 13 * 32)], 1
+    vinsertf64x4 zmm14, zmm14, ymmword ptr [rdi + (CONTEXT_Zmm0H + 14 * 32)], 1
+    vinsertf64x4 zmm15, zmm15, ymmword ptr [rdi + (CONTEXT_Zmm0H + 15 * 32)], 1
+
+    // Restore the Hi16_ZMM state
+    vmovups zmm16, zmmword ptr [rdi + (CONTEXT_Zmm16 + 0 * 64)]
+    vmovups zmm17, zmmword ptr [rdi + (CONTEXT_Zmm16 + 1 * 64)]
+    vmovups zmm18, zmmword ptr [rdi + (CONTEXT_Zmm16 + 2 * 64)]
+    vmovups zmm19, zmmword ptr [rdi + (CONTEXT_Zmm16 + 3 * 64)]
+    vmovups zmm20, zmmword ptr [rdi + (CONTEXT_Zmm16 + 4 * 64)]
+    vmovups zmm21, zmmword ptr [rdi + (CONTEXT_Zmm16 + 5 * 64)]
+    vmovups zmm22, zmmword ptr [rdi + (CONTEXT_Zmm16 + 6 * 64)]
+    vmovups zmm23, zmmword ptr [rdi + (CONTEXT_Zmm16 + 7 * 64)]
+    vmovups zmm24, zmmword ptr [rdi + (CONTEXT_Zmm16 + 8 * 64)]
+    vmovups zmm25, zmmword ptr [rdi + (CONTEXT_Zmm16 + 9 * 64)]
+    vmovups zmm26, zmmword ptr [rdi + (CONTEXT_Zmm16 + 10 * 64)]
+    vmovups zmm27, zmmword ptr [rdi + (CONTEXT_Zmm16 + 11 * 64)]
+    vmovups zmm28, zmmword ptr [rdi + (CONTEXT_Zmm16 + 12 * 64)]
+    vmovups zmm29, zmmword ptr [rdi + (CONTEXT_Zmm16 + 13 * 64)]
+    vmovups zmm30, zmmword ptr [rdi + (CONTEXT_Zmm16 + 14 * 64)]
+    vmovups zmm31, zmmword ptr [rdi + (CONTEXT_Zmm16 + 15 * 64)]
+
+    // Restore the Opmask state
+    kmovq k0, qword ptr [rdi + (CONTEXT_KMask0 + 0 * 8)]
+    kmovq k1, qword ptr [rdi + (CONTEXT_KMask0 + 1 * 8)]
+    kmovq k2, qword ptr [rdi + (CONTEXT_KMask0 + 2 * 8)]
+    kmovq k3, qword ptr [rdi + (CONTEXT_KMask0 + 3 * 8)]
+    kmovq k4, qword ptr [rdi + (CONTEXT_KMask0 + 4 * 8)]
+    kmovq k5, qword ptr [rdi + (CONTEXT_KMask0 + 5 * 8)]
+    kmovq k6, qword ptr [rdi + (CONTEXT_KMask0 + 6 * 8)]
+    kmovq k7, qword ptr [rdi + (CONTEXT_KMask0 + 7 * 8)]
+
+    test    BYTE PTR [rdi + CONTEXT_XStateFeaturesMask], XSTATE_MASK_APX
+    je      LOCAL_LABEL(Done_Restore_CONTEXT_XSTATE)
+
+    // TODO-XArch-APX:
+    // we are using raw hex code here to emit EGPRs-related changes,
+    // we will need to come back and re-write this part when assembler supports EGPRs.
+
+    // mov r16, qword ptr [rdi + CONTEXT_Egpr + 0 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0x87, 0x20, 0x0c, 0x00, 0x00
+    // mov r17, qword ptr [rdi + CONTEXT_Egpr + 1 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0x8f, 0x28, 0x0c, 0x00, 0x00
+    // mov r18, qword ptr [rdi + CONTEXT_Egpr + 2 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0x97, 0x30, 0x0c, 0x00, 0x00
+    // mov r19, qword ptr [rdi + CONTEXT_Egpr + 3 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0x9f, 0x38, 0x0c, 0x00, 0x00
+    // mov r20, qword ptr [rdi + CONTEXT_Egpr + 4 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0xa7, 0x40, 0x0c, 0x00, 0x00
+    // mov r21, qword ptr [rdi + CONTEXT_Egpr + 5 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0xaf, 0x48, 0x0c, 0x00, 0x00
+    // mov r22, qword ptr [rdi + CONTEXT_Egpr + 6 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0xb7, 0x50, 0x0c, 0x00, 0x00
+    // mov r23, qword ptr [rdi + CONTEXT_Egpr + 7 * 8]
+    .byte 0xd5, 0x48, 0x8b, 0xbf, 0x58, 0x0c, 0x00, 0x00
+    // mov r24, qword ptr [rdi + CONTEXT_Egpr + 8 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0x87, 0x60, 0x0c, 0x00, 0x00
+    // mov r25, qword ptr [rdi + CONTEXT_Egpr + 9 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0x8f, 0x68, 0x0c, 0x00, 0x00
+    // mov r26, qword ptr [rdi + CONTEXT_Egpr + 10 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0x97, 0x70, 0x0c, 0x00, 0x00
+    // mov r27, qword ptr [rdi + CONTEXT_Egpr + 11 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0x9f, 0x78, 0x0c, 0x00, 0x00
+    // mov r28, qword ptr [rdi + CONTEXT_Egpr + 12 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0xa7, 0x80, 0x0c, 0x00, 0x00
+    // mov r29, qword ptr [rdi + CONTEXT_Egpr + 13 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0xaf, 0x88, 0x0c, 0x00, 0x00
+    // mov r30, qword ptr [rdi + CONTEXT_Egpr + 14 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0xb7, 0x90, 0x0c, 0x00, 0x00
+    // mov r31, qword ptr [rdi + CONTEXT_Egpr + 15 * 8]
+    .byte 0xd5, 0x4c, 0x8b, 0xbf, 0x98, 0x0c, 0x00, 0x00
+
 LOCAL_LABEL(Done_Restore_CONTEXT_XSTATE):
 
     test    BYTE PTR [rdi + CONTEXT_ContextFlags], CONTEXT_CONTROL

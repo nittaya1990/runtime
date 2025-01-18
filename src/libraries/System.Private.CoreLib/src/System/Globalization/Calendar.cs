@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace System.Globalization
 {
@@ -23,36 +24,11 @@ namespace System.Globalization
     // For consistency, the first unit in each interval, e.g. the first month, is
     // assigned the value one.
     // The calculation of hour/minute/second is moved to Calendar from GregorianCalendar,
-    // since most of the calendars (or all?) have the same way of calcuating hour/minute/second.
+    // since most of the calendars (or all?) have the same way of calculating hour/minute/second.
 
     public abstract class Calendar : ICloneable
     {
-        // Number of 100ns (10E-7 second) ticks per time unit
-        internal const long TicksPerMillisecond = 10000;
-        internal const long TicksPerSecond = TicksPerMillisecond * 1000;
-        internal const long TicksPerMinute = TicksPerSecond * 60;
-        internal const long TicksPerHour = TicksPerMinute * 60;
-        internal const long TicksPerDay = TicksPerHour * 24;
-
-        // Number of milliseconds per time unit
-        internal const int MillisPerSecond = 1000;
-        internal const int MillisPerMinute = MillisPerSecond * 60;
-        internal const int MillisPerHour = MillisPerMinute * 60;
-        internal const int MillisPerDay = MillisPerHour * 24;
-
-        // Number of days in a non-leap year
-        internal const int DaysPerYear = 365;
-        // Number of days in 4 years
-        internal const int DaysPer4Years = DaysPerYear * 4 + 1;
-        // Number of days in 100 years
-        internal const int DaysPer100Years = DaysPer4Years * 25 - 1;
-        // Number of days in 400 years
-        internal const int DaysPer400Years = DaysPer100Years * 4 + 1;
-
-        // Number of days from 1/1/0001 to 1/1/10000
-        internal const int DaysTo10000 = DaysPer400Years * 25 - 366;
-
-        internal const long MaxMillis = (long)DaysTo10000 * MillisPerDay;
+        internal const long MaxMillis = (long)DateTime.DaysTo10000 * TimeSpan.MillisecondsPerDay;
 
         private int _currentEraValue = -1;
 
@@ -82,8 +58,10 @@ namespace System.Globalization
             return o;
         }
 
-        public static Calendar ReadOnly(Calendar calendar!!)
+        public static Calendar ReadOnly(Calendar calendar)
         {
+            ArgumentNullException.ThrowIfNull(calendar);
+
             if (calendar.IsReadOnly)
             {
                 return calendar;
@@ -110,7 +88,7 @@ namespace System.Globalization
         /// <summary>
         /// This is used to convert CurrentEra(0) to an appropriate era value.
         /// </summary>
-        internal virtual int CurrentEraValue
+        internal int CurrentEraValue
         {
             get
             {
@@ -153,7 +131,7 @@ namespace System.Globalization
             }
 
             long millis = (long)tempMillis;
-            long ticks = time.Ticks + millis * TicksPerMillisecond;
+            long ticks = time.Ticks + millis * TimeSpan.TicksPerMillisecond;
             CheckAddResult(ticks, MinSupportedDateTime, MaxSupportedDateTime);
             return new DateTime(ticks);
         }
@@ -179,7 +157,7 @@ namespace System.Globalization
         /// </summary>
         public virtual DateTime AddDays(DateTime time, int days)
         {
-            return Add(time, days, MillisPerDay);
+            return Add(time, days, (int)TimeSpan.MillisecondsPerDay);
         }
 
         /// <summary>
@@ -191,7 +169,7 @@ namespace System.Globalization
         /// </summary>
         public virtual DateTime AddHours(DateTime time, int hours)
         {
-            return Add(time, hours, MillisPerHour);
+            return Add(time, hours, (int)TimeSpan.MillisecondsPerHour);
         }
 
         /// <summary>
@@ -203,7 +181,7 @@ namespace System.Globalization
         /// </summary>
         public virtual DateTime AddMinutes(DateTime time, int minutes)
         {
-            return Add(time, minutes, MillisPerMinute);
+            return Add(time, minutes, (int)TimeSpan.MillisecondsPerMinute);
         }
 
         /// <summary>
@@ -235,7 +213,7 @@ namespace System.Globalization
         /// </summary>
         public virtual DateTime AddSeconds(DateTime time, int seconds)
         {
-            return Add(time, seconds, MillisPerSecond);
+            return Add(time, seconds, (int)TimeSpan.MillisecondsPerSecond);
         }
 
         // Returns the DateTime resulting from adding a number of
@@ -352,7 +330,7 @@ namespace System.Globalization
         /// </summary>
         /// <remarks>
         ///  The CalendarWeekRule.FirstDay rule: Week 1 begins on the first day of the year.
-        ///  Assume f is the specifed firstDayOfWeek,
+        ///  Assume f is the specified firstDayOfWeek,
         ///  and n is the day of week for January 1 of the specified year.
         ///  Assign offset = n - f;
         ///  Case 1: offset = 0
@@ -648,10 +626,10 @@ namespace System.Globalization
         /// Returns and assigns the maximum value to represent a two digit year.
         /// This value is the upper boundary of a 100 year range that allows a
         /// two digit year to be properly translated to a four digit year.
-        /// For example, if 2029 is the upper boundary, then a two digit value of
-        /// 30 should be interpreted as 1930 while a two digit value of 29 should
-        /// be interpreted as 2029.  In this example, the 100 year range would be
-        /// from 1930-2029.  See ToFourDigitYear().
+        /// For example, if 2049 is the upper boundary, then a two digit value of
+        /// 30 should be interpreted as 1950 while a two digit value of 49 should
+        /// be interpreted as 2049.  In this example, the 100 year range would be
+        /// from 1950-2049.  See ToFourDigitYear().
         /// </summary>
         public virtual int TwoDigitYearMax
         {
@@ -665,16 +643,13 @@ namespace System.Globalization
 
         /// <summary>
         /// Converts the year value to the appropriate century by using the
-        /// TwoDigitYearMax property.  For example, if the TwoDigitYearMax value is 2029,
-        /// then a two digit value of 30 will get converted to 1930 while a two digit
-        /// value of 29 will get converted to 2029.
+        /// TwoDigitYearMax property.  For example, if the TwoDigitYearMax value is 2049,
+        /// then a two digit value of 50 will get converted to 1950 while a two digit
+        /// value of 49 will get converted to 2049.
         /// </summary>
         public virtual int ToFourDigitYear(int year)
         {
-            if (year < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(year), year, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(year);
             if (year < 100)
             {
                 return (TwoDigitYearMax / 100 - (year > TwoDigitYearMax % 100 ? 1 : 0)) * 100 + year;
@@ -695,21 +670,21 @@ namespace System.Globalization
             {
                 throw new ArgumentOutOfRangeException(null, SR.ArgumentOutOfRange_BadHourMinuteSecond);
             }
-            if ((uint)millisecond >= MillisPerSecond)
+            if ((uint)millisecond >= TimeSpan.MillisecondsPerSecond)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(millisecond),
                     millisecond,
-                    SR.Format(SR.ArgumentOutOfRange_Range, 0, MillisPerSecond - 1));
+                    SR.Format(SR.ArgumentOutOfRange_Range, 0, TimeSpan.MillisecondsPerSecond - 1));
             }
 
             int totalSeconds = hour * 3600 + minute * 60 + second;
-            return totalSeconds * TicksPerSecond + millisecond * TicksPerMillisecond;
+            return totalSeconds * TimeSpan.TicksPerSecond + millisecond * TimeSpan.TicksPerMillisecond;
         }
 
         internal static int GetSystemTwoDigitYearSetting(CalendarId CalID, int defaultYearValue)
         {
-            int twoDigitYearMax = GlobalizationMode.UseNls ? CalendarData.NlsGetTwoDigitYearMax(CalID) : CalendarData.IcuGetTwoDigitYearMax();
+            int twoDigitYearMax = CalendarData.GetTwoDigitYearMax(CalID);
             return twoDigitYearMax >= 0 ? twoDigitYearMax : defaultYearValue;
         }
     }

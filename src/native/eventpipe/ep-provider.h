@@ -30,11 +30,9 @@ struct _EventPipeProvider_Internal {
 	ep_char16_t *provider_name_utf16;
 	// List of every event currently associated with the provider.
 	// New events can be added on-the-fly.
-	ep_rt_event_list_t event_list;
+	dn_list_t *event_list;
 	// The optional provider callback function.
 	EventPipeCallback callback_func;
-	// The optional provider callback_data free callback function.
-	EventPipeCallbackDataFree callback_data_free_func;
 	// The optional provider callback data pointer.
 	void *callback_data;
 	// The configuration object.
@@ -44,6 +42,12 @@ struct _EventPipeProvider_Internal {
 	// True if the provider has been deleted, but that deletion
 	// has been deferred until tracing is stopped.
 	bool delete_deferred;
+	// The number of pending EventPipeProvider callbacks that have
+	// not completed.
+	int64_t callbacks_pending;
+	// Event object used to signal eventpipe provider deletion
+	// that all in flight callbacks have completed.
+	ep_rt_wait_event_handle_t callbacks_complete_event;
 };
 
 #if !defined(EP_INLINE_GETTER_SETTER) && !defined(EP_IMPL_PROVIDER_GETTER_SETTER)
@@ -96,7 +100,6 @@ ep_provider_alloc (
 	EventPipeConfiguration *config,
 	const ep_char8_t *provider_name,
 	EventPipeCallback callback_func,
-	EventPipeCallbackDataFree callback_data_free_func,
 	void *callback_data);
 
 void

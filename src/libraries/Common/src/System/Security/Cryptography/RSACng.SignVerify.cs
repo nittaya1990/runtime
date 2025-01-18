@@ -4,9 +4,8 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 using Internal.Cryptography;
-
+using Microsoft.Win32.SafeHandles;
 using AsymmetricPaddingMode = Interop.NCrypt.AsymmetricPaddingMode;
 using BCRYPT_PKCS1_PADDING_INFO = Interop.BCrypt.BCRYPT_PKCS1_PADDING_INFO;
 using BCRYPT_PSS_PADDING_INFO = Interop.BCrypt.BCRYPT_PSS_PADDING_INFO;
@@ -24,7 +23,7 @@ namespace System.Security.Cryptography
                     KeyValuePair.Create(HashAlgorithmName.SHA512, 512 / 8),
                 });
 
-        private static int GetHashSizeInBytes(HashAlgorithmName hashAlgorithm)
+        internal static int GetHashSizeInBytes(HashAlgorithmName hashAlgorithm)
         {
             return s_hashSizes.GetOrAdd(
                 hashAlgorithm,
@@ -40,11 +39,11 @@ namespace System.Security.Cryptography
         /// <summary>
         ///     Computes the signature of a hash that was produced by the hash algorithm specified by "hashAlgorithm."
         /// </summary>
-        public override byte[] SignHash(byte[] hash!!, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
+        public override byte[] SignHash(byte[] hash, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
         {
+            ArgumentNullException.ThrowIfNull(hash);
             string? hashAlgorithmName = hashAlgorithm.Name;
             ArgumentException.ThrowIfNullOrEmpty(hashAlgorithmName, nameof(hashAlgorithm));
-
             ArgumentNullException.ThrowIfNull(padding);
 
             if (hash.Length != GetHashSizeInBytes(hashAlgorithm))
@@ -59,7 +58,7 @@ namespace System.Security.Cryptography
                 {
                     unsafe
                     {
-                        int estimatedSize = KeySize / 8;
+                        int estimatedSize = GetMaxOutputSize();
                         switch (padding.Mode)
                         {
                             case RSASignaturePaddingMode.Pkcs1:
@@ -122,8 +121,11 @@ namespace System.Security.Cryptography
         /// <summary>
         ///     Verifies that alleged signature of a hash is, in fact, a valid signature of that hash.
         /// </summary>
-        public override bool VerifyHash(byte[] hash!!, byte[] signature!!, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
+        public override bool VerifyHash(byte[] hash, byte[] signature, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
         {
+            ArgumentNullException.ThrowIfNull(hash);
+            ArgumentNullException.ThrowIfNull(signature);
+
             return VerifyHash((ReadOnlySpan<byte>)hash, (ReadOnlySpan<byte>)signature, hashAlgorithm, padding);
         }
 

@@ -13,7 +13,7 @@ namespace System.Net.NetworkInformation
         private MulticastIPAddressInformationCollection? _multicastAddreses;
         private readonly UnixNetworkInterface _uni;
         internal string? _dnsSuffix;
-        internal IPAddressCollection? _dnsAddresses;
+        internal IPAddressCollection _dnsAddresses;
 
         public UnixIPInterfaceProperties(UnixNetworkInterface uni, bool globalConfig = false)
         {
@@ -23,35 +23,21 @@ namespace System.Net.NetworkInformation
                 _dnsSuffix = GetDnsSuffix();
                 _dnsAddresses = GetDnsAddresses();
             }
-        }
-
-        public override UnicastIPAddressInformationCollection UnicastAddresses
-        {
-            get
+            else
             {
-                return _unicastAddresses ?? (_unicastAddresses = GetUnicastAddresses(_uni));
+                _dnsAddresses = new InternalIPAddressCollection();
             }
         }
 
-        public sealed override MulticastIPAddressInformationCollection MulticastAddresses
-        {
-            get
-            {
-                return _multicastAddreses ?? (_multicastAddreses = GetMulticastAddresses(_uni));
-            }
-        }
+        public override UnicastIPAddressInformationCollection UnicastAddresses =>
+            _unicastAddresses ??= GetUnicastAddresses(_uni);
+
+        public sealed override MulticastIPAddressInformationCollection MulticastAddresses =>
+            _multicastAddreses ??= GetMulticastAddresses(_uni);
 
         public override bool IsDnsEnabled
         {
-            get
-            {
-                if (_dnsAddresses == null)
-                {
-                    throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform);
-                }
-
-                return _dnsAddresses.Count > 0;
-            }
+            get => _dnsAddresses.Count > 0;
         }
 
         public sealed override string DnsSuffix
@@ -69,15 +55,7 @@ namespace System.Net.NetworkInformation
 
         public sealed override IPAddressCollection DnsAddresses
         {
-            get
-            {
-                if (_dnsAddresses == null)
-                {
-                    throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform);
-                }
-
-                return _dnsAddresses;
-            }
+            get => _dnsAddresses;
         }
 
         private static UnicastIPAddressInformationCollection GetUnicastAddresses(UnixNetworkInterface uni)
@@ -118,7 +96,7 @@ namespace System.Net.NetworkInformation
             }
         }
 
-        private static IPAddressCollection? GetDnsAddresses()
+        private static InternalIPAddressCollection GetDnsAddresses()
         {
             try
             {
@@ -127,7 +105,7 @@ namespace System.Net.NetworkInformation
             }
             catch (FileNotFoundException)
             {
-                return null;
+                return new InternalIPAddressCollection();
             }
         }
     }

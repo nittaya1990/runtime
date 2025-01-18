@@ -14,6 +14,13 @@
 
 #include "ep-rt-types.h"
 
+#include <containers/dn-vector.h>
+#include <containers/dn-vector-ptr.h>
+#include <containers/dn-list.h>
+#include <containers/dn-queue.h>
+#include <containers/dn-umap-t.h>
+#include <minipal/guid.h>
+
 /*
  * EventFilterDescriptor.
  */
@@ -69,6 +76,8 @@ struct _EventPipeProviderCallbackData_Internal {
 	int64_t keywords;
 	EventPipeEventLevel provider_level;
 	bool enabled;
+	EventPipeSessionID session_id;
+	EventPipeProvider *provider;
 };
 
 #if !defined(EP_INLINE_GETTER_SETTER) && !defined(EP_IMPL_EP_GETTER_SETTER)
@@ -83,6 +92,7 @@ EP_DEFINE_GETTER(EventPipeProviderCallbackData *, provider_callback_data, void *
 EP_DEFINE_GETTER(EventPipeProviderCallbackData *, provider_callback_data, int64_t, keywords)
 EP_DEFINE_GETTER(EventPipeProviderCallbackData *, provider_callback_data, EventPipeEventLevel, provider_level)
 EP_DEFINE_GETTER(EventPipeProviderCallbackData *, provider_callback_data, bool, enabled)
+EP_DEFINE_GETTER(EventPipeProviderCallbackData *, provider_callback_data, EventPipeSessionID, session_id)
 
 EventPipeProviderCallbackData *
 ep_provider_callback_data_alloc (
@@ -91,7 +101,9 @@ ep_provider_callback_data_alloc (
 	void *callback_data,
 	int64_t keywords,
 	EventPipeEventLevel provider_level,
-	bool enabled);
+	bool enabled,
+	EventPipeSessionID session_id,
+	EventPipeProvider *provider);
 
 EventPipeProviderCallbackData *
 ep_provider_callback_data_alloc_copy (EventPipeProviderCallbackData *provider_callback_data_src);
@@ -107,7 +119,9 @@ ep_provider_callback_data_init (
 	void *callback_data,
 	int64_t keywords,
 	EventPipeEventLevel provider_level,
-	bool enabled);
+	bool enabled,
+	EventPipeSessionID session_id,
+	EventPipeProvider *provider);
 
 EventPipeProviderCallbackData *
 ep_provider_callback_data_init_copy (
@@ -134,7 +148,7 @@ struct _EventPipeProviderCallbackDataQueue {
 #else
 struct _EventPipeProviderCallbackDataQueue_Internal {
 #endif
-	ep_rt_provider_callback_data_queue_t queue;
+	dn_queue_t *queue;
 };
 
 #if !defined(EP_INLINE_GETTER_SETTER) && !defined(EP_IMPL_EP_GETTER_SETTER)
@@ -143,7 +157,7 @@ struct _EventPipeProviderCallbackDataQueue {
 };
 #endif
 
-EP_DEFINE_GETTER_REF(EventPipeProviderCallbackDataQueue *, provider_callback_data_queue, ep_rt_provider_callback_data_queue_t *, queue)
+EP_DEFINE_GETTER(EventPipeProviderCallbackDataQueue *, provider_callback_data_queue, dn_queue_t *, queue)
 
 EventPipeProviderCallbackDataQueue *
 ep_provider_callback_data_queue_init (EventPipeProviderCallbackDataQueue *provider_callback_data_queue);

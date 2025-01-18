@@ -4,10 +4,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
+using System.Text;
 
 using Internal.IL;
 using Internal.TypeSystem;
@@ -148,7 +146,7 @@ namespace TypeSystemTests
             MethodDesc methodWithInterestingShapes = modOptTester.GetMethods().Single(m => string.Equals(m.Name, "Method4"));
 
             // Create assembly with reference to interesting method
-            TypeSystemMetadataEmitter metadataEmitter = new TypeSystemMetadataEmitter(new System.Reflection.AssemblyName("Lookup"), _context);
+            TypeSystemMetadataEmitter metadataEmitter = new TypeSystemMetadataEmitter(new AssemblyNameInfo("Lookup"), _context);
             var token = metadataEmitter.GetMethodRef(methodWithInterestingShapes);
             Stream peStream = new MemoryStream();
             metadataEmitter.SerializeToStream(peStream);
@@ -176,7 +174,7 @@ namespace TypeSystemTests
             var typeInInitialContext = _context.GetWellKnownType(WellKnownType.Int32).MakeArrayType(3);
 
             // Create assembly with reference to interesting type
-            TypeSystemMetadataEmitter metadataEmitter = new TypeSystemMetadataEmitter(new System.Reflection.AssemblyName("Lookup"), _context);
+            TypeSystemMetadataEmitter metadataEmitter = new TypeSystemMetadataEmitter(new AssemblyNameInfo("Lookup"), _context);
             var token = metadataEmitter.GetTypeRef(typeInInitialContext);
             Stream peStream = new MemoryStream();
             metadataEmitter.SerializeToStream(peStream);
@@ -195,6 +193,35 @@ namespace TypeSystemTests
             var typeInLookupContext = lookupContext.GetWellKnownType(WellKnownType.Int32).MakeArrayType(3);
 
             Assert.Equal(typeInLookupContext, int32ArrayFromLookup);
+        }
+
+        [Fact]
+        public void TestSerializedSignatureWithReferenceToFieldWithModOpt()
+        {
+
+            MetadataType modOptTester = _testModule.GetType("", "ModOptTester");
+            FieldDesc fieldWithModOpt = modOptTester.GetFields().Single(m => string.Equals(m.Name, "fieldWithModOpt"));
+
+            // Create assembly with reference to interesting method
+            TypeSystemMetadataEmitter metadataEmitter = new TypeSystemMetadataEmitter(new AssemblyNameInfo("Lookup"), _context);
+            var token = metadataEmitter.GetFieldRef(fieldWithModOpt);
+            MemoryStream peStream = new MemoryStream();
+            metadataEmitter.SerializeToStream(peStream);
+
+            peStream.Seek(0, SeekOrigin.Begin);
+
+            // Create new TypeSystemContext with just created assembly inside
+            var lookupContext = new TestTypeSystemContext(TargetArchitecture.X64);
+            var systemModule = lookupContext.CreateModuleForSimpleName("CoreTestAssembly");
+            lookupContext.SetSystemModule(systemModule);
+
+            lookupContext.CreateModuleForSimpleName("Lookup", peStream);
+
+            // Use generated assembly to trigger a load through the token created above and verify that it loads correctly
+            var ilLookupModule = (EcmaModule)lookupContext.GetModuleForSimpleName("Lookup");
+            FieldDesc fieldFound = ilLookupModule.GetField(token);
+
+            Assert.Equal("fieldWithModOpt", fieldFound.Name);
         }
 
         [Fact]
@@ -224,7 +251,7 @@ namespace TypeSystemTests
                         {
                             successes++;
                         }
-                        _output.WriteLine($"call {tokenReferenceResult.ToString()}");
+                        _output.WriteLine($"call {tokenReferenceResult}");
                         break;
                 }
             }

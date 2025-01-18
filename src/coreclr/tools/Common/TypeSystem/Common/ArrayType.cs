@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -261,9 +260,18 @@ namespace Internal.TypeSystem
                         case ArrayMethodKind.AddressWithHiddenArg:
                             {
                                 var parameters = new TypeDesc[_owningType.Rank + 1];
-                                parameters[0] = Context.GetWellKnownType(WellKnownType.IntPtr);
-                                for (int i = 0; i < _owningType.Rank; i++)
-                                    parameters[i + 1] = _owningType.Context.GetWellKnownType(WellKnownType.Int32);
+                                if (Context.Target.Architecture == TargetArchitecture.X86)
+                                {
+                                    for (int i = 0; i < _owningType.Rank; i++)
+                                        parameters[i] = _owningType.Context.GetWellKnownType(WellKnownType.Int32);
+                                    parameters[_owningType.Rank] = Context.GetPointerType(Context.GetWellKnownType(WellKnownType.Void));
+                                }
+                                else
+                                {
+                                    parameters[0] = Context.GetPointerType(Context.GetWellKnownType(WellKnownType.Void));
+                                    for (int i = 0; i < _owningType.Rank; i++)
+                                        parameters[i + 1] = _owningType.Context.GetWellKnownType(WellKnownType.Int32);
+                                }
                                 _signature = new MethodSignature(0, 0, _owningType.ElementType.MakeByRefType(), parameters, MethodSignature.EmbeddedSignatureMismatchPermittedFlag);
                             }
                             break;

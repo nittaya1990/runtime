@@ -159,7 +159,7 @@ namespace ILCompiler.IBC
                 }
             }
 
-            return new IBCProfileData(parsedData.PartialNGen, methodProfileData);
+            return new IBCProfileData(null, parsedData.PartialNGen, methodProfileData);
         }
 
         public struct IBCBlobKey : IEquatable<IBCBlobKey>
@@ -414,7 +414,7 @@ namespace ILCompiler.IBC
                 if (method.Name == methodName)
                 {
                     EcmaMethod ecmaCandidateMethod = method as EcmaMethod;
-                    if (method == null)
+                    if (ecmaCandidateMethod == null)
                         continue;
 
                     MetadataReader metadataReader = ecmaCandidateMethod.MetadataReader;

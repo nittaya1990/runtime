@@ -4,26 +4,29 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.Versioning;
 
 using EditorBrowsableAttribute = System.ComponentModel.EditorBrowsableAttribute;
 using EditorBrowsableState = System.ComponentModel.EditorBrowsableState;
 
-#pragma warning disable 0809  //warning CS0809: Obsolete member 'Span<T>.Equals(object)' overrides non-obsolete member 'object.Equals(object)'
+#pragma warning disable 0809 // Obsolete member 'Span<T>.Equals(object)' overrides non-obsolete member 'object.Equals(object)'
 
 namespace System
 {
     /// <summary>
     /// ReadOnlySpan represents a contiguous region of arbitrary memory. Unlike arrays, it can point to either managed
-    /// or native memory, or to memory allocated on the stack. It is type- and memory-safe.
+    /// or native memory, or to memory allocated on the stack. It is type-safe and memory-safe.
     /// </summary>
     [DebuggerTypeProxy(typeof(SpanDebugView<>))]
     [DebuggerDisplay("{ToString(),raw}")]
     [NonVersionable]
+    [NativeMarshalling(typeof(ReadOnlySpanMarshaller<,>))]
+    [Intrinsic]
     public readonly ref struct ReadOnlySpan<T>
     {
         /// <summary>A byref or a native ptr.</summary>
-        internal readonly ByReference<T> _pointer;
+        internal readonly ref T _reference;
         /// <summary>The number of elements this ReadOnlySpan contains.</summary>
         private readonly int _length;
 
@@ -41,7 +44,7 @@ namespace System
                 return; // returns default
             }
 
-            _pointer = new ByReference<T>(ref MemoryMarshal.GetArrayDataReference(array));
+            _reference = ref MemoryMarshal.GetArrayDataReference(array);
             _length = array.Length;
         }
 
@@ -50,10 +53,10 @@ namespace System
         /// at 'start' index and ending at 'end' index (exclusive).
         /// </summary>
         /// <param name="array">The target array.</param>
-        /// <param name="start">The index at which to begin the read-only span.</param>
+        /// <param name="start">The zero-based index at which to begin the read-only span.</param>
         /// <param name="length">The number of items in the read-only span.</param>
         /// <remarks>Returns default when <paramref name="array"/> is null.</remarks>
-        /// <exception cref="System.ArgumentOutOfRangeException">
+        /// <exception cref="ArgumentOutOfRangeException">
         /// Thrown when the specified <paramref name="start"/> or end index is not in the range (&lt;0 or &gt;Length).
         /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -75,7 +78,7 @@ namespace System
                 ThrowHelper.ThrowArgumentOutOfRangeException();
 #endif
 
-            _pointer = new ByReference<T>(ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(array), (nint)(uint)start /* force zero-extension */));
+            _reference = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(array), (nint)(uint)start /* force zero-extension */);
             _length = length;
         }
 
@@ -87,10 +90,10 @@ namespace System
         /// </summary>
         /// <param name="pointer">An unmanaged pointer to memory.</param>
         /// <param name="length">The number of <typeparamref name="T"/> elements the memory contains.</param>
-        /// <exception cref="System.ArgumentException">
+        /// <exception cref="ArgumentException">
         /// Thrown when <typeparamref name="T"/> is reference type or contains pointers and hence cannot be stored in unmanaged memory.
         /// </exception>
-        /// <exception cref="System.ArgumentOutOfRangeException">
+        /// <exception cref="ArgumentOutOfRangeException">
         /// Thrown when the specified <paramref name="length"/> is negative.
         /// </exception>
         [CLSCompliant(false)]
@@ -102,26 +105,35 @@ namespace System
             if (length < 0)
                 ThrowHelper.ThrowArgumentOutOfRangeException();
 
-            _pointer = new ByReference<T>(ref Unsafe.As<byte, T>(ref *(byte*)pointer));
+            _reference = ref *(T*)pointer;
             _length = length;
         }
 
-        // Constructor for internal use only.
+        /// <summary>Creates a new <see cref="ReadOnlySpan{T}"/> of length 1 around the specified reference.</summary>
+        /// <param name="reference">A reference to data.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal ReadOnlySpan(ref T ptr, int length)
+        public ReadOnlySpan(ref readonly T reference)
+        {
+            _reference = ref Unsafe.AsRef(in reference);
+            _length = 1;
+        }
+
+        // Constructor for internal use only. It is not safe to expose publicly, and is instead exposed via the unsafe MemoryMarshal.CreateReadOnlySpan.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal ReadOnlySpan(ref T reference, int length)
         {
             Debug.Assert(length >= 0);
 
-            _pointer = new ByReference<T>(ref ptr);
+            _reference = ref reference;
             _length = length;
         }
 
         /// <summary>
         /// Returns the specified element of the read-only span.
         /// </summary>
-        /// <param name="index"></param>
+        /// <param name="index">The zero-based index.</param>
         /// <returns></returns>
-        /// <exception cref="System.IndexOutOfRangeException">
+        /// <exception cref="IndexOutOfRangeException">
         /// Thrown when index less than 0 or index greater than or equal to Length
         /// </exception>
         public ref readonly T this[int index]
@@ -133,7 +145,7 @@ namespace System
             {
                 if ((uint)index >= (uint)_length)
                     ThrowHelper.ThrowIndexOutOfRangeException();
-                return ref Unsafe.Add(ref _pointer.Value, (nint)(uint)index /* force zero-extension */);
+                return ref Unsafe.Add(ref _reference, (nint)(uint)index /* force zero-extension */);
             }
         }
 
@@ -142,17 +154,19 @@ namespace System
         /// </summary>
         public int Length
         {
+            [Intrinsic]
             [NonVersionable]
             get => _length;
         }
 
         /// <summary>
-        /// Returns true if Length is 0.
+        /// Gets a value indicating whether this <see cref="ReadOnlySpan{T}"/> is empty.
         /// </summary>
+        /// <value><see langword="true"/> if this span is empty; otherwise, <see langword="false"/>.</value>
         public bool IsEmpty
         {
             [NonVersionable]
-            get => 0 >= (uint)_length; // Workaround for https://github.com/dotnet/runtime/issues/10950
+            get => _length == 0;
         }
 
         /// <summary>
@@ -163,10 +177,10 @@ namespace System
 
         /// <summary>
         /// This method is not supported as spans cannot be boxed. To compare two spans, use operator==.
-        /// <exception cref="System.NotSupportedException">
+        /// </summary>
+        /// <exception cref="NotSupportedException">
         /// Always thrown by this method.
         /// </exception>
-        /// </summary>
         [Obsolete("Equals() on ReadOnlySpan will always throw an exception. Use the equality operator instead.")]
         [EditorBrowsable(EditorBrowsableState.Never)]
         public override bool Equals(object? obj) =>
@@ -174,10 +188,10 @@ namespace System
 
         /// <summary>
         /// This method is not supported as spans cannot be boxed.
-        /// <exception cref="System.NotSupportedException">
+        /// </summary>
+        /// <exception cref="NotSupportedException">
         /// Always thrown by this method.
         /// </exception>
-        /// </summary>
         [Obsolete("GetHashCode() on ReadOnlySpan will always throw an exception.")]
         [EditorBrowsable(EditorBrowsableState.Never)]
         public override int GetHashCode() =>
@@ -198,6 +212,18 @@ namespace System
         /// Returns a 0-length read-only span whose base is the null pointer.
         /// </summary>
         public static ReadOnlySpan<T> Empty => default;
+
+        /// <summary>
+        /// Casts a read-only span of <typeparamref name="TDerived"/> to a read-only span of <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="TDerived">The element type of the source read-only span, which must be derived from <typeparamref name="T"/>.</typeparam>
+        /// <param name="items">The source read-only span. No copy is made.</param>
+        /// <returns>A read-only span with elements cast to the new type.</returns>
+        /// <remarks>This method uses a covariant cast, producing a read-only span that shares the same memory as the source. The relationships expressed in the type constraints ensure that the cast is a safe operation.</remarks>
+        public static ReadOnlySpan<T> CastUp<TDerived>(ReadOnlySpan<TDerived> items) where TDerived : class?, T
+        {
+            return new ReadOnlySpan<T>(ref Unsafe.As<TDerived, T>(ref items._reference), items.Length);
+        }
 
         /// <summary>Gets an enumerator for this span.</summary>
         public Enumerator GetEnumerator() => new Enumerator(this);
@@ -250,7 +276,7 @@ namespace System
         {
             // Ensure that the native code has just one forward branch that is predicted-not-taken.
             ref T ret = ref Unsafe.NullRef<T>();
-            if (_length != 0) ret = ref _pointer.Value;
+            if (_length != 0) ret = ref _reference;
             return ref ret;
         }
 
@@ -258,12 +284,11 @@ namespace System
         /// Copies the contents of this read-only span into destination span. If the source
         /// and destinations overlap, this method behaves as if the original values in
         /// a temporary location before the destination is overwritten.
-        ///
+        /// </summary>
         /// <param name="destination">The span to copy items into.</param>
-        /// <exception cref="System.ArgumentException">
+        /// <exception cref="ArgumentException">
         /// Thrown when the destination Span is shorter than the source Span.
         /// </exception>
-        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void CopyTo(Span<T> destination)
         {
@@ -273,7 +298,7 @@ namespace System
 
             if ((uint)_length <= (uint)destination.Length)
             {
-                Buffer.Memmove(ref destination._pointer.Value, ref _pointer.Value, (uint)_length);
+                Buffer.Memmove(ref destination._reference, ref _reference, (uint)_length);
             }
             else
             {
@@ -294,7 +319,7 @@ namespace System
             bool retVal = false;
             if ((uint)_length <= (uint)destination.Length)
             {
-                Buffer.Memmove(ref destination._pointer.Value, ref _pointer.Value, (uint)_length);
+                Buffer.Memmove(ref destination._reference, ref _reference, (uint)_length);
                 retVal = true;
             }
             return retVal;
@@ -306,7 +331,7 @@ namespace System
         /// </summary>
         public static bool operator ==(ReadOnlySpan<T> left, ReadOnlySpan<T> right) =>
             left._length == right._length &&
-            Unsafe.AreSame<T>(ref left._pointer.Value, ref right._pointer.Value);
+            Unsafe.AreSame(ref left._reference, ref right._reference);
 
         /// <summary>
         /// For <see cref="ReadOnlySpan{Char}"/>, returns a new instance of string that represents the characters pointed to by the span.
@@ -316,7 +341,7 @@ namespace System
         {
             if (typeof(T) == typeof(char))
             {
-                return new string(new ReadOnlySpan<char>(ref Unsafe.As<T, char>(ref _pointer.Value), _length));
+                return new string(new ReadOnlySpan<char>(ref Unsafe.As<T, char>(ref _reference), _length));
             }
             return $"System.ReadOnlySpan<{typeof(T).Name}>[{_length}]";
         }
@@ -324,8 +349,8 @@ namespace System
         /// <summary>
         /// Forms a slice out of the given read-only span, beginning at 'start'.
         /// </summary>
-        /// <param name="start">The index at which to begin this slice.</param>
-        /// <exception cref="System.ArgumentOutOfRangeException">
+        /// <param name="start">The zero-based index at which to begin this slice.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
         /// Thrown when the specified <paramref name="start"/> index is not in range (&lt;0 or &gt;Length).
         /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -334,15 +359,15 @@ namespace System
             if ((uint)start > (uint)_length)
                 ThrowHelper.ThrowArgumentOutOfRangeException();
 
-            return new ReadOnlySpan<T>(ref Unsafe.Add(ref _pointer.Value, (nint)(uint)start /* force zero-extension */), _length - start);
+            return new ReadOnlySpan<T>(ref Unsafe.Add(ref _reference, (nint)(uint)start /* force zero-extension */), _length - start);
         }
 
         /// <summary>
         /// Forms a slice out of the given read-only span, beginning at 'start', of given length
         /// </summary>
-        /// <param name="start">The index at which to begin this slice.</param>
+        /// <param name="start">The zero-based index at which to begin this slice.</param>
         /// <param name="length">The desired length for the slice (exclusive).</param>
-        /// <exception cref="System.ArgumentOutOfRangeException">
+        /// <exception cref="ArgumentOutOfRangeException">
         /// Thrown when the specified <paramref name="start"/> or end index is not in range (&lt;0 or &gt;Length).
         /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -357,7 +382,7 @@ namespace System
                 ThrowHelper.ThrowArgumentOutOfRangeException();
 #endif
 
-            return new ReadOnlySpan<T>(ref Unsafe.Add(ref _pointer.Value, (nint)(uint)start /* force zero-extension */), length);
+            return new ReadOnlySpan<T>(ref Unsafe.Add(ref _reference, (nint)(uint)start /* force zero-extension */), length);
         }
 
         /// <summary>
@@ -371,7 +396,7 @@ namespace System
                 return Array.Empty<T>();
 
             var destination = new T[_length];
-            Buffer.Memmove(ref MemoryMarshal.GetArrayDataReference(destination), ref _pointer.Value, (uint)_length);
+            Buffer.Memmove(ref MemoryMarshal.GetArrayDataReference(destination), ref _reference, (uint)_length);
             return destination;
         }
     }

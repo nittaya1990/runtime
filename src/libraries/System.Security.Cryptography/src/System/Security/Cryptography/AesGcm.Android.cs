@@ -12,6 +12,7 @@ namespace System.Security.Cryptography
         private SafeEvpCipherCtxHandle _ctxHandle;
 
         public static bool IsSupported => true;
+        public static KeySizes TagByteSizes { get; } = new KeySizes(12, 16, 1);
 
         [MemberNotNull(nameof(_ctxHandle))]
         private void ImportKey(ReadOnlySpan<byte> key)
@@ -23,7 +24,7 @@ namespace System.Security.Cryptography
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
                 key,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 Interop.Crypto.EvpCipherDirection.NoChange);
             Interop.Crypto.CipherSetNonceLength(_ctxHandle, NonceSize);
         }
@@ -43,7 +44,7 @@ namespace System.Security.Cryptography
 
             Interop.Crypto.EvpCipherSetKeyAndIV(
                 _ctxHandle,
-                Span<byte>.Empty,
+                ReadOnlySpan<byte>.Empty,
                 nonce,
                 Interop.Crypto.EvpCipherDirection.Encrypt);
 
@@ -55,7 +56,8 @@ namespace System.Security.Cryptography
             byte[]? rented = null;
             try
             {
-                Span<byte> ciphertextAndTag = stackalloc byte[0];
+                scoped Span<byte> ciphertextAndTag;
+
                 // Arbitrary limit.
                 const int StackAllocMax = 128;
                 if (checked(ciphertext.Length + tag.Length) <= StackAllocMax)
@@ -73,11 +75,13 @@ namespace System.Security.Cryptography
                     throw new CryptographicException();
                 }
 
-                if (!Interop.Crypto.EvpCipherFinalEx(
+                if (!Interop.Crypto.EvpAeadCipherFinalEx(
                     _ctxHandle,
                     ciphertextAndTag.Slice(ciphertextBytesWritten),
-                    out int bytesWritten))
+                    out int bytesWritten,
+                    out bool authTagMismatch))
                 {
+                    Debug.Assert(!authTagMismatch);
                     throw new CryptographicException();
                 }
 
@@ -140,13 +144,20 @@ namespace System.Security.Cryptography
 
             plaintextBytesWritten += bytesWritten;
 
-            if (!Interop.Crypto.EvpCipherFinalEx(
+            if (!Interop.Crypto.EvpAeadCipherFinalEx(
                 _ctxHandle,
                 plaintext.Slice(plaintextBytesWritten),
-                out bytesWritten))
+                out bytesWritten,
+                out bool authTagMismatch))
             {
                 CryptographicOperations.ZeroMemory(plaintext);
-                throw new CryptographicException(SR.Cryptography_AuthTagMismatch);
+
+                if (authTagMismatch)
+                {
+                    throw new AuthenticationTagMismatchException();
+                }
+
+                throw new CryptographicException(SR.Arg_CryptographyException);
             }
 
             plaintextBytesWritten += bytesWritten;
@@ -162,10 +173,10 @@ namespace System.Security.Cryptography
         {
             return keySizeInBits switch
             {
-                 128 => Interop.Crypto.EvpAes128Gcm(),
-                 192 => Interop.Crypto.EvpAes192Gcm(),
-                 256 => Interop.Crypto.EvpAes256Gcm(),
-                 _ => IntPtr.Zero
+                128 => Interop.Crypto.EvpAes128Gcm(),
+                192 => Interop.Crypto.EvpAes192Gcm(),
+                256 => Interop.Crypto.EvpAes256Gcm(),
+                _ => IntPtr.Zero
             };
         }
 

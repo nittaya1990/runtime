@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 using Xunit;
 using static TestHelpers;
 
-class GetMainProgramHandleTests
+public class GetMainProgramHandleTests
 {
     // Mobile test runs aren't hosted by corerun, so we don't have a well-known export to test here
     [ConditionalFact(nameof(IsHostedByCoreRun))]
@@ -26,8 +26,8 @@ class GetMainProgramHandleTests
         IntPtr handle = NativeLibrary.Load(NativeLibraryToLoad.GetFullPath());
         try
         {
-            // NativeLibrary does not load symbols globally, so we shouldn't be able to discover symbols from libaries loaded
-            // with NativeLibary.Load.
+            // NativeLibrary does not load symbols globally, so we shouldn't be able to discover symbols from libraries loaded
+            // with NativeLibrary.Load.
             EXPECT(GetSymbolFromMainProgramHandle("LocallyLoadedNativeLib", TestLibrary.Utilities.IsX86 ? "_NativeSum@8" : "NativeSum"),  TestResult.ReturnFailure);
             EXPECT(GetSymbolFromMainProgramHandle("LocallyLoadedNativeLib", "NonNativeSum"), TestResult.ReturnFailure);
 
@@ -45,7 +45,7 @@ class GetMainProgramHandleTests
         // On non-Windows platforms, symbols from globally loaded shared libraries will also be discoverable.
         // Globally loading symbols is not the .NET default, so we use a call to dlopen in native code
         // with the right flags to test the scenario.
-        IntPtr handle = LoadLibraryGlobally(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
+        IntPtr handle = LoadLibraryGlobally(Path.Combine(NativeLibraryToLoad.GetDirectory(), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
 
         try
         {
@@ -64,7 +64,7 @@ class GetMainProgramHandleTests
         // On non-Windows platforms, symbols from globally loaded shared libraries will also be discoverable.
         // Globally loading symbols is not the .NET default, so we use a call to dlopen in native code
         // with the right flags to test the scenario.
-        IntPtr handle = LoadLibraryGlobally(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
+        IntPtr handle = LoadLibraryGlobally(Path.Combine(NativeLibraryToLoad.GetDirectory(), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
 
         try
         {
@@ -83,7 +83,7 @@ class GetMainProgramHandleTests
         // On non-Windows platforms, symbols from globally loaded shared libraries will also be discoverable.
         // Globally loading symbols is not the .NET default, so we use a call to dlopen in native code
         // with the right flags to test the scenario.
-        IntPtr handle = LoadLibraryGlobally(Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
+        IntPtr handle = LoadLibraryGlobally(Path.Combine(NativeLibraryToLoad.GetDirectory(), NativeLibraryToLoad.GetLibraryFileName("GloballyLoadedNativeLibrary")));
 
         try
         {

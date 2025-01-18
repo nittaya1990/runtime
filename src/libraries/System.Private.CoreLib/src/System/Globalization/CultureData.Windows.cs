@@ -217,7 +217,7 @@ namespace System.Globalization
 
             if (!_bUseOverrides)
             {
-                return new string[] { icuFormatString };
+                return [icuFormatString];
             }
 
             // When using ICU and need to get user overrides, we put the user override at the beginning
@@ -226,19 +226,19 @@ namespace System.Globalization
             Debug.Assert(!string.IsNullOrEmpty(userOverride));
 
             return userOverride != icuFormatString ?
-                 new string[] { userOverride, icuFormatString } : new string[] { userOverride };
+                 [userOverride, icuFormatString] : [userOverride];
         }
 
-        private int GetAnsiCodePage(string cultureName) =>
+        private int GetAnsiCodePage(string _ /*cultureName*/) =>
             NlsGetLocaleInfo(LocaleNumberData.AnsiCodePage);
 
-        private int GetOemCodePage(string cultureName) =>
+        private int GetOemCodePage(string _ /*cultureName*/) =>
             NlsGetLocaleInfo(LocaleNumberData.OemCodePage);
 
-        private int GetMacCodePage(string cultureName) =>
+        private int GetMacCodePage(string _ /*cultureName*/) =>
             NlsGetLocaleInfo(LocaleNumberData.MacCodePage);
 
-        private int GetEbcdicCodePage(string cultureName) =>
+        private int GetEbcdicCodePage(string _ /*cultureName*/) =>
             NlsGetLocaleInfo(LocaleNumberData.EbcdicCodePage);
 
         // If we are using ICU and loading the calendar data for the user's default

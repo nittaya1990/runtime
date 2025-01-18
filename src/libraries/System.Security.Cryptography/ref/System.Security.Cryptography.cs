@@ -50,6 +50,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.Aes Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.Aes? Create(string algorithmName) { throw null; }
     }
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
@@ -94,8 +95,8 @@ namespace System.Security.Cryptography
         protected override bool TryEncryptCfbCore(System.ReadOnlySpan<byte> plaintext, System.ReadOnlySpan<byte> iv, System.Span<byte> destination, System.Security.Cryptography.PaddingMode paddingMode, int feedbackSizeInBits, out int bytesWritten) { throw null; }
         protected override bool TryEncryptEcbCore(System.ReadOnlySpan<byte> plaintext, System.Span<byte> destination, System.Security.Cryptography.PaddingMode paddingMode, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class AesCryptoServiceProvider : System.Security.Cryptography.Aes
     {
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
@@ -120,21 +121,28 @@ namespace System.Security.Cryptography
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
+    [System.Runtime.Versioning.SupportedOSPlatform("ios13.0")]
+    [System.Runtime.Versioning.SupportedOSPlatform("tvos13.0")]
     public sealed partial class AesGcm : System.IDisposable
     {
+        [System.ObsoleteAttribute("AesGcm should indicate the required tag size for encryption and decryption. Use a constructor that accepts the tag size.", DiagnosticId="SYSLIB0053", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public AesGcm(byte[] key) { }
+        public AesGcm(byte[] key, int tagSizeInBytes) { }
+        [System.ObsoleteAttribute("AesGcm should indicate the required tag size for encryption and decryption. Use a constructor that accepts the tag size.", DiagnosticId="SYSLIB0053", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public AesGcm(System.ReadOnlySpan<byte> key) { }
+        public AesGcm(System.ReadOnlySpan<byte> key, int tagSizeInBytes) { }
         public static bool IsSupported { get { throw null; } }
         public static System.Security.Cryptography.KeySizes NonceByteSizes { get { throw null; } }
         public static System.Security.Cryptography.KeySizes TagByteSizes { get { throw null; } }
+        public int? TagSizeInBytes { get { throw null; } }
         public void Decrypt(byte[] nonce, byte[] ciphertext, byte[] tag, byte[] plaintext, byte[]? associatedData = null) { }
         public void Decrypt(System.ReadOnlySpan<byte> nonce, System.ReadOnlySpan<byte> ciphertext, System.ReadOnlySpan<byte> tag, System.Span<byte> plaintext, System.ReadOnlySpan<byte> associatedData = default(System.ReadOnlySpan<byte>)) { }
         public void Dispose() { }
         public void Encrypt(byte[] nonce, byte[] plaintext, byte[] ciphertext, byte[] tag, byte[]? associatedData = null) { }
         public void Encrypt(System.ReadOnlySpan<byte> nonce, System.ReadOnlySpan<byte> plaintext, System.Span<byte> ciphertext, System.Span<byte> tag, System.ReadOnlySpan<byte> associatedData = default(System.ReadOnlySpan<byte>)) { }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public sealed partial class AesManaged : System.Security.Cryptography.Aes
     {
@@ -205,14 +213,16 @@ namespace System.Security.Cryptography
         public virtual System.Security.Cryptography.KeySizes[] LegalKeySizes { get { throw null; } }
         public virtual string? SignatureAlgorithm { get { throw null; } }
         public void Clear() { }
-        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId = "SYSLIB0007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId="SYSLIB0007", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.AsymmetricAlgorithm Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.AsymmetricAlgorithm? Create(string algName) { throw null; }
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
         public virtual byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public virtual byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
+        public string ExportEncryptedPkcs8PrivateKeyPem(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public string ExportEncryptedPkcs8PrivateKeyPem(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public virtual byte[] ExportPkcs8PrivateKey() { throw null; }
         public string ExportPkcs8PrivateKeyPem() { throw null; }
@@ -229,6 +239,7 @@ namespace System.Security.Cryptography
         public virtual string ToXmlString(bool includePrivateParameters) { throw null; }
         public virtual bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public virtual bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
+        public bool TryExportEncryptedPkcs8PrivateKeyPem(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<char> destination, out int charsWritten) { throw null; }
         public bool TryExportEncryptedPkcs8PrivateKeyPem(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<char> destination, out int charsWritten) { throw null; }
         public virtual bool TryExportPkcs8PrivateKey(System.Span<byte> destination, out int bytesWritten) { throw null; }
         public bool TryExportPkcs8PrivateKeyPem(System.Span<char> destination, out int charsWritten) { throw null; }
@@ -266,9 +277,17 @@ namespace System.Security.Cryptography
         public abstract void SetHashAlgorithm(string strName);
         public abstract void SetKey(System.Security.Cryptography.AsymmetricAlgorithm key);
     }
+    public sealed partial class AuthenticationTagMismatchException : System.Security.Cryptography.CryptographicException
+    {
+        public AuthenticationTagMismatchException() { }
+        public AuthenticationTagMismatchException(string? message) { }
+        public AuthenticationTagMismatchException(string? message, System.Exception? inner) { }
+    }
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
+    [System.Runtime.Versioning.SupportedOSPlatform("ios13.0")]
+    [System.Runtime.Versioning.SupportedOSPlatform("tvos13.0")]
     public sealed partial class ChaCha20Poly1305 : System.IDisposable
     {
         public ChaCha20Poly1305(byte[] key) { }
@@ -412,6 +431,9 @@ namespace System.Security.Cryptography
         None = 0,
         MachineKey = 32,
         OverwriteExistingKey = 128,
+        PreferVbs = 65536,
+        RequireVbs = 131072,
+        UsePerBootKey = 262144,
     }
     public sealed partial class CngKeyCreationParameters
     {
@@ -518,7 +540,7 @@ namespace System.Security.Cryptography
         public static object? CreateFromName(string name) { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
         public static object? CreateFromName(string name, params object?[]? args) { throw null; }
-        [System.ObsoleteAttribute("EncodeOID is obsolete. Use the ASN.1 functionality provided in System.Formats.Asn1.", DiagnosticId = "SYSLIB0031", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("EncodeOID is obsolete. Use the ASN.1 functionality provided in System.Formats.Asn1.", DiagnosticId="SYSLIB0031", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] EncodeOID(string str) { throw null; }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
@@ -527,11 +549,31 @@ namespace System.Security.Cryptography
     public static partial class CryptographicOperations
     {
         public static bool FixedTimeEquals(System.ReadOnlySpan<byte> left, System.ReadOnlySpan<byte> right) { throw null; }
+        public static byte[] HashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] source) { throw null; }
+        public static byte[] HashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.IO.Stream source) { throw null; }
+        public static int HashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static byte[] HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] key, byte[] source) { throw null; }
+        public static byte[] HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] key, System.IO.Stream source) { throw null; }
+        public static byte[] HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key, System.IO.Stream source) { throw null; }
+        public static int HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HmacDataAsync(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HmacDataAsync(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HmacDataAsync(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static bool TryHashData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+        public static bool TryHmacData(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public static void ZeroMemory(System.Span<byte> buffer) { }
     }
     public partial class CryptographicUnexpectedOperationException : System.Security.Cryptography.CryptographicException
     {
         public CryptographicUnexpectedOperationException() { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         protected CryptographicUnexpectedOperationException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public CryptographicUnexpectedOperationException(string? message) { }
         public CryptographicUnexpectedOperationException(string? message, System.Exception? inner) { }
@@ -638,12 +680,13 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.DES Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.DES? Create(string algName) { throw null; }
         public static bool IsSemiWeakKey(byte[] rgbKey) { throw null; }
         public static bool IsWeakKey(byte[] rgbKey) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class DESCryptoServiceProvider : System.Security.Cryptography.DES
     {
         public DESCryptoServiceProvider() { }
@@ -670,6 +713,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
         public static System.Security.Cryptography.DSA Create(System.Security.Cryptography.DSAParameters parameters) { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.DSA? Create(string algName) { throw null; }
         public abstract byte[] CreateSignature(byte[] rgbHash);
         public byte[] CreateSignature(byte[] rgbHash, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
@@ -740,8 +784,6 @@ namespace System.Security.Cryptography
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override System.Security.Cryptography.DSAParameters ExportParameters(bool includePrivateParameters) { throw null; }
-        protected override byte[] HashData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
-        protected override byte[] HashData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportParameters(System.Security.Cryptography.DSAParameters parameters) { }
@@ -749,7 +791,6 @@ namespace System.Security.Cryptography
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportPkcs8PrivateKey(System.Span<byte> destination, out int bytesWritten) { throw null; }
-        protected override bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, out int bytesWritten) { throw null; }
         public override bool VerifySignature(byte[] rgbHash, byte[] rgbSignature) { throw null; }
         protected override bool VerifySignatureCore(System.ReadOnlySpan<byte> hash, System.ReadOnlySpan<byte> signature, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
     }
@@ -952,6 +993,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.ECDiffieHellman Create(System.Security.Cryptography.ECParameters parameters) { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.ECDiffieHellman? Create(string algorithm) { throw null; }
         public byte[] DeriveKeyFromHash(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public virtual byte[] DeriveKeyFromHash(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[]? secretPrepend, byte[]? secretAppend) { throw null; }
@@ -959,6 +1001,7 @@ namespace System.Security.Cryptography
         public virtual byte[] DeriveKeyFromHmac(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[]? hmacKey, byte[]? secretPrepend, byte[]? secretAppend) { throw null; }
         public virtual byte[] DeriveKeyMaterial(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey) { throw null; }
         public virtual byte[] DeriveKeyTls(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey, byte[] prfLabel, byte[] prfSeed) { throw null; }
+        public virtual byte[] DeriveRawSecretAgreement(System.Security.Cryptography.ECDiffieHellmanPublicKey otherPartyPublicKey) { throw null; }
         public override void FromXmlString(string xmlString) { }
         public override string ToXmlString(bool includePrivateParameters) { throw null; }
     }
@@ -996,12 +1039,14 @@ namespace System.Security.Cryptography
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override System.Security.Cryptography.ECParameters ExportExplicitParameters(bool includePrivateParameters) { throw null; }
         public override System.Security.Cryptography.ECParameters ExportParameters(bool includePrivateParameters) { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void FromXmlString(string xml, System.Security.Cryptography.ECKeyXmlFormat format) { }
         public override void GenerateKey(System.Security.Cryptography.ECCurve curve) { }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportParameters(System.Security.Cryptography.ECParameters parameters) { }
         public override void ImportPkcs8PrivateKey(System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public string ToXmlString(System.Security.Cryptography.ECKeyXmlFormat format) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
@@ -1016,8 +1061,10 @@ namespace System.Security.Cryptography
         public override System.Security.Cryptography.ECParameters ExportParameters() { throw null; }
         [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")]
         public static System.Security.Cryptography.ECDiffieHellmanPublicKey FromByteArray(byte[] publicKeyBlob, System.Security.Cryptography.CngKeyBlobFormat format) { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.ECDiffieHellmanCngPublicKey FromXmlString(string xml) { throw null; }
         public System.Security.Cryptography.CngKey Import() { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override string ToXmlString() { throw null; }
     }
     public enum ECDiffieHellmanKeyDerivationFunction
@@ -1066,13 +1113,16 @@ namespace System.Security.Cryptography
     public abstract partial class ECDiffieHellmanPublicKey : System.IDisposable
     {
         protected ECDiffieHellmanPublicKey() { }
+        [System.ObsoleteAttribute("ECDiffieHellmanPublicKey.ToByteArray() and the associated constructor do not have a consistent and interoperable implementation on all platforms. Use ECDiffieHellmanPublicKey.ExportSubjectPublicKeyInfo() instead.", DiagnosticId="SYSLIB0043", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected ECDiffieHellmanPublicKey(byte[] keyBlob) { }
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
         public virtual System.Security.Cryptography.ECParameters ExportExplicitParameters() { throw null; }
         public virtual System.Security.Cryptography.ECParameters ExportParameters() { throw null; }
         public virtual byte[] ExportSubjectPublicKeyInfo() { throw null; }
+        [System.ObsoleteAttribute("ECDiffieHellmanPublicKey.ToByteArray() and the associated constructor do not have a consistent and interoperable implementation on all platforms. Use ECDiffieHellmanPublicKey.ExportSubjectPublicKeyInfo() instead.", DiagnosticId="SYSLIB0043", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual byte[] ToByteArray() { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual string ToXmlString() { throw null; }
         public virtual bool TryExportSubjectPublicKeyInfo(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
@@ -1088,6 +1138,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.ECDsa Create(System.Security.Cryptography.ECParameters parameters) { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.ECDsa? Create(string algorithm) { throw null; }
         public override void FromXmlString(string xmlString) { }
         public int GetMaxSignatureSize(System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
@@ -1099,10 +1150,18 @@ namespace System.Security.Cryptography
         public byte[] SignData(byte[] data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         public virtual byte[] SignData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public byte[] SignData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
+        public byte[] SignData(System.ReadOnlySpan<byte> data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
+        public byte[] SignData(System.ReadOnlySpan<byte> data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
+        public int SignData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
+        public int SignData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         protected virtual byte[] SignDataCore(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         protected virtual byte[] SignDataCore(System.ReadOnlySpan<byte> data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         public abstract byte[] SignHash(byte[] hash);
         public byte[] SignHash(byte[] hash, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
+        public byte[] SignHash(System.ReadOnlySpan<byte> hash) { throw null; }
+        public byte[] SignHash(System.ReadOnlySpan<byte> hash, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
+        public int SignHash(System.ReadOnlySpan<byte> hash, System.Span<byte> destination) { throw null; }
+        public int SignHash(System.ReadOnlySpan<byte> hash, System.Span<byte> destination, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         protected virtual byte[] SignHashCore(System.ReadOnlySpan<byte> hash, System.Security.Cryptography.DSASignatureFormat signatureFormat) { throw null; }
         public override string ToXmlString(bool includePrivateParameters) { throw null; }
         protected virtual bool TryHashData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, out int bytesWritten) { throw null; }
@@ -1147,10 +1206,9 @@ namespace System.Security.Cryptography
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override System.Security.Cryptography.ECParameters ExportExplicitParameters(bool includePrivateParameters) { throw null; }
         public override System.Security.Cryptography.ECParameters ExportParameters(bool includePrivateParameters) { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void FromXmlString(string xml, System.Security.Cryptography.ECKeyXmlFormat format) { }
         public override void GenerateKey(System.Security.Cryptography.ECCurve curve) { }
-        protected override byte[] HashData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
-        protected override byte[] HashData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportParameters(System.Security.Cryptography.ECParameters parameters) { }
@@ -1159,11 +1217,11 @@ namespace System.Security.Cryptography
         public byte[] SignData(byte[] data, int offset, int count) { throw null; }
         public byte[] SignData(System.IO.Stream data) { throw null; }
         public override byte[] SignHash(byte[] hash) { throw null; }
+        [System.ObsoleteAttribute("ToXmlString and FromXmlString have no implementation for ECC types, and are obsolete. Use a standard import and export format such as ExportSubjectPublicKeyInfo or ImportSubjectPublicKeyInfo for public keys and ExportPkcs8PrivateKey or ImportPkcs8PrivateKey for private keys.", DiagnosticId="SYSLIB0042", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public string ToXmlString(System.Security.Cryptography.ECKeyXmlFormat format) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportPkcs8PrivateKey(System.Span<byte> destination, out int bytesWritten) { throw null; }
-        protected override bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, out int bytesWritten) { throw null; }
         public override bool TrySignHash(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         protected override bool TrySignHashCore(System.ReadOnlySpan<byte> hash, System.Span<byte> destination, System.Security.Cryptography.DSASignatureFormat signatureFormat, out int bytesWritten) { throw null; }
         public bool VerifyData(byte[] data, byte[] signature) { throw null; }
@@ -1262,9 +1320,10 @@ namespace System.Security.Cryptography
         public byte[] ComputeHash(byte[] buffer, int offset, int count) { throw null; }
         public byte[] ComputeHash(System.IO.Stream inputStream) { throw null; }
         public System.Threading.Tasks.Task<byte[]> ComputeHashAsync(System.IO.Stream inputStream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
-        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId = "SYSLIB0007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId="SYSLIB0007", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.HashAlgorithm Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.HashAlgorithm? Create(string hashName) { throw null; }
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
@@ -1287,6 +1346,9 @@ namespace System.Security.Cryptography
         public static System.Security.Cryptography.HashAlgorithmName SHA1 { get { throw null; } }
         public static System.Security.Cryptography.HashAlgorithmName SHA256 { get { throw null; } }
         public static System.Security.Cryptography.HashAlgorithmName SHA384 { get { throw null; } }
+        public static System.Security.Cryptography.HashAlgorithmName SHA3_256 { get { throw null; } }
+        public static System.Security.Cryptography.HashAlgorithmName SHA3_384 { get { throw null; } }
+        public static System.Security.Cryptography.HashAlgorithmName SHA3_512 { get { throw null; } }
         public static System.Security.Cryptography.HashAlgorithmName SHA512 { get { throw null; } }
         public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Security.Cryptography.HashAlgorithmName other) { throw null; }
@@ -1297,7 +1359,6 @@ namespace System.Security.Cryptography
         public override string ToString() { throw null; }
         public static bool TryFromOid(string oidValue, out System.Security.Cryptography.HashAlgorithmName value) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public static partial class HKDF
     {
         public static byte[] DeriveKey(System.Security.Cryptography.HashAlgorithmName hashAlgorithmName, byte[] ikm, int outputLength, byte[]? salt = null, byte[]? info = null) { throw null; }
@@ -1313,9 +1374,10 @@ namespace System.Security.Cryptography
         protected int BlockSizeValue { get { throw null; } set { } }
         public string HashName { get { throw null; } set { } }
         public override byte[] Key { get { throw null; } set { } }
-        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId = "SYSLIB0007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId="SYSLIB0007", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.HMAC Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.HMAC? Create(string algorithmName) { throw null; }
         protected override void Dispose(bool disposing) { }
         protected override void HashCore(byte[] rgb, int ib, int cb) { }
@@ -1324,32 +1386,42 @@ namespace System.Security.Cryptography
         public override void Initialize() { }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class HMACMD5 : System.Security.Cryptography.HMAC
     {
         public const int HashSizeInBits = 128;
         public const int HashSizeInBytes = 16;
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public HMACMD5() { }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public HMACMD5(byte[] key) { }
         public override byte[] Key { get { throw null; } set { } }
         protected override void Dispose(bool disposing) { }
         protected override void HashCore(byte[] rgb, int ib, int cb) { }
         protected override void HashCore(System.ReadOnlySpan<byte> source) { }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(byte[] key, byte[] source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(byte[] key, System.IO.Stream source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static int HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static int HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         protected override byte[] HashFinal() { throw null; }
         public override void Initialize() { }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class HMACSHA1 : System.Security.Cryptography.HMAC
     {
         public const int HashSizeInBits = 160;
@@ -1357,7 +1429,7 @@ namespace System.Security.Cryptography
         public HMACSHA1() { }
         public HMACSHA1(byte[] key) { }
         [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-        [System.ObsoleteAttribute("HMACSHA1 always uses the algorithm implementation provided by the platform. Use a constructor without the useManagedSha1 parameter.", DiagnosticId = "SYSLIB0030", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("HMACSHA1 always uses the algorithm implementation provided by the platform. Use a constructor without the useManagedSha1 parameter.", DiagnosticId="SYSLIB0030", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public HMACSHA1(byte[] key, bool useManagedSha1) { }
         public override byte[] Key { get { throw null; } set { } }
         protected override void Dispose(bool disposing) { }
@@ -1377,7 +1449,6 @@ namespace System.Security.Cryptography
         public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class HMACSHA256 : System.Security.Cryptography.HMAC
     {
         public const int HashSizeInBits = 256;
@@ -1402,7 +1473,6 @@ namespace System.Security.Cryptography
         public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class HMACSHA384 : System.Security.Cryptography.HMAC
     {
         public const int HashSizeInBits = 384;
@@ -1410,7 +1480,7 @@ namespace System.Security.Cryptography
         public HMACSHA384() { }
         public HMACSHA384(byte[] key) { }
         public override byte[] Key { get { throw null; } set { } }
-        [System.ObsoleteAttribute("ProduceLegacyHmacValues is obsolete. Producing legacy HMAC values is not supported.", DiagnosticId = "SYSLIB0029", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("ProduceLegacyHmacValues is obsolete. Producing legacy HMAC values is not supported.", DiagnosticId="SYSLIB0029", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public bool ProduceLegacyHmacValues { get { throw null; } set { } }
         protected override void Dispose(bool disposing) { }
         protected override void HashCore(byte[] rgb, int ib, int cb) { }
@@ -1429,7 +1499,81 @@ namespace System.Security.Cryptography
         public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+    public partial class HMACSHA3_256 : System.Security.Cryptography.HMAC
+    {
+        public const int HashSizeInBits = 256;
+        public const int HashSizeInBytes = 32;
+        public HMACSHA3_256() { }
+        public HMACSHA3_256(byte[] key) { }
+        public static bool IsSupported { get { throw null; } }
+        public override byte[] Key { get { throw null; } set { } }
+        protected override void Dispose(bool disposing) { }
+        protected override void HashCore(byte[] rgb, int ib, int cb) { }
+        protected override void HashCore(System.ReadOnlySpan<byte> source) { }
+        public static byte[] HashData(byte[] key, byte[] source) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        protected override byte[] HashFinal() { throw null; }
+        public override void Initialize() { }
+        public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+        protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    public partial class HMACSHA3_384 : System.Security.Cryptography.HMAC
+    {
+        public const int HashSizeInBits = 384;
+        public const int HashSizeInBytes = 48;
+        public HMACSHA3_384() { }
+        public HMACSHA3_384(byte[] key) { }
+        public static bool IsSupported { get { throw null; } }
+        public override byte[] Key { get { throw null; } set { } }
+        protected override void Dispose(bool disposing) { }
+        protected override void HashCore(byte[] rgb, int ib, int cb) { }
+        protected override void HashCore(System.ReadOnlySpan<byte> source) { }
+        public static byte[] HashData(byte[] key, byte[] source) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        protected override byte[] HashFinal() { throw null; }
+        public override void Initialize() { }
+        public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+        protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    public partial class HMACSHA3_512 : System.Security.Cryptography.HMAC
+    {
+        public const int HashSizeInBits = 512;
+        public const int HashSizeInBytes = 64;
+        public HMACSHA3_512() { }
+        public HMACSHA3_512(byte[] key) { }
+        public static bool IsSupported { get { throw null; } }
+        public override byte[] Key { get { throw null; } set { } }
+        protected override void Dispose(bool disposing) { }
+        protected override void HashCore(byte[] rgb, int ib, int cb) { }
+        protected override void HashCore(System.ReadOnlySpan<byte> source) { }
+        public static byte[] HashData(byte[] key, byte[] source) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        protected override byte[] HashFinal() { throw null; }
+        public override void Initialize() { }
+        public static bool TryHashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+        protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
     public partial class HMACSHA512 : System.Security.Cryptography.HMAC
     {
         public const int HashSizeInBits = 512;
@@ -1437,7 +1581,7 @@ namespace System.Security.Cryptography
         public HMACSHA512() { }
         public HMACSHA512(byte[] key) { }
         public override byte[] Key { get { throw null; } set { } }
-        [System.ObsoleteAttribute("ProduceLegacyHmacValues is obsolete. Producing legacy HMAC values is not supported.", DiagnosticId = "SYSLIB0029", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("ProduceLegacyHmacValues is obsolete. Producing legacy HMAC values is not supported.", DiagnosticId="SYSLIB0029", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public bool ProduceLegacyHmacValues { get { throw null; } set { } }
         protected override void Dispose(bool disposing) { }
         protected override void HashCore(byte[] rgb, int ib, int cb) { }
@@ -1479,10 +1623,9 @@ namespace System.Security.Cryptography
         public void AppendData(byte[] data) { }
         public void AppendData(byte[] data, int offset, int count) { }
         public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.IncrementalHash Clone() { throw null; }
         public static System.Security.Cryptography.IncrementalHash CreateHash(System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
-        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.IncrementalHash CreateHMAC(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] key) { throw null; }
-        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.IncrementalHash CreateHMAC(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> key) { throw null; }
         public void Dispose() { }
         public byte[] GetCurrentHash() { throw null; }
@@ -1497,9 +1640,10 @@ namespace System.Security.Cryptography
         protected byte[] KeyValue;
         protected KeyedHashAlgorithm() { }
         public virtual byte[] Key { get { throw null; } set { } }
-        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId = "SYSLIB0007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId="SYSLIB0007", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.KeyedHashAlgorithm Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.KeyedHashAlgorithm? Create(string algName) { throw null; }
         protected override void Dispose(bool disposing) { }
     }
@@ -1515,31 +1659,132 @@ namespace System.Security.Cryptography
         public int MinSize { get { throw null; } }
         public int SkipSize { get { throw null; } }
     }
+    public sealed partial class Kmac128 : System.IDisposable
+    {
+        public Kmac128(byte[] key, byte[]? customizationString = null) { }
+        public Kmac128(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.Kmac128 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] key, byte[] source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+    }
+    public sealed partial class Kmac256 : System.IDisposable
+    {
+        public Kmac256(byte[] key, byte[]? customizationString = null) { }
+        public Kmac256(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.Kmac256 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] key, byte[] source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+    }
+    public sealed partial class KmacXof128 : System.IDisposable
+    {
+        public KmacXof128(byte[] key, byte[]? customizationString = null) { }
+        public KmacXof128(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.KmacXof128 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] key, byte[] source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+    }
+    public sealed partial class KmacXof256 : System.IDisposable
+    {
+        public KmacXof256(byte[] key, byte[]? customizationString = null) { }
+        public KmacXof256(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.KmacXof256 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] key, byte[] source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.IO.Stream source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, int outputLength, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> key, System.ReadOnlySpan<byte> source, System.Span<byte> destination, System.ReadOnlySpan<byte> customizationString = default(System.ReadOnlySpan<byte>)) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(byte[] key, System.IO.Stream source, int outputLength, byte[]? customizationString = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, int outputLength, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.ReadOnlyMemory<byte> key, System.IO.Stream source, System.Memory<byte> destination, System.ReadOnlyMemory<byte> customizationString = default(System.ReadOnlyMemory<byte>), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+    }
     public abstract partial class MaskGenerationMethod
     {
         protected MaskGenerationMethod() { }
         public abstract byte[] GenerateMask(byte[] rgbSeed, int cbReturn);
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public abstract partial class MD5 : System.Security.Cryptography.HashAlgorithm
     {
         public const int HashSizeInBits = 128;
         public const int HashSizeInBytes = 16;
         protected MD5() { }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.MD5 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.MD5? Create(string algName) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(byte[] source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(System.IO.Stream source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static int HashData(System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static byte[] HashData(System.ReadOnlySpan<byte> source) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static int HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class MD5CryptoServiceProvider : System.Security.Cryptography.MD5
     {
         public MD5CryptoServiceProvider() { }
@@ -1626,7 +1871,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")]
         public byte[] CryptDeriveKey(string? algname, string? alghashname, int keySize, byte[] rgbIV) { throw null; }
         protected override void Dispose(bool disposing) { }
-        [System.Obsolete("Rfc2898DeriveBytes replaces PasswordDeriveBytes for deriving key material from a password and is preferred in new applications.")]
+        [System.ObsoleteAttribute("Rfc2898DeriveBytes replaces PasswordDeriveBytes for deriving key material from a password and is preferred in new applications.")]
         public override byte[] GetBytes(int cb) { throw null; }
         public override void Reset() { }
     }
@@ -1648,10 +1893,15 @@ namespace System.Security.Cryptography
     public static partial class PemEncoding
     {
         public static System.Security.Cryptography.PemFields Find(System.ReadOnlySpan<char> pemData) { throw null; }
+        public static System.Security.Cryptography.PemFields FindUtf8(System.ReadOnlySpan<byte> pemData) { throw null; }
         public static int GetEncodedSize(int labelLength, int dataLength) { throw null; }
         public static bool TryFind(System.ReadOnlySpan<char> pemData, out System.Security.Cryptography.PemFields fields) { throw null; }
+        public static bool TryFindUtf8(System.ReadOnlySpan<byte> pemData, out System.Security.Cryptography.PemFields fields) { throw null; }
         public static bool TryWrite(System.ReadOnlySpan<char> label, System.ReadOnlySpan<byte> data, System.Span<char> destination, out int charsWritten) { throw null; }
+        public static bool TryWriteUtf8(System.ReadOnlySpan<byte> utf8Label, System.ReadOnlySpan<byte> data, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public static char[] Write(System.ReadOnlySpan<char> label, System.ReadOnlySpan<byte> data) { throw null; }
+        public static string WriteString(System.ReadOnlySpan<char> label, System.ReadOnlySpan<byte> data) { throw null; }
+        public static byte[] WriteUtf8(System.ReadOnlySpan<byte> utf8Label, System.ReadOnlySpan<byte> data) { throw null; }
     }
     public readonly partial struct PemFields
     {
@@ -1661,9 +1911,9 @@ namespace System.Security.Cryptography
         public System.Range Label { get { throw null; } }
         public System.Range Location { get { throw null; } }
     }
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("PKCS1MaskGenerationMethod is not trim compatible because the algorithm implementation referenced by HashName might be removed.")]
     public partial class PKCS1MaskGenerationMethod : System.Security.Cryptography.MaskGenerationMethod
     {
-        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("PKCS1MaskGenerationMethod is not trim compatible because the algorithm implementation referenced by HashName might be removed.")]
         public PKCS1MaskGenerationMethod() { }
         public string HashName { get { throw null; } set { } }
         public override byte[] GenerateMask(byte[] rgbSeed, int cbReturn) { throw null; }
@@ -1673,6 +1923,7 @@ namespace System.Security.Cryptography
         protected RandomNumberGenerator() { }
         public static System.Security.Cryptography.RandomNumberGenerator Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.RandomNumberGenerator? Create(string rngName) { throw null; }
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
@@ -1681,10 +1932,16 @@ namespace System.Security.Cryptography
         public virtual void GetBytes(byte[] data, int offset, int count) { }
         public static byte[] GetBytes(int count) { throw null; }
         public virtual void GetBytes(System.Span<byte> data) { }
+        public static string GetHexString(int stringLength, bool lowercase = false) { throw null; }
+        public static void GetHexString(System.Span<char> destination, bool lowercase = false) { }
         public static int GetInt32(int toExclusive) { throw null; }
         public static int GetInt32(int fromInclusive, int toExclusive) { throw null; }
+        public static T[] GetItems<T>(System.ReadOnlySpan<T> choices, int length) { throw null; }
+        public static void GetItems<T>(System.ReadOnlySpan<T> choices, System.Span<T> destination) { }
         public virtual void GetNonZeroBytes(byte[] data) { }
         public virtual void GetNonZeroBytes(System.Span<byte> data) { }
+        public static string GetString(System.ReadOnlySpan<char> choices, int length) { throw null; }
+        public static void Shuffle<T>(System.Span<T> values) { }
     }
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public abstract partial class RC2 : System.Security.Cryptography.SymmetricAlgorithm
@@ -1697,10 +1954,11 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.RC2 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.RC2? Create(string AlgName) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class RC2CryptoServiceProvider : System.Security.Cryptography.RC2
     {
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
@@ -1713,21 +1971,25 @@ namespace System.Security.Cryptography
         public override void GenerateIV() { }
         public override void GenerateKey() { }
     }
-    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class Rfc2898DeriveBytes : System.Security.Cryptography.DeriveBytes
     {
+        [System.ObsoleteAttribute("The default hash algorithm and iteration counts in Rfc2898DeriveBytes constructors are outdated and insecure. Use a constructor that accepts the hash algorithm and the number of iterations.", DiagnosticId="SYSLIB0041", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public Rfc2898DeriveBytes(byte[] password, byte[] salt, int iterations) { }
         public Rfc2898DeriveBytes(byte[] password, byte[] salt, int iterations, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
+        [System.ObsoleteAttribute("The default hash algorithm and iteration counts in Rfc2898DeriveBytes constructors are outdated and insecure. Use a constructor that accepts the hash algorithm and the number of iterations.", DiagnosticId="SYSLIB0041", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public Rfc2898DeriveBytes(string password, byte[] salt) { }
+        [System.ObsoleteAttribute("The default hash algorithm and iteration counts in Rfc2898DeriveBytes constructors are outdated and insecure. Use a constructor that accepts the hash algorithm and the number of iterations.", DiagnosticId="SYSLIB0041", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public Rfc2898DeriveBytes(string password, byte[] salt, int iterations) { }
         public Rfc2898DeriveBytes(string password, byte[] salt, int iterations, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
+        [System.ObsoleteAttribute("The default hash algorithm and iteration counts in Rfc2898DeriveBytes constructors are outdated and insecure. Use a constructor that accepts the hash algorithm and the number of iterations.", DiagnosticId="SYSLIB0041", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public Rfc2898DeriveBytes(string password, int saltSize) { }
+        [System.ObsoleteAttribute("The default hash algorithm and iteration counts in Rfc2898DeriveBytes constructors are outdated and insecure. Use a constructor that accepts the hash algorithm and the number of iterations.", DiagnosticId="SYSLIB0041", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public Rfc2898DeriveBytes(string password, int saltSize, int iterations) { }
         public Rfc2898DeriveBytes(string password, int saltSize, int iterations, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
         public System.Security.Cryptography.HashAlgorithmName HashAlgorithm { get { throw null; } }
         public int IterationCount { get { throw null; } set { } }
         public byte[] Salt { get { throw null; } set { } }
-        [System.ObsoleteAttribute("Rfc2898DeriveBytes.CryptDeriveKey is obsolete and is not supported. Use PasswordDeriveBytes.CryptDeriveKey instead.", DiagnosticId = "SYSLIB0033", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("Rfc2898DeriveBytes.CryptDeriveKey is obsolete and is not supported. Use PasswordDeriveBytes.CryptDeriveKey instead.", DiagnosticId="SYSLIB0033", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public byte[] CryptDeriveKey(string algname, string alghashname, int keySize, byte[] rgbIV) { throw null; }
         protected override void Dispose(bool disposing) { }
         public override byte[] GetBytes(int cb) { throw null; }
@@ -1739,18 +2001,19 @@ namespace System.Security.Cryptography
         public static byte[] Pbkdf2(string password, byte[] salt, int iterations, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, int outputLength) { throw null; }
         public override void Reset() { }
     }
-    [System.ObsoleteAttribute("The Rijndael and RijndaelManaged types are obsolete. Use Aes instead.", DiagnosticId = "SYSLIB0022", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("The Rijndael and RijndaelManaged types are obsolete. Use Aes instead.", DiagnosticId="SYSLIB0022", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public abstract partial class Rijndael : System.Security.Cryptography.SymmetricAlgorithm
     {
         protected Rijndael() { }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.Rijndael Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.Rijndael? Create(string algName) { throw null; }
     }
-    [System.ObsoleteAttribute("The Rijndael and RijndaelManaged types are obsolete. Use Aes instead.", DiagnosticId = "SYSLIB0022", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("The Rijndael and RijndaelManaged types are obsolete. Use Aes instead.", DiagnosticId="SYSLIB0022", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public sealed partial class RijndaelManaged : System.Security.Cryptography.Rijndael
     {
@@ -1771,8 +2034,8 @@ namespace System.Security.Cryptography
         public override void GenerateIV() { }
         public override void GenerateKey() { }
     }
-    [System.ObsoleteAttribute("RNGCryptoServiceProvider is obsolete. To generate a random number, use one of the RandomNumberGenerator static methods instead.", DiagnosticId = "SYSLIB0023", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("RNGCryptoServiceProvider is obsolete. To generate a random number, use one of the RandomNumberGenerator static methods instead.", DiagnosticId="SYSLIB0023", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class RNGCryptoServiceProvider : System.Security.Cryptography.RandomNumberGenerator
     {
         public RNGCryptoServiceProvider() { }
@@ -1798,10 +2061,19 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.RSA Create(System.Security.Cryptography.RSAParameters parameters) { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.RSA? Create(string algName) { throw null; }
         public virtual byte[] Decrypt(byte[] data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        public byte[] Decrypt(System.ReadOnlySpan<byte> data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        public int Decrypt(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("RSA.EncryptValue and DecryptValue are not supported and throw NotSupportedException. Use RSA.Encrypt and RSA.Decrypt instead.", DiagnosticId="SYSLIB0048", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual byte[] DecryptValue(byte[] rgb) { throw null; }
         public virtual byte[] Encrypt(byte[] data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        public byte[] Encrypt(System.ReadOnlySpan<byte> data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        public int Encrypt(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("RSA.EncryptValue and DecryptValue are not supported and throw NotSupportedException. Use RSA.Encrypt and RSA.Decrypt instead.", DiagnosticId="SYSLIB0048", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual byte[] EncryptValue(byte[] rgb) { throw null; }
         public abstract System.Security.Cryptography.RSAParameters ExportParameters(bool includePrivateParameters);
         public virtual byte[] ExportRSAPrivateKey() { throw null; }
@@ -1809,6 +2081,7 @@ namespace System.Security.Cryptography
         public virtual byte[] ExportRSAPublicKey() { throw null; }
         public string ExportRSAPublicKeyPem() { throw null; }
         public override void FromXmlString(string xmlString) { }
+        public int GetMaxOutputSize() { throw null; }
         protected virtual byte[] HashData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         protected virtual byte[] HashData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
@@ -1824,7 +2097,11 @@ namespace System.Security.Cryptography
         public virtual byte[] SignData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
         public byte[] SignData(byte[] data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
         public virtual byte[] SignData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
+        public byte[] SignData(System.ReadOnlySpan<byte> data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
+        public int SignData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
         public virtual byte[] SignHash(byte[] hash, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
+        public byte[] SignHash(System.ReadOnlySpan<byte> hash, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
+        public int SignHash(System.ReadOnlySpan<byte> hash, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
         public override string ToXmlString(bool includePrivateParameters) { throw null; }
         public virtual bool TryDecrypt(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.RSAEncryptionPadding padding, out int bytesWritten) { throw null; }
         public virtual bool TryEncrypt(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.RSAEncryptionPadding padding, out int bytesWritten) { throw null; }
@@ -1862,8 +2139,6 @@ namespace System.Security.Cryptography
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override byte[] ExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters) { throw null; }
         public override System.Security.Cryptography.RSAParameters ExportParameters(bool includePrivateParameters) { throw null; }
-        protected override byte[] HashData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
-        protected override byte[] HashData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportParameters(System.Security.Cryptography.RSAParameters parameters) { }
@@ -1874,7 +2149,6 @@ namespace System.Security.Cryptography
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.Security.Cryptography.PbeParameters pbeParameters, System.Span<byte> destination, out int bytesWritten) { throw null; }
         public override bool TryExportPkcs8PrivateKey(System.Span<byte> destination, out int bytesWritten) { throw null; }
-        protected override bool TryHashData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, out int bytesWritten) { throw null; }
         public override bool TrySignHash(System.ReadOnlySpan<byte> hash, System.Span<byte> destination, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding, out int bytesWritten) { throw null; }
         public override bool VerifyHash(byte[] hash, byte[] signature, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
         public override bool VerifyHash(System.ReadOnlySpan<byte> hash, System.ReadOnlySpan<byte> signature, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { throw null; }
@@ -1900,15 +2174,17 @@ namespace System.Security.Cryptography
         public static bool UseMachineKeyStore { get { throw null; } set { } }
         public byte[] Decrypt(byte[] rgb, bool fOAEP) { throw null; }
         public override byte[] Decrypt(byte[] data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("RSA.EncryptValue and DecryptValue are not supported and throw NotSupportedException. Use RSA.Encrypt and RSA.Decrypt instead.", DiagnosticId="SYSLIB0048", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override byte[] DecryptValue(byte[] rgb) { throw null; }
         protected override void Dispose(bool disposing) { }
         public byte[] Encrypt(byte[] rgb, bool fOAEP) { throw null; }
         public override byte[] Encrypt(byte[] data, System.Security.Cryptography.RSAEncryptionPadding padding) { throw null; }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("RSA.EncryptValue and DecryptValue are not supported and throw NotSupportedException. Use RSA.Encrypt and RSA.Decrypt instead.", DiagnosticId="SYSLIB0048", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override byte[] EncryptValue(byte[] rgb) { throw null; }
         public byte[] ExportCspBlob(bool includePrivateParameters) { throw null; }
         public override System.Security.Cryptography.RSAParameters ExportParameters(bool includePrivateParameters) { throw null; }
-        protected override byte[] HashData(byte[] data, int offset, int count, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
-        protected override byte[] HashData(System.IO.Stream data, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
         public void ImportCspBlob(byte[] keyBlob) { }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<byte> passwordBytes, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
         public override void ImportEncryptedPkcs8PrivateKey(System.ReadOnlySpan<char> password, System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
@@ -1930,6 +2206,9 @@ namespace System.Security.Cryptography
         public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA1 { get { throw null; } }
         public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA256 { get { throw null; } }
         public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA384 { get { throw null; } }
+        public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA3_256 { get { throw null; } }
+        public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA3_384 { get { throw null; } }
+        public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA3_512 { get { throw null; } }
         public static System.Security.Cryptography.RSAEncryptionPadding OaepSHA512 { get { throw null; } }
         public static System.Security.Cryptography.RSAEncryptionPadding Pkcs1 { get { throw null; } }
         public static System.Security.Cryptography.RSAEncryptionPadding CreateOaep(System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { throw null; }
@@ -2088,6 +2367,24 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
         public static long OpenSslVersion { get { throw null; } }
         public System.Security.Cryptography.SafeEvpPKeyHandle DuplicateHandle() { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
+        public static System.Security.Cryptography.SafeEvpPKeyHandle OpenKeyFromProvider(string providerName, string keyUri) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
+        public static System.Security.Cryptography.SafeEvpPKeyHandle OpenPrivateKeyFromEngine(string engineName, string keyId) { throw null; }
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
+        public static System.Security.Cryptography.SafeEvpPKeyHandle OpenPublicKeyFromEngine(string engineName, string keyId) { throw null; }
         protected override bool ReleaseHandle() { throw null; }
     }
     public abstract partial class SHA1 : System.Security.Cryptography.HashAlgorithm
@@ -2097,6 +2394,7 @@ namespace System.Security.Cryptography
         protected SHA1() { }
         public static new System.Security.Cryptography.SHA1 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.SHA1? Create(string hashName) { throw null; }
         public static byte[] HashData(byte[] source) { throw null; }
         public static byte[] HashData(System.IO.Stream source) { throw null; }
@@ -2107,8 +2405,8 @@ namespace System.Security.Cryptography
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA1CryptoServiceProvider : System.Security.Cryptography.SHA1
     {
         public SHA1CryptoServiceProvider() { }
@@ -2119,8 +2417,8 @@ namespace System.Security.Cryptography
         public override void Initialize() { }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA1Managed : System.Security.Cryptography.SHA1
     {
         public SHA1Managed() { }
@@ -2138,6 +2436,7 @@ namespace System.Security.Cryptography
         protected SHA256() { }
         public static new System.Security.Cryptography.SHA256 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.SHA256? Create(string hashName) { throw null; }
         public static byte[] HashData(byte[] source) { throw null; }
         public static byte[] HashData(System.IO.Stream source) { throw null; }
@@ -2148,8 +2447,8 @@ namespace System.Security.Cryptography
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA256CryptoServiceProvider : System.Security.Cryptography.SHA256
     {
         public SHA256CryptoServiceProvider() { }
@@ -2160,8 +2459,8 @@ namespace System.Security.Cryptography
         public override void Initialize() { }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA256Managed : System.Security.Cryptography.SHA256
     {
         public SHA256Managed() { }
@@ -2179,6 +2478,7 @@ namespace System.Security.Cryptography
         protected SHA384() { }
         public static new System.Security.Cryptography.SHA384 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.SHA384? Create(string hashName) { throw null; }
         public static byte[] HashData(byte[] source) { throw null; }
         public static byte[] HashData(System.IO.Stream source) { throw null; }
@@ -2189,8 +2489,8 @@ namespace System.Security.Cryptography
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA384CryptoServiceProvider : System.Security.Cryptography.SHA384
     {
         public SHA384CryptoServiceProvider() { }
@@ -2201,8 +2501,8 @@ namespace System.Security.Cryptography
         public override void Initialize() { }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA384Managed : System.Security.Cryptography.SHA384
     {
         public SHA384Managed() { }
@@ -2213,6 +2513,54 @@ namespace System.Security.Cryptography
         public sealed override void Initialize() { }
         protected sealed override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
+    public abstract partial class SHA3_256 : System.Security.Cryptography.HashAlgorithm
+    {
+        public const int HashSizeInBits = 256;
+        public const int HashSizeInBytes = 32;
+        protected SHA3_256() { }
+        public static bool IsSupported { get { throw null; } }
+        public static new System.Security.Cryptography.SHA3_256 Create() { throw null; }
+        public static byte[] HashData(byte[] source) { throw null; }
+        public static byte[] HashData(System.IO.Stream source) { throw null; }
+        public static int HashData(System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    public abstract partial class SHA3_384 : System.Security.Cryptography.HashAlgorithm
+    {
+        public const int HashSizeInBits = 384;
+        public const int HashSizeInBytes = 48;
+        protected SHA3_384() { }
+        public static bool IsSupported { get { throw null; } }
+        public static new System.Security.Cryptography.SHA3_384 Create() { throw null; }
+        public static byte[] HashData(byte[] source) { throw null; }
+        public static byte[] HashData(System.IO.Stream source) { throw null; }
+        public static int HashData(System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    public abstract partial class SHA3_512 : System.Security.Cryptography.HashAlgorithm
+    {
+        public const int HashSizeInBits = 512;
+        public const int HashSizeInBytes = 64;
+        protected SHA3_512() { }
+        public static bool IsSupported { get { throw null; } }
+        public static new System.Security.Cryptography.SHA3_512 Create() { throw null; }
+        public static byte[] HashData(byte[] source) { throw null; }
+        public static byte[] HashData(System.IO.Stream source) { throw null; }
+        public static int HashData(System.IO.Stream source, System.Span<byte> destination) { throw null; }
+        public static byte[] HashData(System.ReadOnlySpan<byte> source) { throw null; }
+        public static int HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { throw null; }
+        public static System.Threading.Tasks.ValueTask<int> HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
     public abstract partial class SHA512 : System.Security.Cryptography.HashAlgorithm
     {
         public const int HashSizeInBits = 512;
@@ -2220,6 +2568,7 @@ namespace System.Security.Cryptography
         protected SHA512() { }
         public static new System.Security.Cryptography.SHA512 Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.SHA512? Create(string hashName) { throw null; }
         public static byte[] HashData(byte[] source) { throw null; }
         public static byte[] HashData(System.IO.Stream source) { throw null; }
@@ -2230,8 +2579,8 @@ namespace System.Security.Cryptography
         public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public static bool TryHashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA512CryptoServiceProvider : System.Security.Cryptography.SHA512
     {
         public SHA512CryptoServiceProvider() { }
@@ -2242,8 +2591,8 @@ namespace System.Security.Cryptography
         public override void Initialize() { }
         protected override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class SHA512Managed : System.Security.Cryptography.SHA512
     {
         public SHA512Managed() { }
@@ -2253,6 +2602,52 @@ namespace System.Security.Cryptography
         protected sealed override byte[] HashFinal() { throw null; }
         public sealed override void Initialize() { }
         protected sealed override bool TryHashFinal(System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    public sealed partial class Shake128 : System.IDisposable
+    {
+        public Shake128() { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.Shake128 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] source, int outputLength) { throw null; }
+        public static byte[] HashData(System.IO.Stream source, int outputLength) { throw null; }
+        public static void HashData(System.IO.Stream source, System.Span<byte> destination) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> source, int outputLength) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, int outputLength, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public byte[] Read(int outputLength) { throw null; }
+        public void Read(System.Span<byte> destination) { }
+        public void Reset() { }
+    }
+    public sealed partial class Shake256 : System.IDisposable
+    {
+        public Shake256() { }
+        public static bool IsSupported { get { throw null; } }
+        public void AppendData(byte[] data) { }
+        public void AppendData(System.ReadOnlySpan<byte> data) { }
+        public System.Security.Cryptography.Shake256 Clone() { throw null; }
+        public void Dispose() { }
+        public byte[] GetCurrentHash(int outputLength) { throw null; }
+        public void GetCurrentHash(System.Span<byte> destination) { }
+        public byte[] GetHashAndReset(int outputLength) { throw null; }
+        public void GetHashAndReset(System.Span<byte> destination) { }
+        public static byte[] HashData(byte[] source, int outputLength) { throw null; }
+        public static byte[] HashData(System.IO.Stream source, int outputLength) { throw null; }
+        public static void HashData(System.IO.Stream source, System.Span<byte> destination) { }
+        public static byte[] HashData(System.ReadOnlySpan<byte> source, int outputLength) { throw null; }
+        public static void HashData(System.ReadOnlySpan<byte> source, System.Span<byte> destination) { }
+        public static System.Threading.Tasks.ValueTask<byte[]> HashDataAsync(System.IO.Stream source, int outputLength, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public static System.Threading.Tasks.ValueTask HashDataAsync(System.IO.Stream source, System.Memory<byte> destination, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
+        public byte[] Read(int outputLength) { throw null; }
+        public void Read(System.Span<byte> destination) { }
+        public void Reset() { }
     }
     public partial class SignatureDescription
     {
@@ -2268,6 +2663,24 @@ namespace System.Security.Cryptography
         public virtual System.Security.Cryptography.HashAlgorithm? CreateDigest() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("CreateFormatter is not trim compatible because the algorithm implementation referenced by FormatterAlgorithm might be removed.")]
         public virtual System.Security.Cryptography.AsymmetricSignatureFormatter CreateFormatter(System.Security.Cryptography.AsymmetricAlgorithm key) { throw null; }
+    }
+    public sealed partial class SP800108HmacCounterKdf : System.IDisposable
+    {
+        public SP800108HmacCounterKdf(byte[] key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
+        public SP800108HmacCounterKdf(System.ReadOnlySpan<byte> key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
+        public static byte[] DeriveBytes(byte[] key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, byte[] label, byte[] context, int derivedKeyLengthInBytes) { throw null; }
+        public static byte[] DeriveBytes(byte[] key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, string label, string context, int derivedKeyLengthInBytes) { throw null; }
+        public static byte[] DeriveBytes(System.ReadOnlySpan<byte> key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> label, System.ReadOnlySpan<byte> context, int derivedKeyLengthInBytes) { throw null; }
+        public static void DeriveBytes(System.ReadOnlySpan<byte> key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> label, System.ReadOnlySpan<byte> context, System.Span<byte> destination) { }
+        public static byte[] DeriveBytes(System.ReadOnlySpan<byte> key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<char> label, System.ReadOnlySpan<char> context, int derivedKeyLengthInBytes) { throw null; }
+        public static void DeriveBytes(System.ReadOnlySpan<byte> key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<char> label, System.ReadOnlySpan<char> context, System.Span<byte> destination) { }
+        public byte[] DeriveKey(byte[] label, byte[] context, int derivedKeyLengthInBytes) { throw null; }
+        public byte[] DeriveKey(System.ReadOnlySpan<byte> label, System.ReadOnlySpan<byte> context, int derivedKeyLengthInBytes) { throw null; }
+        public void DeriveKey(System.ReadOnlySpan<byte> label, System.ReadOnlySpan<byte> context, System.Span<byte> destination) { }
+        public byte[] DeriveKey(System.ReadOnlySpan<char> label, System.ReadOnlySpan<char> context, int derivedKeyLengthInBytes) { throw null; }
+        public void DeriveKey(System.ReadOnlySpan<char> label, System.ReadOnlySpan<char> context, System.Span<byte> destination) { }
+        public byte[] DeriveKey(string label, string context, int derivedKeyLengthInBytes) { throw null; }
+        public void Dispose() { }
     }
     public abstract partial class SymmetricAlgorithm : System.IDisposable
     {
@@ -2293,9 +2706,10 @@ namespace System.Security.Cryptography
         public virtual System.Security.Cryptography.CipherMode Mode { get { throw null; } set { } }
         public virtual System.Security.Cryptography.PaddingMode Padding { get { throw null; } set { } }
         public void Clear() { }
-        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId = "SYSLIB0007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("The default implementation of this cryptography algorithm is not supported.", DiagnosticId="SYSLIB0007", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.SymmetricAlgorithm Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static System.Security.Cryptography.SymmetricAlgorithm? Create(string algName) { throw null; }
         public virtual System.Security.Cryptography.ICryptoTransform CreateDecryptor() { throw null; }
         public abstract System.Security.Cryptography.ICryptoTransform CreateDecryptor(byte[] rgbKey, byte[]? rgbIV);
@@ -2361,6 +2775,7 @@ namespace System.Security.Cryptography
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static new System.Security.Cryptography.TripleDES Create() { throw null; }
         [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute("The default algorithm implementations might be removed, use strong type references like 'RSA.Create()' instead.")]
+        [System.ObsoleteAttribute("Cryptographic factory methods accepting an algorithm name are obsolete. Use the parameterless Create factory method on the algorithm type instead.", DiagnosticId="SYSLIB0045", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public static new System.Security.Cryptography.TripleDES? Create(string str) { throw null; }
         public static bool IsWeakKey(byte[] rgbKey) { throw null; }
     }
@@ -2390,8 +2805,8 @@ namespace System.Security.Cryptography
         protected override bool TryEncryptCfbCore(System.ReadOnlySpan<byte> plaintext, System.ReadOnlySpan<byte> iv, System.Span<byte> destination, System.Security.Cryptography.PaddingMode paddingMode, int feedbackSizeInBits, out int bytesWritten) { throw null; }
         protected override bool TryEncryptEcbCore(System.ReadOnlySpan<byte> plaintext, System.Span<byte> destination, System.Security.Cryptography.PaddingMode paddingMode, out int bytesWritten) { throw null; }
     }
-    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId = "SYSLIB0021", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    [System.ObsoleteAttribute("Derived cryptographic types are obsolete. Use the Create method on the base type instead.", DiagnosticId="SYSLIB0021", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class TripleDESCryptoServiceProvider : System.Security.Cryptography.TripleDES
     {
         public TripleDESCryptoServiceProvider() { }
@@ -2421,10 +2836,12 @@ namespace System.Security.Cryptography.X509Certificates
         public CertificateRequest(System.Security.Cryptography.X509Certificates.X500DistinguishedName subjectName, System.Security.Cryptography.ECDsa key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
         public CertificateRequest(System.Security.Cryptography.X509Certificates.X500DistinguishedName subjectName, System.Security.Cryptography.RSA key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { }
         public CertificateRequest(System.Security.Cryptography.X509Certificates.X500DistinguishedName subjectName, System.Security.Cryptography.X509Certificates.PublicKey publicKey, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
+        public CertificateRequest(System.Security.Cryptography.X509Certificates.X500DistinguishedName subjectName, System.Security.Cryptography.X509Certificates.PublicKey publicKey, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding? rsaSignaturePadding = null) { }
         public CertificateRequest(string subjectName, System.Security.Cryptography.ECDsa key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
         public CertificateRequest(string subjectName, System.Security.Cryptography.RSA key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding padding) { }
         public System.Collections.ObjectModel.Collection<System.Security.Cryptography.X509Certificates.X509Extension> CertificateExtensions { get { throw null; } }
         public System.Security.Cryptography.HashAlgorithmName HashAlgorithm { get { throw null; } }
+        public System.Collections.ObjectModel.Collection<System.Security.Cryptography.AsnEncodedData> OtherRequestAttributes { get { throw null; } }
         public System.Security.Cryptography.X509Certificates.PublicKey PublicKey { get { throw null; } }
         public System.Security.Cryptography.X509Certificates.X500DistinguishedName SubjectName { get { throw null; } }
         public System.Security.Cryptography.X509Certificates.X509Certificate2 Create(System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, System.Security.Cryptography.X509Certificates.X509SignatureGenerator generator, System.DateTimeOffset notBefore, System.DateTimeOffset notAfter, byte[] serialNumber) { throw null; }
@@ -2434,6 +2851,35 @@ namespace System.Security.Cryptography.X509Certificates
         public System.Security.Cryptography.X509Certificates.X509Certificate2 CreateSelfSigned(System.DateTimeOffset notBefore, System.DateTimeOffset notAfter) { throw null; }
         public byte[] CreateSigningRequest() { throw null; }
         public byte[] CreateSigningRequest(System.Security.Cryptography.X509Certificates.X509SignatureGenerator signatureGenerator) { throw null; }
+        public string CreateSigningRequestPem() { throw null; }
+        public string CreateSigningRequestPem(System.Security.Cryptography.X509Certificates.X509SignatureGenerator signatureGenerator) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRequest LoadSigningRequest(byte[] pkcs10, System.Security.Cryptography.HashAlgorithmName signerHashAlgorithm, System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions options = System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions.Default, System.Security.Cryptography.RSASignaturePadding? signerSignaturePadding = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRequest LoadSigningRequest(System.ReadOnlySpan<byte> pkcs10, System.Security.Cryptography.HashAlgorithmName signerHashAlgorithm, out int bytesConsumed, System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions options = System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions.Default, System.Security.Cryptography.RSASignaturePadding? signerSignaturePadding = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRequest LoadSigningRequestPem(System.ReadOnlySpan<char> pkcs10Pem, System.Security.Cryptography.HashAlgorithmName signerHashAlgorithm, System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions options = System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions.Default, System.Security.Cryptography.RSASignaturePadding? signerSignaturePadding = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRequest LoadSigningRequestPem(string pkcs10Pem, System.Security.Cryptography.HashAlgorithmName signerHashAlgorithm, System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions options = System.Security.Cryptography.X509Certificates.CertificateRequestLoadOptions.Default, System.Security.Cryptography.RSASignaturePadding? signerSignaturePadding = null) { throw null; }
+    }
+    [System.FlagsAttribute]
+    public enum CertificateRequestLoadOptions
+    {
+        Default = 0,
+        SkipSignatureValidation = 1,
+        UnsafeLoadCertificateExtensions = 2,
+    }
+    public sealed partial class CertificateRevocationListBuilder
+    {
+        public CertificateRevocationListBuilder() { }
+        public void AddEntry(byte[] serialNumber, System.DateTimeOffset? revocationTime = default(System.DateTimeOffset?), System.Security.Cryptography.X509Certificates.X509RevocationReason? reason = default(System.Security.Cryptography.X509Certificates.X509RevocationReason?)) { }
+        public void AddEntry(System.ReadOnlySpan<byte> serialNumber, System.DateTimeOffset? revocationTime = default(System.DateTimeOffset?), System.Security.Cryptography.X509Certificates.X509RevocationReason? reason = default(System.Security.Cryptography.X509Certificates.X509RevocationReason?)) { }
+        public void AddEntry(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate, System.DateTimeOffset? revocationTime = default(System.DateTimeOffset?), System.Security.Cryptography.X509Certificates.X509RevocationReason? reason = default(System.Security.Cryptography.X509Certificates.X509RevocationReason?)) { }
+        public byte[] Build(System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, System.Security.Cryptography.X509Certificates.X509SignatureGenerator generator, System.Numerics.BigInteger crlNumber, System.DateTimeOffset nextUpdate, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension authorityKeyIdentifier, System.DateTimeOffset? thisUpdate = default(System.DateTimeOffset?)) { throw null; }
+        public byte[] Build(System.Security.Cryptography.X509Certificates.X509Certificate2 issuerCertificate, System.Numerics.BigInteger crlNumber, System.DateTimeOffset nextUpdate, System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.Security.Cryptography.RSASignaturePadding? rsaSignaturePadding = null, System.DateTimeOffset? thisUpdate = default(System.DateTimeOffset?)) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Extension BuildCrlDistributionPointExtension(System.Collections.Generic.IEnumerable<string> uris, bool critical = false) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRevocationListBuilder Load(byte[] currentCrl, out System.Numerics.BigInteger currentCrlNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRevocationListBuilder Load(System.ReadOnlySpan<byte> currentCrl, out System.Numerics.BigInteger currentCrlNumber, out int bytesConsumed) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRevocationListBuilder LoadPem(System.ReadOnlySpan<char> currentCrl, out System.Numerics.BigInteger currentCrlNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.CertificateRevocationListBuilder LoadPem(string currentCrl, out System.Numerics.BigInteger currentCrlNumber) { throw null; }
+        public bool RemoveEntry(byte[] serialNumber) { throw null; }
+        public bool RemoveEntry(System.ReadOnlySpan<byte> serialNumber) { throw null; }
     }
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
     [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
@@ -2458,13 +2904,37 @@ namespace System.Security.Cryptography.X509Certificates
         OpenExistingOnly = 4,
         IncludeArchived = 8,
     }
+    public sealed partial class Pkcs12LoaderLimits
+    {
+        public Pkcs12LoaderLimits() { }
+        public Pkcs12LoaderLimits(System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits copyFrom) { }
+        public static System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits DangerousNoLimits { get { throw null; } }
+        public static System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits Defaults { get { throw null; } }
+        public bool IgnoreEncryptedAuthSafes { get { throw null; } set { } }
+        public bool IgnorePrivateKeys { get { throw null; } set { } }
+        public int? IndividualKdfIterationLimit { get { throw null; } set { } }
+        public bool IsReadOnly { get { throw null; } }
+        public int? MacIterationLimit { get { throw null; } set { } }
+        public int? MaxCertificates { get { throw null; } set { } }
+        public int? MaxKeys { get { throw null; } set { } }
+        public bool PreserveCertificateAlias { get { throw null; } set { } }
+        public bool PreserveKeyName { get { throw null; } set { } }
+        public bool PreserveStorageProvider { get { throw null; } set { } }
+        public bool PreserveUnknownAttributes { get { throw null; } set { } }
+        public int? TotalKdfIterationLimit { get { throw null; } set { } }
+        public void MakeReadOnly() { }
+    }
+    public sealed partial class Pkcs12LoadLimitExceededException : System.Security.Cryptography.CryptographicException
+    {
+        public Pkcs12LoadLimitExceededException(string propertyName) { }
+    }
     public sealed partial class PublicKey
     {
         public PublicKey(System.Security.Cryptography.AsymmetricAlgorithm key) { }
         public PublicKey(System.Security.Cryptography.Oid oid, System.Security.Cryptography.AsnEncodedData parameters, System.Security.Cryptography.AsnEncodedData keyValue) { }
         public System.Security.Cryptography.AsnEncodedData EncodedKeyValue { get { throw null; } }
         public System.Security.Cryptography.AsnEncodedData EncodedParameters { get { throw null; } }
-        [System.ObsoleteAttribute("PublicKey.Key is obsolete. Use the appropriate method to get the public key, such as GetRSAPublicKey.", DiagnosticId = "SYSLIB0027", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("PublicKey.Key is obsolete. Use the appropriate method to get the public key, such as GetRSAPublicKey.", DiagnosticId="SYSLIB0027", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public System.Security.Cryptography.AsymmetricAlgorithm Key { get { throw null; } }
         public System.Security.Cryptography.Oid Oid { get { throw null; } }
         public static System.Security.Cryptography.X509Certificates.PublicKey CreateFromSubjectPublicKeyInfo(System.ReadOnlySpan<byte> source, out int bytesRead) { throw null; }
@@ -2523,6 +2993,7 @@ namespace System.Security.Cryptography.X509Certificates
         public X500DistinguishedName(string distinguishedName, System.Security.Cryptography.X509Certificates.X500DistinguishedNameFlags flag) { }
         public string Name { get { throw null; } }
         public string Decode(System.Security.Cryptography.X509Certificates.X500DistinguishedNameFlags flag) { throw null; }
+        public System.Collections.Generic.IEnumerable<System.Security.Cryptography.X509Certificates.X500RelativeDistinguishedName> EnumerateRelativeDistinguishedNames(bool reversed = true) { throw null; }
         public override string Format(bool multiLine) { throw null; }
     }
     public sealed partial class X500DistinguishedNameBuilder
@@ -2554,6 +3025,45 @@ namespace System.Security.Cryptography.X509Certificates
         UseT61Encoding = 8192,
         ForceUTF8Encoding = 16384,
     }
+    public sealed partial class X500RelativeDistinguishedName
+    {
+        internal X500RelativeDistinguishedName() { }
+        public bool HasMultipleElements { get { throw null; } }
+        public System.ReadOnlyMemory<byte> RawData { get { throw null; } }
+        public System.Security.Cryptography.Oid GetSingleElementType() { throw null; }
+        public string? GetSingleElementValue() { throw null; }
+    }
+    public sealed partial class X509AuthorityInformationAccessExtension : System.Security.Cryptography.X509Certificates.X509Extension
+    {
+        public X509AuthorityInformationAccessExtension() { }
+        public X509AuthorityInformationAccessExtension(byte[] rawData, bool critical = false) { }
+        public X509AuthorityInformationAccessExtension(System.Collections.Generic.IEnumerable<string>? ocspUris, System.Collections.Generic.IEnumerable<string>? caIssuersUris, bool critical = false) { }
+        public X509AuthorityInformationAccessExtension(System.ReadOnlySpan<byte> rawData, bool critical = false) { }
+        public override void CopyFrom(System.Security.Cryptography.AsnEncodedData asnEncodedData) { }
+        public System.Collections.Generic.IEnumerable<string> EnumerateCAIssuersUris() { throw null; }
+        public System.Collections.Generic.IEnumerable<string> EnumerateOcspUris() { throw null; }
+        public System.Collections.Generic.IEnumerable<string> EnumerateUris(System.Security.Cryptography.Oid accessMethodOid) { throw null; }
+        public System.Collections.Generic.IEnumerable<string> EnumerateUris(string accessMethodOid) { throw null; }
+    }
+    public sealed partial class X509AuthorityKeyIdentifierExtension : System.Security.Cryptography.X509Certificates.X509Extension
+    {
+        public X509AuthorityKeyIdentifierExtension() { }
+        public X509AuthorityKeyIdentifierExtension(byte[] rawData, bool critical = false) { }
+        public X509AuthorityKeyIdentifierExtension(System.ReadOnlySpan<byte> rawData, bool critical = false) { }
+        public System.ReadOnlyMemory<byte>? KeyIdentifier { get { throw null; } }
+        public System.Security.Cryptography.X509Certificates.X500DistinguishedName? NamedIssuer { get { throw null; } }
+        public System.ReadOnlyMemory<byte>? RawIssuer { get { throw null; } }
+        public System.ReadOnlyMemory<byte>? SerialNumber { get { throw null; } }
+        public override void CopyFrom(System.Security.Cryptography.AsnEncodedData asnEncodedData) { }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension Create(byte[] keyIdentifier, System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, byte[] serialNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension Create(System.ReadOnlySpan<byte> keyIdentifier, System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, System.ReadOnlySpan<byte> serialNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromCertificate(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate, bool includeKeyIdentifier, bool includeIssuerAndSerial) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromIssuerNameAndSerialNumber(System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, byte[] serialNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromIssuerNameAndSerialNumber(System.Security.Cryptography.X509Certificates.X500DistinguishedName issuerName, System.ReadOnlySpan<byte> serialNumber) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromSubjectKeyIdentifier(byte[] subjectKeyIdentifier) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromSubjectKeyIdentifier(System.ReadOnlySpan<byte> subjectKeyIdentifier) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509AuthorityKeyIdentifierExtension CreateFromSubjectKeyIdentifier(System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension subjectKeyIdentifier) { throw null; }
+    }
     public sealed partial class X509BasicConstraintsExtension : System.Security.Cryptography.X509Certificates.X509Extension
     {
         public X509BasicConstraintsExtension() { }
@@ -2563,46 +3073,63 @@ namespace System.Security.Cryptography.X509Certificates
         public bool HasPathLengthConstraint { get { throw null; } }
         public int PathLengthConstraint { get { throw null; } }
         public override void CopyFrom(System.Security.Cryptography.AsnEncodedData asnEncodedData) { }
+        public static System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension CreateForCertificateAuthority(int? pathLengthConstraint = default(int?)) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension CreateForEndEntity(bool critical = false) { throw null; }
     }
     public partial class X509Certificate : System.IDisposable, System.Runtime.Serialization.IDeserializationCallback, System.Runtime.Serialization.ISerializable
     {
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate() { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(byte[] data) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(byte[] rawData, System.Security.SecureString? password) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(byte[] rawData, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(byte[] rawData, string? password) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(byte[] rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(System.IntPtr handle) { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         public X509Certificate(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(System.Security.Cryptography.X509Certificates.X509Certificate cert) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(string fileName) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(string fileName, System.Security.SecureString? password) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(string fileName, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(string fileName, string? password) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate(string fileName, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
         public System.IntPtr Handle { get { throw null; } }
         public string Issuer { get { throw null; } }
+        public System.ReadOnlyMemory<byte> SerialNumberBytes { get { throw null; } }
         public string Subject { get { throw null; } }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.X509Certificates.X509Certificate CreateFromCertFile(string filename) { throw null; }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public static System.Security.Cryptography.X509Certificates.X509Certificate CreateFromSignedFile(string filename) { throw null; }
         public void Dispose() { }
@@ -2635,19 +3162,19 @@ namespace System.Security.Cryptography.X509Certificates
         public virtual string GetRawCertDataString() { throw null; }
         public virtual byte[] GetSerialNumber() { throw null; }
         public virtual string GetSerialNumberString() { throw null; }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(byte[] rawData) { }
         [System.CLSCompliantAttribute(false)]
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(byte[] rawData, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(byte[] rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(string fileName) { }
         [System.CLSCompliantAttribute(false)]
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(string fileName, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual void Import(string fileName, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
         public virtual void Reset() { }
         void System.Runtime.Serialization.IDeserializationCallback.OnDeserialization(object? sender) { }
@@ -2658,42 +3185,57 @@ namespace System.Security.Cryptography.X509Certificates
     }
     public partial class X509Certificate2 : System.Security.Cryptography.X509Certificates.X509Certificate
     {
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2() { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(byte[] rawData) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(byte[] rawData, System.Security.SecureString? password) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(byte[] rawData, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(byte[] rawData, string? password) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(byte[] rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(System.IntPtr handle) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(System.ReadOnlySpan<byte> rawData) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(System.ReadOnlySpan<byte> rawData, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected X509Certificate2(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(System.Security.Cryptography.X509Certificates.X509Certificate certificate) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName, System.Security.SecureString? password) { }
         [System.CLSCompliantAttribute(false)]
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName, string? password) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
         public X509Certificate2(string fileName, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
         public bool Archived { get { throw null; } [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")] set { } }
@@ -2703,7 +3245,7 @@ namespace System.Security.Cryptography.X509Certificates
         public System.Security.Cryptography.X509Certificates.X500DistinguishedName IssuerName { get { throw null; } }
         public System.DateTime NotAfter { get { throw null; } }
         public System.DateTime NotBefore { get { throw null; } }
-        [System.ObsoleteAttribute("X509Certificate2.PrivateKey is obsolete. Use the appropriate method to get the private key, such as GetRSAPrivateKey, or use the CopyWithPrivateKey method to create a new instance with a private key.", DiagnosticId = "SYSLIB0028", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate2.PrivateKey is obsolete. Use the appropriate method to get the private key, such as GetRSAPrivateKey, or use the CopyWithPrivateKey method to create a new instance with a private key.", DiagnosticId="SYSLIB0028", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public System.Security.Cryptography.AsymmetricAlgorithm? PrivateKey { get { throw null; } set { } }
         public System.Security.Cryptography.X509Certificates.PublicKey PublicKey { get { throw null; } }
         public byte[] RawData { get { throw null; } }
@@ -2734,20 +3276,21 @@ namespace System.Security.Cryptography.X509Certificates
         public System.Security.Cryptography.ECDiffieHellman? GetECDiffieHellmanPrivateKey() { throw null; }
         public System.Security.Cryptography.ECDiffieHellman? GetECDiffieHellmanPublicKey() { throw null; }
         public string GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType nameType, bool forIssuer) { throw null; }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(byte[] rawData) { }
         [System.CLSCompliantAttribute(false)]
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(byte[] rawData, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(byte[] rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(string fileName) { }
         [System.CLSCompliantAttribute(false)]
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(string fileName, System.Security.SecureString? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
-        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use the appropriate constructor to create a new certificate.", DiagnosticId = "SYSLIB0026", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ObsoleteAttribute("X509Certificate and X509Certificate2 are immutable. Use X509CertificateLoader to create a new certificate.", DiagnosticId="SYSLIB0026", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void Import(string fileName, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags) { }
+        public bool MatchesHostname(string hostname, bool allowWildcards = true, bool allowCommonName = true) { throw null; }
         public override void Reset() { }
         public override string ToString() { throw null; }
         public override string ToString(bool verbose) { throw null; }
@@ -2772,14 +3315,25 @@ namespace System.Security.Cryptography.X509Certificates
         [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
         public string ExportPkcs7Pem() { throw null; }
         public System.Security.Cryptography.X509Certificates.X509Certificate2Collection Find(System.Security.Cryptography.X509Certificates.X509FindType findType, object findValue, bool validOnly) { throw null; }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2Collection FindByThumbprint(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<byte> thumbprintBytes) { throw null; }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2Collection FindByThumbprint(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, System.ReadOnlySpan<char> thumbprintHex) { throw null; }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2Collection FindByThumbprint(System.Security.Cryptography.HashAlgorithmName hashAlgorithm, string thumbprintHex) { throw null; }
         public new System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator GetEnumerator() { throw null; }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(byte[] rawData) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(byte[] rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(System.ReadOnlySpan<byte> rawData) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(System.ReadOnlySpan<byte> rawData, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(System.ReadOnlySpan<byte> rawData, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(string fileName) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(string fileName, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
+        [System.ObsoleteAttribute("Loading certificate data through the constructor or Import is obsolete. Use X509CertificateLoader instead to load certificates.", DiagnosticId="SYSLIB0057", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public void Import(string fileName, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet) { }
         public void ImportFromPem(System.ReadOnlySpan<char> certPem) { }
         public void ImportFromPemFile(string certPemFilePath) { }
@@ -2831,6 +3385,21 @@ namespace System.Security.Cryptography.X509Certificates
             bool System.Collections.IEnumerator.MoveNext() { throw null; }
             void System.Collections.IEnumerator.Reset() { }
         }
+    }
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+    public static partial class X509CertificateLoader
+    {
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadCertificate(byte[] data) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadCertificate(System.ReadOnlySpan<byte> data) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadCertificateFromFile(string path) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadPkcs12(byte[] data, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadPkcs12(System.ReadOnlySpan<byte> data, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2Collection LoadPkcs12Collection(byte[] data, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2Collection LoadPkcs12Collection(System.ReadOnlySpan<byte> data, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2Collection LoadPkcs12CollectionFromFile(string path, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2Collection LoadPkcs12CollectionFromFile(string path, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadPkcs12FromFile(string path, System.ReadOnlySpan<char> password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
+        public static System.Security.Cryptography.X509Certificates.X509Certificate2 LoadPkcs12FromFile(string path, string? password, System.Security.Cryptography.X509Certificates.X509KeyStorageFlags keyStorageFlags = System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.DefaultKeySet, System.Security.Cryptography.X509Certificates.Pkcs12LoaderLimits? loaderLimits = null) { throw null; }
     }
     public partial class X509Chain : System.IDisposable
     {
@@ -2893,6 +3462,8 @@ namespace System.Security.Cryptography.X509Certificates
         public System.TimeSpan UrlRetrievalTimeout { get { throw null; } set { } }
         public System.Security.Cryptography.X509Certificates.X509VerificationFlags VerificationFlags { get { throw null; } set { } }
         public System.DateTime VerificationTime { get { throw null; } set { } }
+        public bool VerificationTimeIgnored { get { throw null; } set { } }
+        public System.Security.Cryptography.X509Certificates.X509ChainPolicy Clone() { throw null; }
         public void Reset() { }
     }
     public partial struct X509ChainStatus
@@ -3071,6 +3642,20 @@ namespace System.Security.Cryptography.X509Certificates
         Online = 1,
         Offline = 2,
     }
+    public enum X509RevocationReason
+    {
+        Unspecified = 0,
+        KeyCompromise = 1,
+        CACompromise = 2,
+        AffiliationChanged = 3,
+        Superseded = 4,
+        CessationOfOperation = 5,
+        CertificateHold = 6,
+        RemoveFromCrl = 8,
+        PrivilegeWithdrawn = 9,
+        AACompromise = 10,
+        WeakAlgorithmOrKey = 11,
+    }
     public abstract partial class X509SignatureGenerator
     {
         protected X509SignatureGenerator() { }
@@ -3105,6 +3690,15 @@ namespace System.Security.Cryptography.X509Certificates
         public void Remove(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) { }
         public void RemoveRange(System.Security.Cryptography.X509Certificates.X509Certificate2Collection certificates) { }
     }
+    public sealed partial class X509SubjectAlternativeNameExtension : System.Security.Cryptography.X509Certificates.X509Extension
+    {
+        public X509SubjectAlternativeNameExtension() { }
+        public X509SubjectAlternativeNameExtension(byte[] rawData, bool critical = false) { }
+        public X509SubjectAlternativeNameExtension(System.ReadOnlySpan<byte> rawData, bool critical = false) { }
+        public override void CopyFrom(System.Security.Cryptography.AsnEncodedData asnEncodedData) { }
+        public System.Collections.Generic.IEnumerable<string> EnumerateDnsNames() { throw null; }
+        public System.Collections.Generic.IEnumerable<System.Net.IPAddress> EnumerateIPAddresses() { throw null; }
+    }
     public sealed partial class X509SubjectKeyIdentifierExtension : System.Security.Cryptography.X509Certificates.X509Extension
     {
         public X509SubjectKeyIdentifierExtension() { }
@@ -3115,6 +3709,7 @@ namespace System.Security.Cryptography.X509Certificates
         public X509SubjectKeyIdentifierExtension(System.Security.Cryptography.X509Certificates.PublicKey key, System.Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierHashAlgorithm algorithm, bool critical) { }
         public X509SubjectKeyIdentifierExtension(string subjectKeyIdentifier, bool critical) { }
         public string? SubjectKeyIdentifier { get { throw null; } }
+        public System.ReadOnlyMemory<byte> SubjectKeyIdentifierBytes { get { throw null; } }
         public override void CopyFrom(System.Security.Cryptography.AsnEncodedData asnEncodedData) { }
     }
     public enum X509SubjectKeyIdentifierHashAlgorithm
@@ -3122,6 +3717,12 @@ namespace System.Security.Cryptography.X509Certificates
         Sha1 = 0,
         ShortSha1 = 1,
         CapiSha1 = 2,
+        Sha256 = 3,
+        Sha384 = 4,
+        Sha512 = 5,
+        ShortSha256 = 6,
+        ShortSha384 = 7,
+        ShortSha512 = 8,
     }
     [System.FlagsAttribute]
     public enum X509VerificationFlags

@@ -18,18 +18,16 @@ namespace Microsoft.Extensions.Options
         where TOptions : class
     {
         /// <summary>
-        /// Constructor that takes the <see cref="IConfiguration"/> instance to bind against.
+        /// Initializes a new instance of the <see cref="ConfigureFromConfigurationOptions{TOptions}"/> class using the specified <see cref="IConfiguration"/> instance to bind against.
         /// </summary>
         /// <param name="config">The <see cref="IConfiguration"/> instance.</param>
         //Even though TOptions is annotated, we need to annotate as RUC as we can't guarantee properties on referenced types are preserved.
+        [RequiresDynamicCode(OptionsBuilderConfigurationExtensions.RequiresDynamicCodeMessage)]
         [RequiresUnreferencedCode(OptionsBuilderConfigurationExtensions.TrimmingRequiredUnreferencedCodeMessage)]
-        public ConfigureFromConfigurationOptions(IConfiguration config!!)
-            : base(options => BindFromOptions(options, config))
+        public ConfigureFromConfigurationOptions(IConfiguration config)
+            : base(options => ConfigurationBinder.Bind(config, options))
         {
+            ThrowHelper.ThrowIfNull(config);
         }
-
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "The only call to this method is the constructor which is already annotated as RequiresUnreferencedCode.")]
-        private static void BindFromOptions(TOptions options, IConfiguration config) => ConfigurationBinder.Bind(config, options);
     }
 }

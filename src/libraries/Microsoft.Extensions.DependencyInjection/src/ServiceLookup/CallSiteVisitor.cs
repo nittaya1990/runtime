@@ -18,7 +18,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
         {
             if (!_stackGuard.TryEnterOnCurrentStack())
             {
-                return _stackGuard.RunOnEmptyStack((c, a) => VisitCallSite(c, a), callSite, argument);
+                return _stackGuard.RunOnEmptyStack(VisitCallSite, callSite, argument);
             }
 
             switch (callSite.Cache.Location)
@@ -42,7 +42,7 @@ namespace Microsoft.Extensions.DependencyInjection.ServiceLookup
             {
                 case CallSiteKind.Factory:
                     return VisitFactory((FactoryCallSite)callSite, argument);
-                case  CallSiteKind.IEnumerable:
+                case CallSiteKind.IEnumerable:
                     return VisitIEnumerable((IEnumerableCallSite)callSite, argument);
                 case CallSiteKind.Constructor:
                     return VisitConstructor((ConstructorCallSite)callSite, argument);

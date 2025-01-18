@@ -18,11 +18,11 @@ void EntryPointSlots::Backpatch_Locked(TADDR slot, SlotType slotType, PCODE entr
     WRAPPER_NO_CONTRACT;
     static_assert_no_msg(SlotType_Count <= sizeof(INT32));
     _ASSERTE(MethodDescBackpatchInfoTracker::IsLockOwnedByCurrentThread());
-    _ASSERTE(slot != NULL);
+    _ASSERTE(slot != (TADDR)NULL);
     _ASSERTE(!(slot & SlotType_Mask));
     _ASSERTE(slotType >= SlotType_Normal);
     _ASSERTE(slotType < SlotType_Count);
-    _ASSERTE(entryPoint != NULL);
+    _ASSERTE(entryPoint != (PCODE)NULL);
     _ASSERTE(IS_ALIGNED((SIZE_T)slot, GetRequiredSlotAlignment(slotType)));
 
     switch (slotType)
@@ -77,9 +77,7 @@ void MethodDescBackpatchInfoTracker::Backpatch_Locked(MethodDesc *pMethodDesc, P
     _ASSERTE(IsLockOwnedByCurrentThread());
     _ASSERTE(pMethodDesc != nullptr);
 
-    GCX_COOP();
-
-    auto lambda = [&entryPoint](OBJECTREF obj, MethodDesc *pMethodDesc, UINT_PTR slotData)
+    auto lambda = [&entryPoint](LoaderAllocator *pLoaderAllocatorOfSlot, MethodDesc *pMethodDesc, UINT_PTR slotData)
     {
 
         TADDR slot;
@@ -100,8 +98,6 @@ void MethodDescBackpatchInfoTracker::AddSlotAndPatch_Locked(MethodDesc *pMethodD
     _ASSERTE(IsLockOwnedByCurrentThread());
     _ASSERTE(pMethodDesc != nullptr);
     _ASSERTE(pMethodDesc->MayHaveEntryPointSlotsToBackpatch());
-
-    GCX_COOP();
 
     UINT_PTR slotData;
     slotData = EntryPointSlots::ConvertSlotAndTypePairToUINT_PTR(slot, slotType);

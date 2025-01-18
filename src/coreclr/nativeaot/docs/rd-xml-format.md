@@ -1,8 +1,11 @@
 Rd.xml File Format
 ==================
 
-The CoreRT ahead of time compiler discovers methods to compile and types to generate by compiling the application entry point and its transitive dependencies. The compiler may miss types if an application uses reflection. For more information about the problem see [Reflection in AOT mode](reflection-in-aot-mode.md).
-An rd.xml file can be supplemented to help ILCompiler find types that should be analyzed. This file is similar but more limited than the rd.xml file used by .NET Native.
+> [!WARNING]
+> This file format is only for internal purposes within this repo and _unsupported_. Do not confuse with the file format used for building .NET UWP apps. The formats are named the same for historical reasons but they are different formats and the one documented here is entirely unsupported outside the dotnet/runtime repo. These docs are only for people working in this repo.
+
+The NativeAOT compiler discovers methods to compile and types to generate by compiling the application entry point and its transitive dependencies. The compiler may miss types if an application uses reflection.
+An rd.xml file can be supplemented to help the compiler find types that should be analyzed. This file is similar but more limited than the rd.xml file used by .NET Native.
 
 Minimal Rd.xml configuration
 
@@ -14,7 +17,7 @@ Minimal Rd.xml configuration
 </Directives>
 ```
 
-ILCompiler supports 2 top level directives `Application` or `Library`. Right now both of them can be used interchangeably and just define area where actual assembly configuration happens.
+The compiler supports 2 top level directives `Application` or `Library`. Right now both of them can be used interchangeably and just define area where actual assembly configuration happens.
 You can put multiple `<Assembly>` tags inside the `<Application>` directive to configure each assembly individually.
 
 ## Assembly directive

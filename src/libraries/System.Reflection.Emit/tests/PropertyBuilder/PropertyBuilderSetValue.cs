@@ -8,7 +8,6 @@ namespace System.Reflection.Emit.Tests
     public class PropertyBuilderTest16
     {
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/2389", TestRuntimes.Mono)]
         public void SetValue_ThrowsNotSupportedException()
         {
             TypeBuilder type = Helpers.DynamicType(TypeAttributes.Class | TypeAttributes.Public);
@@ -24,7 +23,7 @@ namespace System.Reflection.Emit.Tests
             methodILGenerator.Emit(OpCodes.Ret);
             property.SetGetMethod(method);
 
-            Type createdType = type.CreateTypeInfo().AsType();
+            Type createdType = type.CreateType();
             object obj = createdType.GetConstructor(new Type[0]).Invoke(null);
             Assert.Throws<NotSupportedException>(() => property.SetValue(obj, 99, null));
         }

@@ -54,7 +54,7 @@ namespace System.Net.Sockets
             _protocolType = protocolType;
         }
 
-        private static T CreateDelegate<T>(Func<IntPtr, T> functionPointerWrapper, [NotNull] ref T? cache, SafeSocketHandle socketHandle, string guidString) where T: Delegate
+        private static T CreateDelegate<T>(Func<IntPtr, T> functionPointerWrapper, [NotNull] ref T? cache, SafeSocketHandle socketHandle, string guidString) where T : Delegate
         {
             Guid guid = new Guid(guidString);
             IntPtr ptr;
@@ -86,7 +86,7 @@ namespace System.Net.Sockets
         internal unsafe AcceptExDelegate GetAcceptExDelegate(SafeSocketHandle socketHandle)
             => _acceptEx ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).AcceptEx, ref _acceptEx, socketHandle, "b5367df1cbac11cf95ca00805f48a192");
 
-        internal unsafe GetAcceptExSockaddrsDelegate GetGetAcceptExSockaddrsDelegate(SafeSocketHandle socketHandle)
+        internal GetAcceptExSockaddrsDelegate GetGetAcceptExSockaddrsDelegate(SafeSocketHandle socketHandle)
             => _getAcceptExSockaddrs ?? CreateDelegate<GetAcceptExSockaddrsDelegate>(ptr => new SocketDelegateHelper(ptr).GetAcceptExSockaddrs, ref _getAcceptExSockaddrs, socketHandle, "b5367df2cbac11cf95ca00805f48a192");
 
         internal unsafe ConnectExDelegate GetConnectExDelegate(SafeSocketHandle socketHandle)
@@ -103,9 +103,9 @@ namespace System.Net.Sockets
 
         /// <summary>
         /// The SocketDelegateHelper implements manual marshalling wrappers for the various delegates used for the dynamic Winsock methods.
-        /// These wrappers were generated with DllImportGenerator and then manually converted to use function pointers as the target instead of a P/Invoke.
+        /// These wrappers were generated with LibraryImportGenerator and then manually converted to use function pointers as the target instead of a P/Invoke.
         /// </summary>
-        private struct SocketDelegateHelper
+        private readonly struct SocketDelegateHelper
         {
             private readonly IntPtr _target;
 
@@ -174,7 +174,7 @@ namespace System.Net.Sockets
                 Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
 
             }
-            internal unsafe bool ConnectEx(SafeSocketHandle socketHandle, IntPtr socketAddress, int socketAddressSize, IntPtr buffer, int dataLength, out int bytesSent, NativeOverlapped* overlapped)
+            internal unsafe bool ConnectEx(SafeSocketHandle socketHandle, ReadOnlySpan<byte> socketAddress, IntPtr buffer, int dataLength, out int bytesSent, NativeOverlapped* overlapped)
             {
                 IntPtr __socketHandle_gen_native = default;
                 bytesSent = default;
@@ -192,8 +192,9 @@ namespace System.Net.Sockets
                     socketHandle.DangerousAddRef(ref socketHandle__addRefd);
                     __socketHandle_gen_native = socketHandle.DangerousGetHandle();
                     fixed (int* __bytesSent_gen_native = &bytesSent)
+                    fixed (void* socketAddressPtr = &MemoryMarshal.GetReference(socketAddress))
                     {
-                        __retVal_gen_native = ((delegate* unmanaged<IntPtr, IntPtr, int, IntPtr, int, int*, NativeOverlapped*, int>)_target)(__socketHandle_gen_native, socketAddress, socketAddressSize, buffer, dataLength, __bytesSent_gen_native, overlapped);
+                        __retVal_gen_native = ((delegate* unmanaged<IntPtr, void*, int, IntPtr, int, int*, NativeOverlapped*, int>)_target)(__socketHandle_gen_native, socketAddressPtr, socketAddress.Length, buffer, dataLength, __bytesSent_gen_native, overlapped);
                     }
                     Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
                     //
@@ -264,7 +265,7 @@ namespace System.Net.Sockets
                     __socketHandle_gen_native = socketHandle.DangerousGetHandle();
                     fixed (int* __bytesTransferred_gen_native = &bytesTransferred)
                     {
-                        __retVal = ((delegate* unmanaged<IntPtr, IntPtr, int *, NativeOverlapped*, IntPtr, SocketError>)_target)(__socketHandle_gen_native, msg, __bytesTransferred_gen_native, overlapped, completionRoutine);
+                        __retVal = ((delegate* unmanaged<IntPtr, IntPtr, int*, NativeOverlapped*, IntPtr, SocketError>)_target)(__socketHandle_gen_native, msg, __bytesTransferred_gen_native, overlapped, completionRoutine);
                     }
                     Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
                 }
@@ -338,8 +339,7 @@ namespace System.Net.Sockets
 
     internal unsafe delegate bool ConnectExDelegate(
                 SafeSocketHandle socketHandle,
-                IntPtr socketAddress,
-                int socketAddressSize,
+                ReadOnlySpan<byte> socketAddress,
                 IntPtr buffer,
                 int dataLength,
                 out int bytesSent,

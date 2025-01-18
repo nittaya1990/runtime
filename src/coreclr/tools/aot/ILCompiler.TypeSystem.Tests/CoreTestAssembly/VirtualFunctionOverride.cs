@@ -42,4 +42,62 @@ namespace VirtualFunctionOverride
 
         }
     }
+
+    unsafe class FunctionPointerOverloadBase
+    {
+        // Do not reorder these, the test assumes this order
+        public virtual Type Method(delegate* unmanaged[Cdecl]<void> p) => typeof(delegate* unmanaged[Cdecl]<void>);
+        public virtual Type Method(delegate* unmanaged[Stdcall]<void> p) => typeof(delegate* unmanaged[Stdcall]<void>);
+        public virtual Type Method(delegate* unmanaged[Stdcall, SuppressGCTransition]<void> p) => typeof(delegate* unmanaged[Stdcall, SuppressGCTransition]<void>);
+        public virtual Type Method(delegate*<void> p) => typeof(delegate*<void>);
+    }
+
+    unsafe class FunctionPointerOverloadDerived : FunctionPointerOverloadBase
+    {
+        // Do not reorder these, the test assumes this order
+        public override Type Method(delegate* unmanaged[Cdecl]<void> p) => null;
+        public override Type Method(delegate* unmanaged[Stdcall]<void> p) => null;
+        public override Type Method(delegate* unmanaged[Stdcall, SuppressGCTransition]<void> p) => null;
+        public override Type Method(delegate*<void> p) => null;
+    }
+
+    class BaseCovariant
+    {
+        public virtual BaseCovariant FromType()
+        {
+            return new BaseCovariant();
+        }
+    }
+
+    class ImplCovariant : BaseCovariant
+    {
+        public override ImplCovariant FromType()
+        {
+            return new ImplCovariant();
+        }
+    }
+
+    class SubImplCovariant : ImplCovariant
+    {
+        public override SubImplCovariant FromType()
+        {
+            return new SubImplCovariant();
+        }
+    }
+
+    class SubImplCovariant2 : ImplCovariant
+    {
+        public override ImplCovariant FromType()
+        {
+            return new ImplCovariant();
+        }
+    }
+
+    class SubSubImplCovariant : SubImplCovariant2
+    {
+        public override SubSubImplCovariant FromType()
+        {
+            return new SubSubImplCovariant();
+        }
+    }
 }

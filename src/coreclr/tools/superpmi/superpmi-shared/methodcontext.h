@@ -14,6 +14,7 @@
 #include "errorhandling.h"
 #include "hash.h"
 #include "agnostic.h"
+#include <minipal/types.h>
 
 extern bool g_debugRec;
 extern bool g_debugRep;
@@ -42,6 +43,7 @@ extern bool g_debugRep;
 const char* toString(CorInfoType cit);
 
 #define METHOD_IDENTITY_INFO_SIZE 0x10000 // We assume that the METHOD_IDENTITY_INFO_SIZE will not exceed 64KB
+#define METHOD_IDENTITY_INFO_NON_NAME_RESERVE 0x400 // Reserve 1KB of METHOD_IDENTITY_INFO_SIZE for everything except for the method name.
 
 // Special "jit flags" for noting some method context features
 
@@ -52,40 +54,37 @@ enum EXTRA_JIT_FLAGS
     HAS_CLASS_PROFILE = 61,
     HAS_LIKELY_CLASS = 60,
     HAS_STATIC_PROFILE = 59,
-    HAS_DYNAMIC_PROFILE = 58
+    HAS_DYNAMIC_PROFILE = 58,
+    HAS_METHOD_PROFILE = 57,
+    HAS_LIKELY_METHOD = 56,
 };
-
-// Asserts to catch changes in corjit flags definitions.
-
-static_assert((int)EXTRA_JIT_FLAGS::HAS_PGO == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED36, "Jit Flags Mismatch");
-static_assert((int)EXTRA_JIT_FLAGS::HAS_EDGE_PROFILE == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED35, "Jit Flags Mismatch");
-static_assert((int)EXTRA_JIT_FLAGS::HAS_CLASS_PROFILE == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED34, "Jit Flags Mismatch");
-static_assert((int)EXTRA_JIT_FLAGS::HAS_LIKELY_CLASS == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED33, "Jit Flags Mismatch");
-static_assert((int)EXTRA_JIT_FLAGS::HAS_STATIC_PROFILE == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED32, "Jit Flags Mismatch");
-static_assert((int)EXTRA_JIT_FLAGS::HAS_DYNAMIC_PROFILE == (int)CORJIT_FLAGS::CorJitFlag::CORJIT_FLAG_UNUSED31, "Jit Flags Mismatch");
 
 class MethodContext
 {
+    friend class CompileResult;
+
 public:
     MethodContext();
 
 private:
-    MethodContext(HANDLE hFile);
-    MethodContext(unsigned char* buff, unsigned int totalLen);
-
     void MethodInitHelper(unsigned char* buff, unsigned int totalLen);
     void MethodInitHelperFile(HANDLE hFile);
 
     bool Initialize(int mcIndex, unsigned char* buff, DWORD size);
     bool Initialize(int mcIndex, HANDLE hFile);
 
-    int dumpMD5HashToBuffer(BYTE* pBuffer, int bufLen, char* buff, int len);
+    int dumpHashToBuffer(BYTE* pBuffer, int bufLen, char* buff, int len);
 
 public:
     static bool Initialize(int mcIndex, unsigned char* buff, DWORD size, /* OUT */ MethodContext** ppmc);
     static bool Initialize(int mcIndex, HANDLE hFile, /* OUT */ MethodContext** ppmc);
     ~MethodContext();
     void Destroy();
+
+    void setIgnoreStoredConfig()
+    {
+        ignoreStoredConfig = true;
+    }
 
     bool Equal(MethodContext* other);
     unsigned int saveToFile(HANDLE hFile);
@@ -101,13 +100,11 @@ public:
     int methodSize;
 
     int dumpMethodIdentityInfoToBuffer(char* buff, int len, bool ignoreMethodName = false, CORINFO_METHOD_INFO* optInfo = nullptr, unsigned optFlags = 0);
-    int dumpMethodMD5HashToBuffer(char* buff, int len, bool ignoreMethodName = false, CORINFO_METHOD_INFO* optInfo = nullptr, unsigned optFlags = 0);
+    int dumpMethodHashToBuffer(char* buff, int len, bool ignoreMethodName = false, CORINFO_METHOD_INFO* optInfo = nullptr, unsigned optFlags = 0);
 
-    bool hasPgoData(bool& hasEdgeProfile, bool& hasClassProfile, bool& hasLikelyClass, ICorJitInfo::PgoSource& pgoSource);
+    bool hasPgoData(bool& hasEdgeProfile, bool& hasClassProfile, bool& hasMethodProfile, bool& hasLikelyClass, bool& hasLikelyMethod, ICorJitInfo::PgoSource& pgoSource);
 
     void recGlobalContext(const MethodContext& other);
-
-    void dmpEnvironment(DWORD key, const Agnostic_Environment& value);
 
     void recCompileMethod(CORINFO_METHOD_INFO* info, unsigned flags, CORINFO_OS os);
     void dmpCompileMethod(DWORD key, const Agnostic_CompileMethod& value);
@@ -117,10 +114,6 @@ public:
     void dmpGetMethodClass(DWORDLONG key, DWORDLONG value);
     CORINFO_CLASS_HANDLE repGetMethodClass(CORINFO_METHOD_HANDLE methodHandle);
 
-    void recGetMethodModule(CORINFO_METHOD_HANDLE methodHandle, CORINFO_MODULE_HANDLE moduleHandle);
-    void dmpGetMethodModule(DWORDLONG key, DWORDLONG value);
-    CORINFO_MODULE_HANDLE repGetMethodModule(CORINFO_METHOD_HANDLE methodHandle);
-
     void recGetClassAttribs(CORINFO_CLASS_HANDLE classHandle, DWORD attribs);
     void dmpGetClassAttribs(DWORDLONG key, DWORD value);
     DWORD repGetClassAttribs(CORINFO_CLASS_HANDLE classHandle);
@@ -129,21 +122,17 @@ public:
     void dmpIsIntrinsic(DWORDLONG key, DWORD value);
     bool repIsIntrinsic(CORINFO_METHOD_HANDLE ftn);
 
+    void recNotifyMethodInfoUsage(CORINFO_METHOD_HANDLE ftn, bool result);
+    void dmpNotifyMethodInfoUsage(DWORDLONG key, DWORD value);
+    bool repNotifyMethodInfoUsage(CORINFO_METHOD_HANDLE ftn);
+
     void recGetMethodAttribs(CORINFO_METHOD_HANDLE methodHandle, DWORD attribs);
     void dmpGetMethodAttribs(DWORDLONG key, DWORD value);
     DWORD repGetMethodAttribs(CORINFO_METHOD_HANDLE methodHandle);
 
-    void recGetClassModule(CORINFO_CLASS_HANDLE cls, CORINFO_MODULE_HANDLE mod);
-    void dmpGetClassModule(DWORDLONG key, DWORDLONG value);
-    CORINFO_MODULE_HANDLE repGetClassModule(CORINFO_CLASS_HANDLE cls);
-
-    void recGetModuleAssembly(CORINFO_MODULE_HANDLE mod, CORINFO_ASSEMBLY_HANDLE assem);
-    void dmpGetModuleAssembly(DWORDLONG key, DWORDLONG value);
-    CORINFO_ASSEMBLY_HANDLE repGetModuleAssembly(CORINFO_MODULE_HANDLE mod);
-
-    void recGetAssemblyName(CORINFO_ASSEMBLY_HANDLE assem, const char* assemblyName);
-    void dmpGetAssemblyName(DWORDLONG key, DWORD value);
-    const char* repGetAssemblyName(CORINFO_ASSEMBLY_HANDLE assem);
+    void recGetClassAssemblyName(CORINFO_CLASS_HANDLE cls, const char* assemblyName);
+    void dmpGetClassAssemblyName(DWORDLONG key, DWORD value);
+    const char* repGetClassAssemblyName(CORINFO_CLASS_HANDLE cls);
 
     void recGetVars(CORINFO_METHOD_HANDLE ftn, ULONG32* cVars, ICorDebugInfo::ILVarInfo** vars, bool* extendOthers);
     void dmpGetVars(DWORDLONG key, const Agnostic_GetVars& value);
@@ -168,28 +157,22 @@ public:
                                         CORINFO_METHOD_HANDLE  method,
                                         CORINFO_CONTEXT_HANDLE context);
 
-    void recGetMethodName(CORINFO_METHOD_HANDLE ftn, char* methodname, const char** moduleName);
-    void dmpGetMethodName(DLD key, DD value);
-    const char* repGetMethodName(CORINFO_METHOD_HANDLE ftn, const char** moduleName);
-
     void recGetMethodNameFromMetadata(CORINFO_METHOD_HANDLE ftn,
                                       char*                 methodname,
                                       const char**          moduleName,
                                       const char**          namespaceName,
-                                      const char**          enclosingClassName);
+                                      const char**          enclosingClassNames,
+                                      size_t                maxEnclosingClassNames);
     void dmpGetMethodNameFromMetadata(Agnostic_CORINFO_METHODNAME_TOKENin key, Agnostic_CORINFO_METHODNAME_TOKENout value);
     const char* repGetMethodNameFromMetadata(CORINFO_METHOD_HANDLE ftn,
                                              const char**          className,
                                              const char**          namespaceName,
-                                             const char**          enclosingClassName);
+                                             const char**          enclosingClassNames,
+                                             size_t                maxEnclosingClassNames);
 
     void recGetJitFlags(CORJIT_FLAGS* jitFlags, DWORD sizeInBytes, DWORD result);
     void dmpGetJitFlags(DWORD key, DD value);
     DWORD repGetJitFlags(CORJIT_FLAGS* jitFlags, DWORD sizeInBytes);
-
-    void recGetJitTimeLogFilename(LPCWSTR tempFileName);
-    void dmpGetJitTimeLogFilename(DWORD key, DWORD value);
-    LPCWSTR repGetJitTimeLogFilename();
 
     void recCanInline(CORINFO_METHOD_HANDLE callerHnd,
                       CORINFO_METHOD_HANDLE calleeHnd,
@@ -203,10 +186,6 @@ public:
     void recResolveToken(CORINFO_RESOLVED_TOKEN* pResolvedToken, DWORD exceptionCode);
     void dmpResolveToken(const Agnostic_CORINFO_RESOLVED_TOKENin& key, const ResolveTokenValue& value);
     void repResolveToken(CORINFO_RESOLVED_TOKEN* pResolvedToken, DWORD* exceptionCode);
-
-    void recTryResolveToken(CORINFO_RESOLVED_TOKEN* pResolvedToken, bool success);
-    void dmpTryResolveToken(const Agnostic_CORINFO_RESOLVED_TOKENin& key, const TryResolveTokenValue& value);
-    bool repTryResolveToken(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
     void recGetCallInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                         CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
@@ -259,6 +238,10 @@ public:
     void dmpGetTypeForBox(DWORDLONG key, DWORDLONG value);
     CORINFO_CLASS_HANDLE repGetTypeForBox(CORINFO_CLASS_HANDLE cls);
 
+    void recGetTypeForBoxOnStack(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE result);
+    void dmpGetTypeForBoxOnStack(DWORDLONG key, DWORDLONG value);
+    CORINFO_CLASS_HANDLE repGetTypeForBoxOnStack(CORINFO_CLASS_HANDLE cls);
+
     void recGetBoxHelper(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc result);
     void dmpGetBoxHelper(DWORDLONG key, DWORD value);
     CorInfoHelpFunc repGetBoxHelper(CORINFO_CLASS_HANDLE cls);
@@ -283,6 +266,10 @@ public:
     void dmpIsSDArray(DWORDLONG key, DWORD value);
     bool repIsSDArray(CORINFO_CLASS_HANDLE cls);
 
+    void recExpandRawHandleIntrinsic(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_METHOD_HANDLE callerHandle, CORINFO_GENERICHANDLE_RESULT* pResult);
+    void dmpExpandRawHandleIntrinsic(const Agnostic_ExpandRawHandleIntrinsic& key, const Agnostic_CORINFO_GENERICHANDLE_RESULT& result);
+    void repExpandRawHandleIntrinsic(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_METHOD_HANDLE callerHandle, CORINFO_GENERICHANDLE_RESULT* pResult);
+
     void recIsIntrinsicType(CORINFO_CLASS_HANDLE cls, bool result);
     void dmpIsIntrinsicType(DWORDLONG key, DWORD value);
     bool repIsIntrinsicType(CORINFO_CLASS_HANDLE cls);
@@ -303,24 +290,46 @@ public:
     void dmpGetUnBoxHelper(DWORDLONG key, DWORD value);
     CorInfoHelpFunc repGetUnBoxHelper(CORINFO_CLASS_HANDLE cls);
 
+    void recGetRuntimeTypePointer(CORINFO_CLASS_HANDLE cls, CORINFO_OBJECT_HANDLE result);
+    void dmpGetRuntimeTypePointer(DWORDLONG key, DWORDLONG value);
+    CORINFO_OBJECT_HANDLE repGetRuntimeTypePointer(CORINFO_CLASS_HANDLE cls);
+
+    void recIsObjectImmutable(CORINFO_OBJECT_HANDLE objPtr, bool result);
+    void dmpIsObjectImmutable(DWORDLONG key, DWORD value);
+    bool repIsObjectImmutable(CORINFO_OBJECT_HANDLE objPtr);
+
+    void recGetStringChar(CORINFO_OBJECT_HANDLE strObj, int index, uint16_t* charValue, bool result);
+    void dmpGetStringChar(DLD key, DD value);
+    bool repGetStringChar(CORINFO_OBJECT_HANDLE strObj, int index, uint16_t* charValue);
+
+    void recGetObjectType(CORINFO_OBJECT_HANDLE objPtr, CORINFO_CLASS_HANDLE result);
+    void dmpGetObjectType(DWORDLONG key, DWORDLONG value);
+    CORINFO_CLASS_HANDLE repGetObjectType(CORINFO_OBJECT_HANDLE objPtr);
+
     void recGetReadyToRunHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                 CORINFO_LOOKUP_KIND*    pGenericLookupKind,
                                 CorInfoHelpFunc         id,
+                                CORINFO_METHOD_HANDLE   callerHandle,
                                 CORINFO_CONST_LOOKUP*   pLookup,
                                 bool                    result);
     void dmpGetReadyToRunHelper(GetReadyToRunHelper_TOKENin key, GetReadyToRunHelper_TOKENout value);
     bool repGetReadyToRunHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                 CORINFO_LOOKUP_KIND*    pGenericLookupKind,
                                 CorInfoHelpFunc         id,
+                                CORINFO_METHOD_HANDLE   callerHandle,
                                 CORINFO_CONST_LOOKUP*   pLookup);
 
     void recGetReadyToRunDelegateCtorHelper(CORINFO_RESOLVED_TOKEN* pTargetMethod,
+                                            mdToken                 targetConstraint,
                                             CORINFO_CLASS_HANDLE    delegateType,
+                                            CORINFO_METHOD_HANDLE   callerHandle,
                                             CORINFO_LOOKUP*         pLookup);
     void dmpGetReadyToRunDelegateCtorHelper(GetReadyToRunDelegateCtorHelper_TOKENIn key,
                                             Agnostic_CORINFO_LOOKUP                 pLookup);
     void repGetReadyToRunDelegateCtorHelper(CORINFO_RESOLVED_TOKEN* pTargetMethod,
+                                            mdToken                 targetConstraint,
                                             CORINFO_CLASS_HANDLE    delegateType,
+                                            CORINFO_METHOD_HANDLE   callerHandle,
                                             CORINFO_LOOKUP*         pLookup);
 
     void recGetHelperFtn(CorInfoHelpFunc ftnNum, void** ppIndirection, void* result);
@@ -367,6 +376,15 @@ public:
                                      CORINFO_CLASS_HANDLE*   vcTypeRet,
                                      DWORD*                  exception);
 
+    void recGetExactClasses(CORINFO_CLASS_HANDLE  baseType,
+                            int                   maxExactClasses,
+                            CORINFO_CLASS_HANDLE* exactClsRet,
+                            int                   result);
+    void dmpGetExactClasses(DLD key, const Agnostic_GetExactClassesResult& value);
+    int repGetExactClasses(CORINFO_CLASS_HANDLE  baseType,
+                           int                   maxExactClasses,
+                           CORINFO_CLASS_HANDLE* exactClsRet);
+
     void recGetArgNext(CORINFO_ARG_LIST_HANDLE args, CORINFO_ARG_LIST_HANDLE result);
     void dmpGetArgNext(DWORDLONG key, DWORDLONG value);
     CORINFO_ARG_LIST_HANDLE repGetArgNext(CORINFO_ARG_LIST_HANDLE args);
@@ -386,24 +404,34 @@ public:
     void dmpGetHFAType(DWORDLONG key, DWORD value);
     CorInfoHFAElemType repGetHFAType(CORINFO_CLASS_HANDLE clsHnd);
 
-    void recGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO* info, bool result, DWORD exceptionCode);
-    void dmpGetMethodInfo(DWORDLONG key, const Agnostic_GetMethodInfo& value);
-    bool repGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO* info, DWORD* exceptionCode);
+    void recGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO* info, CORINFO_CONTEXT_HANDLE context, bool result, DWORD exceptionCode);
+    void dmpGetMethodInfo(DLDL key, const Agnostic_GetMethodInfo& value);
+    bool repGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO* info, CORINFO_CONTEXT_HANDLE context, DWORD* exceptionCode);
 
-    void recGetNewHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                         CORINFO_METHOD_HANDLE   callerHandle,
-                         bool* pHasSideEffects,
-                         CorInfoHelpFunc         result);
-    void dmpGetNewHelper(const Agnostic_GetNewHelper& key, DD value);
-    CorInfoHelpFunc repGetNewHelper(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_METHOD_HANDLE callerHandle, bool * pHasSideEffects);
+    void recHaveSameMethodDefinition(CORINFO_METHOD_HANDLE methHnd1, CORINFO_METHOD_HANDLE methHnd2, bool result);
+    void dmpHaveSameMethodDefinition(const DLDL& key, DWORD value);
+    bool repHaveSameMethodDefinition(CORINFO_METHOD_HANDLE methHnd1, CORINFO_METHOD_HANDLE methHnd2);
+
+    void recGetTypeDefinition(CORINFO_CLASS_HANDLE type, CORINFO_CLASS_HANDLE result);
+    void dmpGetTypeDefinition(DWORDLONG key, DWORDLONG value);
+    CORINFO_CLASS_HANDLE repGetTypeDefinition(CORINFO_CLASS_HANDLE type);
+
+    void recGetNewHelper(CORINFO_CLASS_HANDLE  classHandle,
+                         bool                  hasSideEffects,
+                         CorInfoHelpFunc       result,
+                         DWORD                 exceptionCode);
+    void dmpGetNewHelper(DWORDLONG key, const DDD& value);
+    CorInfoHelpFunc repGetNewHelper(CORINFO_CLASS_HANDLE classHandle, bool* pHasSideEffects, DWORD* exceptionCode);
 
     void recEmbedGenericHandle(CORINFO_RESOLVED_TOKEN*       pResolvedToken,
                                bool                          fEmbedParent,
+                               CORINFO_METHOD_HANDLE         callerHandle,
                                CORINFO_GENERICHANDLE_RESULT* pResult);
     void dmpEmbedGenericHandle(const Agnostic_EmbedGenericHandle&           key,
                                const Agnostic_CORINFO_GENERICHANDLE_RESULT& value);
     void repEmbedGenericHandle(CORINFO_RESOLVED_TOKEN*       pResolvedToken,
                                bool                          fEmbedParent,
+                               CORINFO_METHOD_HANDLE         callerHandle,
                                CORINFO_GENERICHANDLE_RESULT* pResult);
 
     void recGetEHinfo(CORINFO_METHOD_HANDLE ftn, unsigned EHnumber, CORINFO_EH_CLAUSE* clause);
@@ -428,6 +456,15 @@ public:
     void dmpGetUnboxedEntry(DWORDLONG key, DLD value);
     CORINFO_METHOD_HANDLE repGetUnboxedEntry(CORINFO_METHOD_HANDLE ftn, bool* requiresInstMethodTableArg);
 
+    void recGetInstantiatedEntry(CORINFO_METHOD_HANDLE ftn, 
+                                 CORINFO_METHOD_HANDLE methodHandle,
+                                 CORINFO_CLASS_HANDLE classHandle,
+                                 CORINFO_METHOD_HANDLE result);
+    void dmpGetInstantiatedEntry(DWORDLONG key, const Agnostic_GetInstantiatedEntryResult& value);
+    CORINFO_METHOD_HANDLE repGetInstantiatedEntry(CORINFO_METHOD_HANDLE ftn, 
+                                                  CORINFO_METHOD_HANDLE* methodHandle, 
+                                                  CORINFO_CLASS_HANDLE* classHandle);
+
     void recGetDefaultComparerClass(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE result);
     void dmpGetDefaultComparerClass(DWORDLONG key, DWORDLONG value);
     CORINFO_CLASS_HANDLE repGetDefaultComparerClass(CORINFO_CLASS_HANDLE cls);
@@ -435,6 +472,10 @@ public:
     void recGetDefaultEqualityComparerClass(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE result);
     void dmpGetDefaultEqualityComparerClass(DWORDLONG key, DWORDLONG value);
     CORINFO_CLASS_HANDLE repGetDefaultEqualityComparerClass(CORINFO_CLASS_HANDLE cls);
+
+    void recGetSZArrayHelperEnumeratorClass(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE result);
+    void dmpGetSZArrayHelperEnumeratorClass(DWORDLONG key, DWORDLONG value);
+    CORINFO_CLASS_HANDLE repGetSZArrayHelperEnumeratorClass(CORINFO_CLASS_HANDLE cls);
 
     void recGetTokenTypeAsHandle(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CLASS_HANDLE result);
     void dmpGetTokenTypeAsHandle(const GetTokenTypeAsHandleValue& key, DWORDLONG value);
@@ -450,16 +491,32 @@ public:
                          CORINFO_ACCESS_FLAGS    flags,
                          CORINFO_FIELD_INFO*     pResult);
 
+    void     recGetThreadLocalFieldInfo(CORINFO_FIELD_HANDLE field, bool isGCType, uint32_t result);
+    void     dmpGetThreadLocalFieldInfo(DLD key, DWORD value);
+    uint32_t repGetThreadLocalFieldInfo(CORINFO_FIELD_HANDLE field, bool isGCType);
+
+    void recGetThreadLocalStaticBlocksInfo(CORINFO_THREAD_STATIC_BLOCKS_INFO* pInfo);
+    void dmpGetThreadLocalStaticBlocksInfo(DWORD key, const Agnostic_GetThreadLocalStaticBlocksInfo& value);
+    void repGetThreadLocalStaticBlocksInfo(CORINFO_THREAD_STATIC_BLOCKS_INFO* pInfo);
+
+    void recGetThreadLocalStaticInfo_NativeAOT(CORINFO_THREAD_STATIC_INFO_NATIVEAOT* pInfo);
+    void dmpGetThreadLocalStaticInfo_NativeAOT(DWORDLONG key, const Agnostic_GetThreadStaticInfo_NativeAOT& value);
+    void repGetThreadLocalStaticInfo_NativeAOT(CORINFO_THREAD_STATIC_INFO_NATIVEAOT* pInfo);
+
     void recEmbedMethodHandle(CORINFO_METHOD_HANDLE handle, void** ppIndirection, CORINFO_METHOD_HANDLE result);
     void dmpEmbedMethodHandle(DWORDLONG key, DLDL value);
     CORINFO_METHOD_HANDLE repEmbedMethodHandle(CORINFO_METHOD_HANDLE handle, void** ppIndirection);
 
-    void recGetFieldAddress(CORINFO_FIELD_HANDLE field, void** ppIndirection, void* result, CorInfoType cit);
-    void dmpGetFieldAddress(DWORDLONG key, const Agnostic_GetFieldAddress& value);
-    void* repGetFieldAddress(CORINFO_FIELD_HANDLE field, void** ppIndirection);
+    void recGetStaticFieldContent(CORINFO_FIELD_HANDLE field, uint8_t* buffer, int bufferSize, int valueOffset, bool ignoreMovableObjects, bool result);
+    void dmpGetStaticFieldContent(DLDDD key, DD value);
+    bool repGetStaticFieldContent(CORINFO_FIELD_HANDLE field, uint8_t* buffer, int bufferSize, int valueOffset, bool ignoreMovableObjects);
 
-    void recGetStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool isSpeculative, CORINFO_CLASS_HANDLE result);
-    void dmpGetStaticFieldCurrentClass(DWORDLONG key, const Agnostic_GetStaticFieldCurrentClass& value);
+    void recGetObjectContent(CORINFO_OBJECT_HANDLE obj, uint8_t* buffer, int bufferSize, int valueOffset, bool result);
+    void dmpGetObjectContent(DLDD key, DD value);
+    bool repGetObjectContent(CORINFO_OBJECT_HANDLE obj, uint8_t* buffer, int bufferSize, int valueOffset);
+
+    void recGetStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool* pIsSpeculative, CORINFO_CLASS_HANDLE result);
+    void dmpGetStaticFieldCurrentClass(DLD key, const Agnostic_GetStaticFieldCurrentClass& value);
     CORINFO_CLASS_HANDLE repGetStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool* pIsSpeculative);
 
     void recGetClassGClayout(CORINFO_CLASS_HANDLE cls, BYTE* gcPtrs, unsigned len, unsigned result);
@@ -530,21 +587,29 @@ public:
                                          CORINFO_MODULE_HANDLE* pModule,
                                          void**                 ppIndirection);
 
+    void recGetIsClassInitedFlagAddress(CORINFO_CLASS_HANDLE cls, CORINFO_CONST_LOOKUP* addr, int* offset, bool result);
+    void dmpGetIsClassInitedFlagAddress(DWORDLONG key, const Agnostic_GetIsClassInitedFlagAddress& value);
+    bool repGetIsClassInitedFlagAddress(CORINFO_CLASS_HANDLE cls, CORINFO_CONST_LOOKUP* addr, int* offset);
+
+    void recGetStaticBaseAddress(CORINFO_CLASS_HANDLE cls, bool isGc, CORINFO_CONST_LOOKUP* addr, bool result);
+    void dmpGetStaticBaseAddress(DLD key, const Agnostic_GetStaticBaseAddress& value);
+    bool repGetStaticBaseAddress(CORINFO_CLASS_HANDLE cls, bool isGc, CORINFO_CONST_LOOKUP* addr);
+
     void recGetThreadTLSIndex(void** ppIndirection, DWORD result);
     void dmpGetThreadTLSIndex(DWORD key, DLD value);
     DWORD repGetThreadTLSIndex(void** ppIndirection);
-
-    void recGetInlinedCallFrameVptr(void** ppIndirection, const void* result);
-    void dmpGetInlinedCallFrameVptr(DWORD key, DLDL value);
-    const void* repGetInlinedCallFrameVptr(void** ppIndirection);
 
     void recGetAddrOfCaptureThreadGlobal(void** ppIndirection, int32_t* result);
     void dmpGetAddrOfCaptureThreadGlobal(DWORD key, DLDL value);
     int32_t* repGetAddrOfCaptureThreadGlobal(void** ppIndirection);
 
-    void recGetClassDomainID(CORINFO_CLASS_HANDLE cls, void** ppIndirection, unsigned result);
-    void dmpGetClassDomainID(DWORDLONG key, DLD value);
-    unsigned repGetClassDomainID(CORINFO_CLASS_HANDLE cls, void** ppIndirection);
+    void recGetClassStaticDynamicInfo(CORINFO_CLASS_HANDLE cls, size_t result);
+    void dmpGetClassStaticDynamicInfo(DWORDLONG key, DLD value);
+    size_t repGetClassStaticDynamicInfo(CORINFO_CLASS_HANDLE cls);
+
+    void recGetClassThreadStaticDynamicInfo(CORINFO_CLASS_HANDLE cls, size_t result);
+    void dmpGetClassThreadStaticDynamicInfo(DWORDLONG key, DLD value);
+    size_t repGetClassThreadStaticDynamicInfo(CORINFO_CLASS_HANDLE cls);
 
     void recGetLocationOfThisType(CORINFO_METHOD_HANDLE context, CORINFO_LOOKUP_KIND* result);
     void dmpGetLocationOfThisType(DWORDLONG key, const Agnostic_CORINFO_LOOKUP_KIND& value);
@@ -569,24 +634,19 @@ public:
     void dmpGetFieldInClass(DLD key, DWORDLONG value);
     CORINFO_FIELD_HANDLE repGetFieldInClass(CORINFO_CLASS_HANDLE clsHnd, INT num);
 
+    void recGetTypeLayout(GetTypeLayoutResult result, CORINFO_CLASS_HANDLE typeHnd, CORINFO_TYPE_LAYOUT_NODE* nodes, size_t numNodes);
+    void dmpGetTypeLayout(DWORDLONG key, const Agnostic_GetTypeLayoutResult& value);
+    void dmpTypeLayoutTree(const Agnostic_CORINFO_TYPE_LAYOUT_NODE* nodes, size_t maxNodes, size_t* index, size_t indent);
+    GetTypeLayoutResult repGetTypeLayout(CORINFO_CLASS_HANDLE typeHnd, CORINFO_TYPE_LAYOUT_NODE* nodes, size_t* numNodes);
+
     void recGetFieldType(CORINFO_FIELD_HANDLE  field,
                          CORINFO_CLASS_HANDLE* structType,
-                         CORINFO_CLASS_HANDLE  memberParent,
+                         CORINFO_CLASS_HANDLE  fieldOwnerHint,
                          CorInfoType           result);
     void dmpGetFieldType(DLDL key, DLD value);
     CorInfoType repGetFieldType(CORINFO_FIELD_HANDLE  field,
                                 CORINFO_CLASS_HANDLE* structType,
-                                CORINFO_CLASS_HANDLE  memberParent);
-
-    void recGetFieldName(CORINFO_FIELD_HANDLE ftn, const char** moduleName, const char* result);
-    void dmpGetFieldName(DWORDLONG key, DD value);
-    const char* repGetFieldName(CORINFO_FIELD_HANDLE ftn, const char** moduleName);
-
-    void recCanInlineTypeCheck(CORINFO_CLASS_HANDLE         cls,
-                               CorInfoInlineTypeCheckSource source,
-                               CorInfoInlineTypeCheck       result);
-    void dmpCanInlineTypeCheck(DLD key, DWORD value);
-    CorInfoInlineTypeCheck repCanInlineTypeCheck(CORINFO_CLASS_HANDLE cls, CorInfoInlineTypeCheckSource source);
+                                CORINFO_CLASS_HANDLE  fieldOwnerHint);
 
     void recSatisfiesMethodConstraints(CORINFO_CLASS_HANDLE parent, CORINFO_METHOD_HANDLE method, bool result);
     void dmpSatisfiesMethodConstraints(DLDL key, DWORD value);
@@ -596,13 +656,9 @@ public:
     void dmpIsValidStringRef(DLD key, DWORD value);
     bool repIsValidStringRef(CORINFO_MODULE_HANDLE module, unsigned metaTOK);
 
-    void recGetStringLiteral(CORINFO_MODULE_HANDLE module, unsigned metaTOK, int length, const char16_t* result);
-    void dmpGetStringLiteral(DLD key, DD value);
-    const char16_t* repGetStringLiteral(CORINFO_MODULE_HANDLE module, unsigned metaTOK, int* length);
-
-    void recGetHelperName(CorInfoHelpFunc funcNum, const char* result);
-    void dmpGetHelperName(DWORD key, DWORD value);
-    const char* repGetHelperName(CorInfoHelpFunc funcNum);
+    void recGetStringLiteral(CORINFO_MODULE_HANDLE module, unsigned metaTOK, char16_t* buffer, int bufferSize, int startIndex, int length);
+    void dmpGetStringLiteral(DLDDD key, DD value);
+    int repGetStringLiteral(CORINFO_MODULE_HANDLE module, unsigned metaTOK, char16_t* buffer, int bufferSize, int startIndex);
 
     void recCanCast(CORINFO_CLASS_HANDLE child, CORINFO_CLASS_HANDLE parent, bool result);
     void dmpCanCast(DLDL key, DWORD value);
@@ -616,17 +672,9 @@ public:
     void dmpGetArrayInitializationData(DLD key, DWORDLONG value);
     void* repGetArrayInitializationData(CORINFO_FIELD_HANDLE field, DWORD size);
 
-    void recFilterException(struct _EXCEPTION_POINTERS* pExceptionPointers, int result);
-    void dmpFilterException(DWORD key, DWORD value);
-    int repFilterException(struct _EXCEPTION_POINTERS* pExceptionPointers);
-
     void recGetAddressOfPInvokeTarget(CORINFO_METHOD_HANDLE method, CORINFO_CONST_LOOKUP* pLookup);
     void dmpGetAddressOfPInvokeTarget(DWORDLONG key, DLD value);
     void repGetAddressOfPInvokeTarget(CORINFO_METHOD_HANDLE method, CORINFO_CONST_LOOKUP* pLookup);
-
-    void recSatisfiesClassConstraints(CORINFO_CLASS_HANDLE cls, bool result);
-    void dmpSatisfiesClassConstraints(DWORDLONG key, DWORD value);
-    bool repSatisfiesClassConstraints(CORINFO_CLASS_HANDLE cls);
 
     void recGetMethodHash(CORINFO_METHOD_HANDLE ftn, unsigned result);
     void dmpGetMethodHash(DWORDLONG key, DWORD value);
@@ -642,19 +690,6 @@ public:
                         CORINFO_METHOD_HANDLE declaredCalleeHnd,
                         CORINFO_METHOD_HANDLE exactCalleeHnd,
                         bool                  fIsTailPrefix);
-
-    void recIsCompatibleDelegate(CORINFO_CLASS_HANDLE  objCls,
-                                 CORINFO_CLASS_HANDLE  methodParentCls,
-                                 CORINFO_METHOD_HANDLE method,
-                                 CORINFO_CLASS_HANDLE  delegateCls,
-                                 bool*                 pfIsOpenDelegate,
-                                 bool                  result);
-    void dmpIsCompatibleDelegate(const Agnostic_IsCompatibleDelegate& key, DD value);
-    bool repIsCompatibleDelegate(CORINFO_CLASS_HANDLE  objCls,
-                                 CORINFO_CLASS_HANDLE  methodParentCls,
-                                 CORINFO_METHOD_HANDLE method,
-                                 CORINFO_CLASS_HANDLE  delegateCls,
-                                 bool*                 pfIsOpenDelegate);
 
     void recIsDelegateCreationAllowed(CORINFO_CLASS_HANDLE delegateHnd, CORINFO_METHOD_HANDLE calleeHnd, bool result);
     void dmpIsDelegateCreationAllowed(DLDL key, DWORD value);
@@ -689,18 +724,31 @@ public:
     void recAllocPgoInstrumentationBySchema(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema* pSchema, UINT32 countSchemaItems, BYTE** pInstrumentationData, HRESULT result);
     void dmpAllocPgoInstrumentationBySchema(DWORDLONG key, const Agnostic_AllocPgoInstrumentationBySchema& value);
     HRESULT repAllocPgoInstrumentationBySchema(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema* pSchema, UINT32 countSchemaItems, BYTE** pInstrumentationData);
+    bool repAllocPgoInstrumentationBySchemaRecorded(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema* pSchema, UINT32 countSchemaItems, BYTE** pInstrumentationData, HRESULT* result);
 
-    void recGetPgoInstrumentationResults(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema** pSchema, UINT32* pCountSchemaItems, BYTE** pInstrumentationData, ICorJitInfo::PgoSource* pPgoSource, HRESULT result);
+    void recGetPgoInstrumentationResults(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema** pSchema, UINT32* pCountSchemaItems, BYTE** pInstrumentationData, ICorJitInfo::PgoSource* pPgoSource, bool* pDynamicPgo, HRESULT result);
     void dmpGetPgoInstrumentationResults(DWORDLONG key, const Agnostic_GetPgoInstrumentationResults& value);
-    HRESULT repGetPgoInstrumentationResults(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema** pSchema, UINT32* pCountSchemaItems, BYTE** pInstrumentationData, ICorJitInfo::PgoSource* pPgoSource);
-
-    void recMergeClasses(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2, CORINFO_CLASS_HANDLE result);
-    void dmpMergeClasses(DLDL key, DWORDLONG value);
-    CORINFO_CLASS_HANDLE repMergeClasses(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2);
+    HRESULT repGetPgoInstrumentationResults(CORINFO_METHOD_HANDLE ftnHnd, ICorJitInfo::PgoInstrumentationSchema** pSchema, UINT32* pCountSchemaItems, BYTE** pInstrumentationData, ICorJitInfo::PgoSource* pPgoSource, bool* pDynamicPgo);
 
     void recIsMoreSpecificType(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2, bool result);
     void dmpIsMoreSpecificType(DLDL key, DWORD value);
     bool repIsMoreSpecificType(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2);
+
+    void recIsExactType(CORINFO_CLASS_HANDLE cls, bool result);
+    void dmpIsExactType(DWORDLONG key, DWORD value);
+    bool repIsExactType(CORINFO_CLASS_HANDLE cls);
+
+    void recIsGenericType(CORINFO_CLASS_HANDLE cls, TypeCompareState result);
+    void dmpIsGenericType(DWORDLONG key, DWORD value);
+    TypeCompareState repIsGenericType(CORINFO_CLASS_HANDLE cls);
+
+    void recIsNullableType(CORINFO_CLASS_HANDLE cls, TypeCompareState result);
+    void dmpIsNullableType(DWORDLONG key, DWORD value);
+    TypeCompareState repIsNullableType(CORINFO_CLASS_HANDLE cls);
+
+    void recIsEnum(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE underlyingType, TypeCompareState result);
+    void dmpIsEnum(DWORDLONG key, DLD value);
+    TypeCompareState repIsEnum(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE* underlyingType);
 
     void recGetCookieForPInvokeCalliSig(CORINFO_SIG_INFO* szMetaSig, void** ppIndirection, LPVOID result);
     void dmpGetCookieForPInvokeCalliSig(const GetCookieForPInvokeCalliSigValue& key, DLDL value);
@@ -709,10 +757,6 @@ public:
     void recCanGetCookieForPInvokeCalliSig(CORINFO_SIG_INFO* szMetaSig, bool result);
     void dmpCanGetCookieForPInvokeCalliSig(const CanGetCookieForPInvokeCalliSigValue& key, DWORD value);
     bool repCanGetCookieForPInvokeCalliSig(CORINFO_SIG_INFO* szMetaSig);
-
-    void recCanAccessFamily(CORINFO_METHOD_HANDLE hCaller, CORINFO_CLASS_HANDLE hInstanceType, bool result);
-    void dmpCanAccessFamily(DLDL key, DWORD value);
-    bool repCanAccessFamily(CORINFO_METHOD_HANDLE hCaller, CORINFO_CLASS_HANDLE hInstanceType);
 
     void recErrorList(const char* error);
     void dmpErrorList(DWORD key, DWORD value);
@@ -725,10 +769,6 @@ public:
     void dmpEmbedFieldHandle(DWORDLONG key, DLDL value);
     CORINFO_FIELD_HANDLE repEmbedFieldHandle(CORINFO_FIELD_HANDLE handle, void** ppIndirection);
 
-    void recAreTypesEquivalent(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2, bool result);
-    void dmpAreTypesEquivalent(DLDL key, DWORD value);
-    bool repAreTypesEquivalent(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2);
-
     void recCompareTypesForCast(CORINFO_CLASS_HANDLE fromClass, CORINFO_CLASS_HANDLE toClass, TypeCompareState result);
     void dmpCompareTypesForCast(DLDL key, DWORD value);
     TypeCompareState repCompareTypesForCast(CORINFO_CLASS_HANDLE fromClass, CORINFO_CLASS_HANDLE toClass);
@@ -736,11 +776,6 @@ public:
     void recCompareTypesForEquality(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2, TypeCompareState result);
     void dmpCompareTypesForEquality(DLDL key, DWORD value);
     TypeCompareState repCompareTypesForEquality(CORINFO_CLASS_HANDLE cls1, CORINFO_CLASS_HANDLE cls2);
-
-    void recFindNameOfToken(
-        CORINFO_MODULE_HANDLE module, mdToken metaTOK, char* szFQName, size_t FQNameCapacity, size_t result);
-    void dmpFindNameOfToken(DLD key, DLD value);
-    size_t repFindNameOfToken(CORINFO_MODULE_HANDLE module, mdToken metaTOK, char* szFQName, size_t FQNameCapacity);
 
     void recGetSystemVAmd64PassStructInRegisterDescriptor(
         CORINFO_CLASS_HANDLE                                 structHnd,
@@ -751,9 +786,13 @@ public:
     bool repGetSystemVAmd64PassStructInRegisterDescriptor(
         CORINFO_CLASS_HANDLE structHnd, SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* structPassInRegDescPtr);
 
-    void recGetLoongArch64PassStructInRegisterFlags(CORINFO_CLASS_HANDLE structHnd, DWORD value);
-    void dmpGetLoongArch64PassStructInRegisterFlags(DWORDLONG key, DWORD value);
-    DWORD repGetLoongArch64PassStructInRegisterFlags(CORINFO_CLASS_HANDLE structHnd);
+    void recGetSwiftLowering(CORINFO_CLASS_HANDLE structHnd, CORINFO_SWIFT_LOWERING* pLowering);
+    void dmpGetSwiftLowering(DWORDLONG key, const Agnostic_GetSwiftLowering& value);
+    void repGetSwiftLowering(CORINFO_CLASS_HANDLE structHnd, CORINFO_SWIFT_LOWERING* pLowering);
+
+    void recGetFpStructLowering(CORINFO_CLASS_HANDLE structHnd, CORINFO_FPSTRUCT_LOWERING* pLowering);
+    void dmpGetFpStructLowering(DWORDLONG key, const Agnostic_GetFpStructLowering& value);
+    void repGetFpStructLowering(CORINFO_CLASS_HANDLE structHnd, CORINFO_FPSTRUCT_LOWERING* pLowering);
 
     void recGetRelocTypeHint(void* target, WORD result);
     void dmpGetRelocTypeHint(DWORDLONG key, DWORD value);
@@ -767,26 +806,54 @@ public:
     void dmpDoesFieldBelongToClass(DLDL key, bool value);
     bool repDoesFieldBelongToClass(CORINFO_FIELD_HANDLE fld, CORINFO_CLASS_HANDLE cls);
 
-    void recIsValidToken(CORINFO_MODULE_HANDLE module, unsigned metaTOK, bool result);
-    void dmpIsValidToken(DLD key, DWORD value);
-    bool repIsValidToken(CORINFO_MODULE_HANDLE module, unsigned metaTOK);
-
-    void recGetClassName(CORINFO_CLASS_HANDLE cls, const char* result);
-    void dmpGetClassName(DWORDLONG key, DWORD value);
-    const char* repGetClassName(CORINFO_CLASS_HANDLE cls);
-
     void recGetClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, char* className, const char** namespaceName);
     void dmpGetClassNameFromMetadata(DLD key, DD value);
     const char* repGetClassNameFromMetadata(CORINFO_CLASS_HANDLE cls, const char** namespaceName);
 
-    void recGetTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, CORINFO_CLASS_HANDLE result, unsigned index);
-    void dmpGetTypeInstantiationArgument(DWORDLONG key, DWORDLONG value);
+    void recGetTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index, CORINFO_CLASS_HANDLE result);
+    void dmpGetTypeInstantiationArgument(DLD key, DWORDLONG value);
     CORINFO_CLASS_HANDLE repGetTypeInstantiationArgument(CORINFO_CLASS_HANDLE cls, unsigned index);
 
-    void recAppendClassName(
-        CORINFO_CLASS_HANDLE cls, bool fNamespace, bool fFullInst, bool fAssembly, const char16_t* result);
-    void dmpAppendClassName(const Agnostic_AppendClassName& key, DWORD value);
-    const WCHAR* repAppendClassName(CORINFO_CLASS_HANDLE cls, bool fNamespace, bool fFullInst, bool fAssembly);
+    void recGetMethodInstantiationArgument(CORINFO_METHOD_HANDLE ftn, unsigned index, CORINFO_CLASS_HANDLE result);
+    void dmpGetMethodInstantiationArgument(DLD key, DWORDLONG value);
+    CORINFO_CLASS_HANDLE repGetMethodInstantiationArgument(CORINFO_METHOD_HANDLE ftn, unsigned index);
+
+    void recPrint(
+        const char* name,
+        LightWeightMap<DWORDLONG, Agnostic_PrintResult>*& map,
+        DWORDLONG handle,
+        char* buffer,
+        size_t bufferSize,
+        size_t* pRequiredBufferSize,
+        size_t bytesWritten);
+    void dmpPrint(
+        const char* name,
+        LightWeightMapBuffer* buffer,
+        DWORDLONG key,
+        const Agnostic_PrintResult& value);
+    size_t repPrint(
+        const char* name,
+        LightWeightMap<DWORDLONG, Agnostic_PrintResult>*& map,
+        DWORDLONG handle,
+        char* buffer,
+        size_t bufferSize,
+        size_t* pRequiredBufferSize);
+
+    void recPrintObjectDescription(CORINFO_OBJECT_HANDLE handle, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize, size_t bytesWritten);
+    void dmpPrintObjectDescription(DWORDLONG key, const Agnostic_PrintResult& value);
+    size_t repPrintObjectDescription(CORINFO_OBJECT_HANDLE handle, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize);
+
+    void recPrintClassName(CORINFO_CLASS_HANDLE cls, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize, size_t bytesWritten);
+    void dmpPrintClassName(DWORDLONG cls, const Agnostic_PrintResult& value);
+    size_t repPrintClassName(CORINFO_CLASS_HANDLE cls, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize = nullptr);
+
+    void recPrintFieldName(CORINFO_FIELD_HANDLE fld, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize, size_t bytesWritten);
+    void dmpPrintFieldName(DWORDLONG fld, const Agnostic_PrintResult& value);
+    size_t repPrintFieldName(CORINFO_FIELD_HANDLE fld, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize = nullptr);
+
+    void recPrintMethodName(CORINFO_METHOD_HANDLE meth, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize, size_t bytesWritten);
+    void dmpPrintMethodName(DWORDLONG meth, const Agnostic_PrintResult& value);
+    size_t repPrintMethodName(CORINFO_METHOD_HANDLE meth, char* buffer, size_t bufferSize, size_t* pRequiredBufferSize = nullptr);
 
     void recGetTailCallHelpers(
         CORINFO_RESOLVED_TOKEN* callToken,
@@ -824,13 +891,21 @@ public:
     void dmpIsFieldStatic(DWORDLONG key, DWORD value);
     bool repIsFieldStatic(CORINFO_FIELD_HANDLE fhld);
 
-    void recGetIntConfigValue(const WCHAR* name, int defaultValue, int result);
-    void dmpGetIntConfigValue(const Agnostic_ConfigIntInfo& key, int value);
-    int repGetIntConfigValue(const WCHAR* name, int defaultValue);
+    void recGetArrayOrStringLength(CORINFO_OBJECT_HANDLE objHnd, int result);
+    void dmpGetArrayOrStringLength(DWORDLONG key, DWORD value);
+    int repGetArrayOrStringLength(CORINFO_OBJECT_HANDLE objHnd);
 
-    void recGetStringConfigValue(const WCHAR* name, const WCHAR* result);
+    void recGetIntConfigValue(const char* name, int defaultValue, int result);
+    void dmpGetIntConfigValue(const Agnostic_ConfigIntInfo& key, int value);
+    int repGetIntConfigValue(const char* name, int defaultValue);
+
+    void recGetStringConfigValue(const char* name, const char* result);
     void dmpGetStringConfigValue(DWORD nameIndex, DWORD result);
-    const WCHAR* repGetStringConfigValue(const WCHAR* name);
+    const char* repGetStringConfigValue(const char* name);
+
+    void recGetSpecialCopyHelper(CORINFO_CLASS_HANDLE type, CORINFO_METHOD_HANDLE helper);
+    void dmpGetSpecialCopyHelper(DWORDLONG key, DWORDLONG value);
+    CORINFO_METHOD_HANDLE repGetSpecialCopyHelper(CORINFO_CLASS_HANDLE type);
 
     void dmpSigInstHandleMap(DWORD key, DWORDLONG value);
 
@@ -848,24 +923,20 @@ public:
 
     bool WasEnvironmentChanged(const Environment& prevEnv);
 
+    void Reset()
+    {
+        delete cr;
+        FreeTempAllocations();
+        cr = new CompileResult();
+    }
+
     CompileResult* cr;
-    CompileResult* originalCR;
     int            index;
+    bool           ignoreStoredConfig;
 
 private:
     bool IsEnvironmentHeaderEqual(const Environment& prevEnv);
     bool IsEnvironmentContentEqual(const Environment& prevEnv);
-
-    enum class ReadyToRunCompilation
-    {
-        Uninitialized,
-        ReadyToRun,
-        NotReadyToRun
-    };
-
-    ReadyToRunCompilation isReadyToRunCompilation;
-
-    void InitReadyToRunFlag(const CORJIT_FLAGS* jitFlags);
 
     template <typename key, typename value>
     static bool AreLWMHeadersEqual(LightWeightMap<key, value>* prev, LightWeightMap<key, value>* curr);
@@ -908,15 +979,16 @@ private:
 
 enum mcPackets
 {
-    Packet_AreTypesEquivalent = 1,
+    //Packet_AreTypesEquivalent = 1,
     Packet_AsCorInfoType = 2,
     Packet_CanAccessClass = 3,
-    Packet_CanAccessFamily = 4,
+    //Packet_CanAccessFamily = 4,
     Packet_CanCast = 5,
+    Packet_PrintMethodName = 6,
     Packet_CanGetCookieForPInvokeCalliSig = 7,
     Packet_CanGetVarArgsHandle = 8,
     Packet_CanInline = 9,
-    //Packet_CanInlineTypeCheckWithObjectVTable = 10,
+    Packet_PrintFieldName = 10,
     //Packet_CanSkipMethodVerification = 11,
     Packet_CanTailCall = 12,
     //Retired4 = 13,
@@ -948,7 +1020,7 @@ enum mcPackets
     Packet_GetChildType = 39,
     Packet_GetClassAlignmentRequirement = 40,
     Packet_GetClassAttribs = 41,
-    Packet_GetClassDomainID = 42,
+    //Packet_GetClassDomainID = 42,
     Packet_GetClassGClayout = 43,
     Packet_GetClassModuleIdForStatics = 44,
     Packet_GetClassName = 45,
@@ -958,11 +1030,10 @@ enum mcPackets
     Packet_GetDelegateCtor = 49,
     Packet_GetEEInfo = 50,
     Packet_GetEHinfo = 51,
-    Packet_GetFieldAddress = 52,
+    //Packet_GetFieldAddress = 52,
     Packet_GetFieldClass = 53,
     Packet_GetFieldInClass = 54,
     Packet_GetFieldInfo = 55,
-    Packet_GetFieldName = 56,
     Packet_GetFieldOffset = 57,
     Packet_GetFieldThreadLocalStoreID = 58,
     Packet_GetFieldType = 59,
@@ -970,10 +1041,9 @@ enum mcPackets
     Packet_GetFunctionFixedEntryPoint = 61,
     Packet_GetGSCookie = 62,
     Packet_GetHelperFtn = 63,
-    Packet_GetHelperName = 64,
-    Packet_GetInlinedCallFrameVptr = 65,
+    //Packet_GetInlinedCallFrameVptr = 65,
     Packet_GetArrayIntrinsicID = 66,
-    Packet_GetJitTimeLogFilename = 67,
+    //Packet_GetJitTimeLogFilename = 67,
     Packet_GetJustMyCodeHandle = 68,
     Packet_GetLocationOfThisType = 69,
     Packet_GetMethodAttribs = 70,
@@ -981,7 +1051,6 @@ enum mcPackets
     Packet_GetMethodDefFromMethod = 72,
     Packet_GetMethodHash = 73,
     Packet_GetMethodInfo = 74,
-    Packet_GetMethodName = 75,
     Packet_GetMethodSig = 76,
     Packet_GetMethodSync = 77,
     Packet_GetMethodVTableOffset = 78,
@@ -1004,7 +1073,7 @@ enum mcPackets
     Packet_GetVars = 96,
     Packet_InitClass = 97,
     //Packet_InitConstraintsForVerification = 98,
-    Packet_IsCompatibleDelegate = 99,
+    //Packet_IsCompatibleDelegate = 99,
     //Packet_IsInstantiationOfVerifiedGeneric = 100,
     Packet_IsSDArray = 101,
     //Packet_IsStructRequiringStackAllocRetBuf = 102,
@@ -1012,13 +1081,13 @@ enum mcPackets
     //Retired6 = 104,
     Packet_IsValueClass = 105,
     //Packet_IsWriteBarrierHelperRequired = 106,
-    Packet_MergeClasses = 107,
+    //Packet_MergeClasses = 107,
     Packet_PInvokeMarshalingRequired = 108,
     Packet_ResolveToken = 109,
-    Packet_SatisfiesClassConstraints = 110,
+    //Packet_SatisfiesClassConstraints = 110,
     Packet_SatisfiesMethodConstraints = 111,
     Packet_DoesFieldBelongToClass = 112,
-    PacketCR_AddressMap = 113,
+    //PacketCR_AddressMap = 113,
     PacketCR_AllocGCInfo = 114,
     PacketCR_AllocMem = 115,
     PacketCR_CallLog = 116,
@@ -1039,7 +1108,7 @@ enum mcPackets
     //Packet_AllocMethodBlockCounts = 131,
     PacketCR_AllocUnwindInfo = 132,
     PacketCR_ReserveUnwindInfo = 133,
-    Packet_FilterException = 134,
+    //Packet_FilterException = 134,
     //Packet_HandleException = 135,
     //Retired9 = 136,
     Packet_IsFieldStatic = 137,
@@ -1049,12 +1118,12 @@ enum mcPackets
     //Retired5 = 141,
     Packet_CheckMethodModifier = 142,
     Packet_CompileMethod = 143,
-    Packet_IsValidToken = 144,
-    Packet_FindNameOfToken = 145,
+    //Packet_IsValidToken = 144,
+    //Packet_FindNameOfToken = 145,
     //PacketCR_RecordCallSite = 146,
     Packet_GetLazyStringLiteralHelper = 147,
     Packet_IsIntrinsicType = 148,
-    Packet_AppendClassName = 149,
+    Packet_PrintClassName = 149,
     Packet_GetReadyToRunHelper = 150,
     Packet_GetIntConfigValue = 151,
     Packet_GetStringConfigValue = 152,
@@ -1063,7 +1132,7 @@ enum mcPackets
     Packet_IsDelegateCreationAllowed = 155,
     Packet_GetSystemVAmd64PassStructInRegisterDescriptor = 156,
     Packet_GetReadyToRunDelegateCtorHelper = 157,
-    Packet_TryResolveToken = 158,
+    //Packet_TryResolveToken = 158,
     Packet_GetHFAType = 159,
     Packet_ResolveVirtualMethod = 160,
     Packet_GetMethodNameFromMetadata = 161,
@@ -1078,7 +1147,7 @@ enum mcPackets
     Packet_GetHeapClassSize = 170,
     Packet_CanAllocateOnStack = 171,
     Packet_GetStaticFieldCurrentClass = 172,
-    Packet_CanInlineTypeCheck = 173,
+    // Packet_CanInlineTypeCheck = 173,
     Packet_IsMoreSpecificType = 174,
     Packet_GetStringLiteral = 175,
     PacketCR_SetPatchpointInfo = 176,
@@ -1086,7 +1155,7 @@ enum mcPackets
     Packet_GetTailCallHelpers = 178,
     PacketCR_RecordCallSiteWithSignature = 179,
     PacketCR_RecordCallSiteWithoutSignature = 180,
-    Packet_GetMethodModule = 181,
+    //Packet_GetMethodModule = 181,
     //Retired10 = 182,
     Packet_GetExpectedTargetArchitecture = 183,
     Packet_SigInstHandleMap = 184,
@@ -1094,12 +1163,46 @@ enum mcPackets
     Packet_AllocPgoInstrumentationBySchema = 186,
     Packet_GetPgoInstrumentationResults = 187,
     Packet_GetDefaultComparerClass = 188,
-    Packet_GetClassModule = 189,
-    Packet_GetModuleAssembly = 190,
-    Packet_GetAssemblyName = 191,
+    //Packet_GetClassModule = 189,
+    //Packet_GetModuleAssembly = 190,
+    //Packet_GetAssemblyName = 191,
     Packet_IsIntrinsic = 192,
     Packet_UpdateEntryPointForTailCall = 193,
-    Packet_GetLoongArch64PassStructInRegisterFlags = 194,
+    //Packet_GetLoongArch64PassStructInRegisterFlags = 194,
+    Packet_GetExactClasses = 195,
+    Packet_GetRuntimeTypePointer = 196,
+    Packet_PrintObjectDescription = 197,
+    Packet_GetStaticFieldContent = 198,
+    Packet_GetObjectType = 199,
+    Packet_IsObjectImmutable = 200,
+    Packet_ExpandRawHandleIntrinsic = 201,
+    Packet_GetArrayOrStringLength = 202,
+    Packet_IsEnum = 203,
+    Packet_GetStringChar = 204,
+    Packet_GetIsClassInitedFlagAddress = 205,
+    Packet_GetStaticBaseAddress = 206,
+    Packet_GetThreadLocalFieldInfo = 207,
+    Packet_GetThreadLocalStaticBlocksInfo = 208,
+    Packet_GetThreadLocalStaticInfo_NativeAOT = 209,
+    //Packet_GetRISCV64PassStructInRegisterFlags = 210,
+    Packet_GetObjectContent = 211,
+    Packet_GetTypeLayout = 212,
+    Packet_HaveSameMethodDefinition = 213,
+    Packet_NotifyMethodInfoUsage = 214,
+    Packet_IsExactType = 215,
+    Packet_GetSwiftLowering = 216,
+    Packet_IsNullableType = 217,
+    Packet_GetClassStaticDynamicInfo = 218,
+    Packet_GetClassThreadStaticDynamicInfo = 219,
+    Packet_IsGenericType = 220,
+    Packet_GetTypeForBoxOnStack = 221,
+    Packet_GetTypeDefinition = 222,
+    Packet_GetFpStructLowering = 223,
+    Packet_GetSpecialCopyHelper = 224,
+    Packet_GetClassAssemblyName = 225,
+    Packet_GetSZArrayHelperEnumeratorClass = 226,
+    Packet_GetMethodInstantiationArgument = 227,
+    Packet_GetInstantiatedEntry = 228,
 };
 
 void SetDebugDumpVariables();

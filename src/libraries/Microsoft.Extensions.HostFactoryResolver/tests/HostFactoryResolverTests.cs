@@ -37,7 +37,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.IsAssignableFrom<IServiceProvider>(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(BuildWebHostInvalidSignature.Program))]
         public void BuildWebHostPattern__Invalid_CantFindWebHost()
         {
@@ -46,7 +46,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.Null(factory);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(BuildWebHostInvalidSignature.Program))]
         public void BuildWebHostPattern__Invalid_CantFindServiceProvider()
         {
@@ -55,7 +55,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.NotNull(factory);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateWebHostBuilderPatternTestSite.Program))]
         public void CreateWebHostBuilderPattern_CanFindWebHostBuilder()
         {
@@ -65,7 +65,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.IsAssignableFrom<IWebHostBuilder>(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateWebHostBuilderPatternTestSite.Program))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(IWebHost))]
         public void CreateWebHostBuilderPattern_CanFindServiceProvider()
@@ -76,7 +76,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.IsAssignableFrom<IServiceProvider>(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateWebHostBuilderInvalidSignature.Program))]
         public void CreateWebHostBuilderPattern__Invalid_CantFindWebHostBuilder()
         {
@@ -85,7 +85,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.Null(factory);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateWebHostBuilderInvalidSignature.Program))]
         public void CreateWebHostBuilderPattern__InvalidReturnType_CanFindServiceProvider()
         {
@@ -95,7 +95,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.Null(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateHostBuilderPatternTestSite.Program))]
         public void CreateHostBuilderPattern_CanFindHostBuilder()
         {
@@ -105,7 +105,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.IsAssignableFrom<IHostBuilder>(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateHostBuilderPatternTestSite.Program))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Host))]
         public void CreateHostBuilderPattern_CanFindServiceProvider()
@@ -116,7 +116,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             Assert.IsAssignableFrom<IServiceProvider>(factory(Array.Empty<string>()));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(CreateHostBuilderInvalidSignature.Program))]
         public void CreateHostBuilderPattern__Invalid_CantFindHostBuilder()
         {
@@ -244,6 +244,7 @@ namespace Microsoft.Extensions.Hosting.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Program", "TopLevelStatements")]
         public void TopLevelStatements()
         {
             var assembly = Assembly.Load("TopLevelStatements");
@@ -254,6 +255,7 @@ namespace Microsoft.Extensions.Hosting.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Program", "TopLevelStatementsTestsTimeout")]
         public void TopLevelStatementsTestsTimeout()
         {
             var assembly = Assembly.Load("TopLevelStatementsTestsTimeout");
@@ -264,14 +266,18 @@ namespace Microsoft.Extensions.Hosting.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        public void ApplicationNameSetFromAgrument()
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, "Program", "ApplicationNameSetFromArgument")]
+        public void ApplicationNameSetFromArgument()
         {
-            Assembly assembly = Assembly.Load("ApplicationNameSetFromAgrument");
+            Assembly assembly = Assembly.Load("ApplicationNameSetFromArgument");
             var factory = HostFactoryResolver.ResolveServiceProviderFactory(assembly, s_WaitTimeout);
+            Assert.NotNull(factory);
             IServiceProvider? serviceProvider = factory(Array.Empty<string>());
+            Assert.NotNull(serviceProvider);
 
-            var configuration = (IConfiguration)serviceProvider.GetService(typeof(IConfiguration));
-            Assert.Contains("ApplicationNameSetFromAgrument", configuration["applicationName"]);
+            var configuration = (IConfiguration?)serviceProvider.GetService(typeof(IConfiguration));
+            Assert.NotNull(configuration);
+            Assert.Equal("ApplicationNameSetFromArgument", configuration["applicationName"]);
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
@@ -281,7 +287,7 @@ namespace Microsoft.Extensions.Hosting.Tests
             var factory = HostFactoryResolver.ResolveServiceProviderFactory(typeof(NoSpecialEntryPointPattern.Program).Assembly, s_WaitTimeout);
             Assert.NotNull(factory);
 
-            var tasks = new Task<IServiceProvider>[30];
+            var tasks = new Task<IServiceProvider?>[30];
             int index = 0;
             for (int i = 0; i < tasks.Length; i++)
             {

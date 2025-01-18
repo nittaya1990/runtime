@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections.Immutable
 {
@@ -12,9 +13,10 @@ namespace System.Collections.Immutable
     /// An immutable list implementation.
     /// </summary>
     /// <typeparam name="T">The type of elements in the set.</typeparam>
+    [CollectionBuilder(typeof(ImmutableList), nameof(ImmutableList.Create))]
     [DebuggerDisplay("Count = {Count}")]
     [DebuggerTypeProxy(typeof(ImmutableEnumerableDebuggerProxy<>))]
-    public sealed partial class ImmutableList<T> : IImmutableList<T>, IList<T>, IList, IOrderedCollection<T>, IImmutableListQueries<T>, IStrongEnumerable<T, ImmutableList<T>.Enumerator>
+    public sealed partial class ImmutableList<T> : IImmutableList<T>, IList<T>, IList, IStrongEnumerable<T, ImmutableList<T>.Enumerator>
     {
         /// <summary>
         /// An empty immutable list.
@@ -107,7 +109,9 @@ namespace System.Collections.Immutable
         /// no larger element, the bitwise complement of <see cref="ImmutableList{T}.Count"/>.
         /// </returns>
         /// <exception cref="ArgumentOutOfRangeException">
-        /// <paramref name="index"/> is less than 0.-or-<paramref name="count"/> is less than 0.
+        /// <para><paramref name="index"/> is less than 0.</para>
+        /// <para>-or-</para>
+        /// <para><paramref name="count"/> is less than 0.</para>
         /// </exception>
         /// <exception cref="ArgumentException">
         /// <paramref name="index"/> and <paramref name="count"/> do not denote a valid range in the <see cref="ImmutableList{T}"/>.
@@ -165,7 +169,7 @@ namespace System.Collections.Immutable
         /// </summary>
         /// <param name="index">The 0-based index of the element in the set to return.</param>
         /// <returns>The element at the given position.</returns>
-        /// <exception cref="IndexOutOfRangeException">Thrown from getter when <paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
         public T this[int index] => _root.ItemRef(index);
 
         /// <summary>
@@ -173,17 +177,8 @@ namespace System.Collections.Immutable
         /// </summary>
         /// <param name="index">The 0-based index of the element in the set to return.</param>
         /// <returns>A read-only reference to the element at the given position.</returns>
-        /// <exception cref="IndexOutOfRangeException">Thrown when <paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
         public ref readonly T ItemRef(int index) => ref _root.ItemRef(index);
-
-        #endregion
-
-        #region IOrderedCollection<T> Indexers
-
-        /// <summary>
-        /// Gets the element in the collection at a given index.
-        /// </summary>
-        T IOrderedCollection<T>.this[int index] => this[index];
 
         #endregion
 
@@ -211,7 +206,7 @@ namespace System.Collections.Immutable
         /// </summary>
         public ImmutableList<T> Add(T value)
         {
-            var result = _root.Add(value);
+            ImmutableList<T>.Node result = _root.Add(value);
             return this.Wrap(result);
         }
 
@@ -228,9 +223,34 @@ namespace System.Collections.Immutable
                 return CreateRange(items);
             }
 
-            var result = _root.AddRange(items);
+            ImmutableList<T>.Node result = _root.AddRange(items);
 
             return this.Wrap(result);
+        }
+
+        /// <summary>
+        /// See the <see cref="IImmutableList{T}"/> interface.
+        /// </summary>
+        internal ImmutableList<T> AddRange(ReadOnlySpan<T> items)
+        {
+            if (this.IsEmpty)
+            {
+                if (items.IsEmpty)
+                {
+                    return Empty;
+                }
+
+                return new ImmutableList<T>(Node.NodeTreeFromList(items));
+            }
+            else
+            {
+                if (items.IsEmpty)
+                {
+                    return this;
+                }
+
+                return this.Wrap(_root.AddRange(items));
+            }
         }
 
         /// <summary>
@@ -250,7 +270,7 @@ namespace System.Collections.Immutable
             Requires.Range(index >= 0 && index <= this.Count, nameof(index));
             Requires.NotNull(items, nameof(items));
 
-            var result = _root.InsertRange(index, items);
+            ImmutableList<T>.Node result = _root.InsertRange(index, items);
 
             return this.Wrap(result);
         }
@@ -278,9 +298,9 @@ namespace System.Collections.Immutable
         public ImmutableList<T> RemoveRange(int index, int count)
         {
             Requires.Range(index >= 0 && index <= this.Count, nameof(index));
-            Requires.Range(count >= 0 && index + count <= this.Count, nameof(count));
+            Requires.Range(count >= 0 && index <= this.Count - count, nameof(count));
 
-            var result = _root;
+            ImmutableList<T>.Node result = _root;
             int remaining = count;
             while (remaining-- > 0)
             {
@@ -322,7 +342,7 @@ namespace System.Collections.Immutable
 
             // Let's not implement in terms of ImmutableList.Remove so that we're
             // not unnecessarily generating a new list object for each item.
-            var result = _root;
+            ImmutableList<T>.Node result = _root;
             foreach (T item in items.GetEnumerableDisposable<T, Enumerator>())
             {
                 int index = result.IndexOf(item, equalityComparer);
@@ -341,7 +361,7 @@ namespace System.Collections.Immutable
         public ImmutableList<T> RemoveAt(int index)
         {
             Requires.Range(index >= 0 && index < this.Count, nameof(index));
-            var result = _root.RemoveAt(index);
+            ImmutableList<T>.Node result = _root.RemoveAt(index);
             return this.Wrap(result);
         }
 
@@ -909,14 +929,14 @@ namespace System.Collections.Immutable
         /// Removes the value at the specified index.
         /// </summary>
         /// <param name="index">The index.</param>
-        /// <exception cref="NotSupportedException">Always thrown.</exception>
+        /// <exception cref="NotSupportedException">In all cases.</exception>
         void IList<T>.RemoveAt(int index) => throw new NotSupportedException();
 
         /// <summary>
         /// Gets or sets the value at the specified index.
         /// </summary>
-        /// <exception cref="IndexOutOfRangeException">Thrown from getter when <paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
-        /// <exception cref="NotSupportedException">Always thrown from the setter.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or not less than <see cref="Count"/> (getter).</exception>
+        /// <exception cref="NotSupportedException">In all cases from the setter.</exception>
         T IList<T>.this[int index]
         {
             get => this[index];
@@ -1034,7 +1054,7 @@ namespace System.Collections.Immutable
         /// Removes the first occurrence of a specific object from the <see cref="IList"/>.
         /// </summary>
         /// <param name="value">The object to remove from the <see cref="IList"/>.</param>
-        /// <exception cref="NotSupportedException">Always thrown.</exception>
+        /// <exception cref="NotSupportedException">In all cases.</exception>
         void IList.Remove(object? value) => throw new NotSupportedException();
 
         /// <summary>
@@ -1045,8 +1065,8 @@ namespace System.Collections.Immutable
         /// </value>
         /// <param name="index">The index.</param>
         /// <returns>The value at the specified index.</returns>
-        /// <exception cref="IndexOutOfRangeException">Thrown from getter when <paramref name="index"/> is negative or not less than <see cref="Count"/>.</exception>
-        /// <exception cref="NotSupportedException">Always thrown from the setter.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is negative or not less than <see cref="Count"/> (getter).</exception>
+        /// <exception cref="NotSupportedException">In call cases from the setter.</exception>
         object? IList.this[int index]
         {
             get => this[index];
@@ -1069,11 +1089,6 @@ namespace System.Collections.Immutable
         /// corruption and/or exceptions.
         /// </remarks>
         public Enumerator GetEnumerator() => new Enumerator(_root);
-
-        /// <summary>
-        /// Returns the root <see cref="Node"/> of the list
-        /// </summary>
-        internal Node Root => _root;
 
         /// <summary>
         /// Creates a new sorted set wrapper for a node tree.
@@ -1102,8 +1117,7 @@ namespace System.Collections.Immutable
                 return true;
             }
 
-            var builder = sequence as Builder;
-            if (builder != null)
+            if (sequence is Builder builder)
             {
                 other = builder.ToImmutable();
                 return true;
@@ -1124,7 +1138,7 @@ namespace System.Collections.Immutable
         {
             // Non-null values are fine.  Only accept nulls if T is a class or Nullable<U>.
             // Note that default(T) is not equal to null for value types except when T is Nullable<U>.
-            return ((value is T) || (value == null && default(T) == null));
+            return (value is T) || (default(T) == null && value == null);
         }
 
         /// <summary>
@@ -1165,7 +1179,7 @@ namespace System.Collections.Immutable
             // index into that sequence like a list, so the one possible piece of
             // garbage produced is a temporary array to store the list while
             // we build the tree.
-            var list = items.AsOrderedCollection();
+            IReadOnlyList<T> list = items.AsReadOnlyList();
             if (list.Count == 0)
             {
                 return Empty;

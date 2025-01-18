@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -13,15 +15,23 @@ namespace Microsoft.Extensions.Logging.Console
         private const string LoglevelPadding = ": ";
         private static readonly string _messagePadding = new string(' ', GetLogLevelString(LogLevel.Information).Length + LoglevelPadding.Length);
         private static readonly string _newLineWithMessagePadding = Environment.NewLine + _messagePadding;
-        private IDisposable _optionsReloadToken;
+#if NET
+        private static bool IsAndroidOrAppleMobile => OperatingSystem.IsAndroid() ||
+                                                      OperatingSystem.IsTvOS() ||
+                                                      OperatingSystem.IsIOS(); // returns true on MacCatalyst
+#else
+        private static bool IsAndroidOrAppleMobile => false;
+#endif
+        private readonly IDisposable? _optionsReloadToken;
 
         public SimpleConsoleFormatter(IOptionsMonitor<SimpleConsoleFormatterOptions> options)
-            : base (ConsoleFormatterNames.Simple)
+            : base(ConsoleFormatterNames.Simple)
         {
             ReloadLoggerOptions(options.CurrentValue);
             _optionsReloadToken = options.OnChange(ReloadLoggerOptions);
         }
 
+        [MemberNotNull(nameof(FormatterOptions))]
         private void ReloadLoggerOptions(SimpleConsoleFormatterOptions options)
         {
             FormatterOptions = options;
@@ -34,23 +44,38 @@ namespace Microsoft.Extensions.Logging.Console
 
         internal SimpleConsoleFormatterOptions FormatterOptions { get; set; }
 
-        public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider scopeProvider, TextWriter textWriter)
+        public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
         {
-            string message = logEntry.Formatter(logEntry.State, logEntry.Exception);
-            if (logEntry.Exception == null && message == null)
+            if (logEntry.State is BufferedLogRecord bufferedRecord)
             {
-                return;
+                string message = bufferedRecord.FormattedMessage ?? string.Empty;
+                WriteInternal(null, textWriter, message, bufferedRecord.LogLevel, bufferedRecord.EventId.Id, bufferedRecord.Exception, logEntry.Category, bufferedRecord.Timestamp);
             }
-            LogLevel logLevel = logEntry.LogLevel;
+            else
+            {
+                string message = logEntry.Formatter(logEntry.State, logEntry.Exception);
+                if (logEntry.Exception == null && message == null)
+                {
+                    return;
+                }
+
+                // We extract most of the work into a non-generic method to save code size. If this was left in the generic
+                // method, we'd get generic specialization for all TState parameters, but that's unnecessary.
+                WriteInternal(scopeProvider, textWriter, message, logEntry.LogLevel, logEntry.EventId.Id, logEntry.Exception?.ToString(), logEntry.Category, GetCurrentDateTime());
+            }
+        }
+
+        private void WriteInternal(IExternalScopeProvider? scopeProvider, TextWriter textWriter, string message, LogLevel logLevel,
+            int eventId, string? exception, string category, DateTimeOffset stamp)
+        {
             ConsoleColors logLevelColors = GetLogLevelConsoleColors(logLevel);
             string logLevelString = GetLogLevelString(logLevel);
 
-            string timestamp = null;
-            string timestampFormat = FormatterOptions.TimestampFormat;
+            string? timestamp = null;
+            string? timestampFormat = FormatterOptions.TimestampFormat;
             if (timestampFormat != null)
             {
-                DateTimeOffset dateTimeOffset = GetCurrentDateTime();
-                timestamp = dateTimeOffset.ToString(timestampFormat);
+                timestamp = stamp.ToString(timestampFormat);
             }
             if (timestamp != null)
             {
@@ -60,14 +85,8 @@ namespace Microsoft.Extensions.Logging.Console
             {
                 textWriter.WriteColoredMessage(logLevelString, logLevelColors.Background, logLevelColors.Foreground);
             }
-            CreateDefaultLogMessage(textWriter, logEntry, message, scopeProvider);
-        }
 
-        private void CreateDefaultLogMessage<TState>(TextWriter textWriter, in LogEntry<TState> logEntry, string message, IExternalScopeProvider scopeProvider)
-        {
             bool singleLine = FormatterOptions.SingleLine;
-            int eventId = logEntry.EventId.Id;
-            Exception exception = logEntry.Exception;
 
             // Example:
             // info: ConsoleApp.Program[10]
@@ -75,10 +94,10 @@ namespace Microsoft.Extensions.Logging.Console
 
             // category and event id
             textWriter.Write(LoglevelPadding);
-            textWriter.Write(logEntry.Category);
+            textWriter.Write(category);
             textWriter.Write('[');
 
-#if NETCOREAPP
+#if NET
             Span<char> span = stackalloc char[10];
             if (eventId.TryFormat(span, out int charsWritten))
                 textWriter.Write(span.Slice(0, charsWritten));
@@ -102,7 +121,7 @@ namespace Microsoft.Extensions.Logging.Console
             if (exception != null)
             {
                 // exception message
-                WriteMessage(textWriter, exception.ToString(), singleLine);
+                WriteMessage(textWriter, exception, singleLine);
             }
             if (singleLine)
             {
@@ -110,7 +129,7 @@ namespace Microsoft.Extensions.Logging.Console
             }
         }
 
-        private void WriteMessage(TextWriter textWriter, string message, bool singleLine)
+        private static void WriteMessage(TextWriter textWriter, string message, bool singleLine)
         {
             if (!string.IsNullOrEmpty(message))
             {
@@ -136,7 +155,9 @@ namespace Microsoft.Extensions.Logging.Console
 
         private DateTimeOffset GetCurrentDateTime()
         {
-            return FormatterOptions.UseUtcTimestamp ? DateTimeOffset.UtcNow : DateTimeOffset.Now;
+            return FormatterOptions.TimestampFormat != null
+                ? (FormatterOptions.UseUtcTimestamp ? DateTimeOffset.UtcNow : DateTimeOffset.Now)
+                : DateTimeOffset.MinValue;
         }
 
         private static string GetLogLevelString(LogLevel logLevel)
@@ -155,8 +176,10 @@ namespace Microsoft.Extensions.Logging.Console
 
         private ConsoleColors GetLogLevelConsoleColors(LogLevel logLevel)
         {
+            // We shouldn't be outputting color codes for Android/Apple mobile platforms,
+            // they have no shell (adb shell is not meant for running apps) and all the output gets redirected to some log file.
             bool disableColors = (FormatterOptions.ColorBehavior == LoggerColorBehavior.Disabled) ||
-                (FormatterOptions.ColorBehavior == LoggerColorBehavior.Default && System.Console.IsOutputRedirected);
+                (FormatterOptions.ColorBehavior == LoggerColorBehavior.Default && (!ConsoleUtils.EmitAnsiColorCodes || IsAndroidOrAppleMobile));
             if (disableColors)
             {
                 return new ConsoleColors(null, null);
@@ -175,7 +198,7 @@ namespace Microsoft.Extensions.Logging.Console
             };
         }
 
-        private void WriteScopeInformation(TextWriter textWriter, IExternalScopeProvider scopeProvider, bool singleLine)
+        private void WriteScopeInformation(TextWriter textWriter, IExternalScopeProvider? scopeProvider, bool singleLine)
         {
             if (FormatterOptions.IncludeScopes && scopeProvider != null)
             {

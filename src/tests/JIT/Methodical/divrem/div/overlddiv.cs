@@ -9,7 +9,8 @@ op1 and op2 can be static, local, class/struct member, function retval, 1D/2D/3D
 *****************************************************************************/
 
 using System;
-internal class overlddiv
+using Xunit;
+public class overlddiv
 {
     //user-defined class that overloads operator /
     public class numHolder
@@ -234,7 +235,9 @@ internal class overlddiv
         public numHolder nHldr_vt_op2;
     }
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         bool passed = true;
         //initialize class

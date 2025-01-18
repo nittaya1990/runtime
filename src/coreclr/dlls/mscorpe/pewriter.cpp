@@ -12,14 +12,9 @@
 #ifdef LOGGING
 #include "log.h"
 
-static const char* const RelocName[] = {
-    "Absolute", "Unk1",    "Unk2",    "HighLow", "Unk4", "MapToken",
-    "Relative", "FilePos", "CodeRel", "Movl64",  "Dir64", "PcRel25", "PcRel64",
-    "AbsTag" };
+static const char* const RelocName[] = { "Absolute", "HighLow", "MapToken", "FilePos" };
 static const char RelocSpaces[] = "        ";
 
-static INT64 s_minPcRel25;
-static INT64 s_maxPcRel25;
 #endif
 
     /* This is the stub program that says it can't be run in DOS mode */
@@ -38,18 +33,6 @@ inline static unsigned roundUp(unsigned len, unsigned align) {
 inline static unsigned padLen(unsigned len, unsigned align) {
     return(roundUp(len, align) - len);
 }
-
-#ifndef IMAGE_DLLCHARACTERISTICS_NO_SEH
-#define IMAGE_DLLCHARACTERISTICS_NO_SEH 0x400
-#endif
-
-#ifndef IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
-#define IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE   0x0040
-#endif
-
-#ifndef IMAGE_DLLCHARACTERISTICS_NX_COMPAT
-#define IMAGE_DLLCHARACTERISTICS_NX_COMPAT      0x0100
-#endif
 
 #define COPY_AND_ADVANCE(target, src, size) { \
                             ::memcpy((void *) (target), (const void *) (src), (size)); \
@@ -109,7 +92,7 @@ void PERelocSection::AddBaseReloc(unsigned rva, int type, unsigned short highAdj
     relocSize++;
     unsigned short* offset = (unsigned short*) section->getBlock(2);
     if(offset) {
-        *offset = VAL16((rva & 0xFFF) | (type << 12));
+        *offset = VAL16((unsigned short)(rva & 0xFFF) | (unsigned short)(type << 12));
     }
 }
 
@@ -233,7 +216,7 @@ static inline HRESULT SubOvf_U_U32(UINT64 & a, unsigned int b)
 }
 
 #ifndef HOST_AMD64
-/* subtract two unsigned pointers yeilding a signed pointer sized int */
+/* subtract two unsigned pointers yielding a signed pointer sized int */
 static inline HRESULT SubOvf_U_U(INT64 & r, UINT64 a, UINT64 b)
 {
     r = a - b;
@@ -297,28 +280,11 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
 
         int    curType      = cur->type;
         DWORD  curOffset    = cur->offset;
-        bool   isRelocPtr   = ((curType & srRelocPtr) != 0);
-        bool   noBaseBaseReloc = ((curType & srNoBaseReloc) != 0);
         UINT64 targetOffset = 0;
         int    slotNum      = 0;
+#ifdef LOGGING
         INT64  oldStarPos;
-
-        // If cur->section is NULL then this is a pointer outside the module.
-        bool externalAddress = (cur->section == NULL);
-
-        curType &= ~(srRelocPtr | srNoBaseReloc);
-
-        /* If we see any srRelocHighLow's in a PE64 file we convert them into DIR64 relocs */
-        if (!isPE32 && (curType == srRelocHighLow))
-            curType = srRelocDir64;
-
-        /* If we have an IA64 instruction fixup then extract the slot number and adjust curOffset */
-        if ((curType == srRelocIA64PcRel25) || (curType == srRelocIA64Imm64) || (curType == srRelocIA64PcRel64))
-        {
-            _ASSERTE((curOffset & 0x3) == 0);
-            slotNum = (curOffset & 0xf) >> 2;
-            curOffset &= ~0xf;
-        }
+#endif
 
         DWORD curRVA = m_baseRVA;    // RVA in the PE image of the reloc site
         IfFailRet(AddOvf_RVA(curRVA, curOffset));
@@ -328,96 +294,11 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
 
 #ifdef LOGGING
         LOG((LF_ZAP, LL_INFO1000000,
-             "   Reloc %s%s%s at %-7s+%04x (RVA=%08x) at" FMT_ADDR,
-             RelocName[curType], (isRelocPtr) ? "Ptr" : "   ",
+             "   Reloc %s%s at %-7s+%04x (RVA=%08x) at" FMT_ADDR,
              &RelocSpaces[strlen(RelocName[curType])],
              m_name, curOffset, curRVA, DBG_ADDR(pos)));
-#endif
-        //
-        // 'pos' is the site of the reloc
-        // Compute 'targetOffset' from pointer if necessary
-        //
 
-        if (isRelocPtr)
-        {
-            // Calculate the value of ptr to pass to computeOffset
-            char * ptr = (char *) pos;
-
-            if (curType == srRelocRelative) {
-                //
-                // Here we add sizeof(int) because we need to calculate
-                // ptr as the true call target address (x86 pc-rel)
-                // We need to true call target address since pass it
-                // to computeOffset and this function would fall if
-                // the address we pass is before the start of a section
-                //
-                oldStarPos   = (SSIZE_T) ptr;
-                IfFailRet(AddOvf_S_S32(oldStarPos, GET_UNALIGNED_INT32(pos)));
-                IfFailRet(AddOvf_S_U32(oldStarPos, sizeof(int)));
-                ptr          = (char *) oldStarPos;
-                targetOffset = externalAddress ? (size_t) ptr
-                                               : cur->section->computeOffset(ptr);
-                // We subtract off the four bytes that we added previous
-                // since the code below depends upon this
-                IfFailRet(SubOvf_U_U32(targetOffset, sizeof(int)));
-                IfFailRet(UnsignedFitsIn32Bits(targetOffset));  // Check for overflow
-                SET_UNALIGNED_VAL32(pos, targetOffset);
-            }
-            else if (curType == srRelocIA64Imm64) {
-                _ASSERTE(slotNum == 1);
-                ptr = (char *) ((intptr_t) GetIA64Imm64((UINT64 *) ptr));
-                oldStarPos   = (SSIZE_T) ptr;
-                targetOffset = externalAddress ? (size_t) ptr
-                                               : cur->section->computeOffset(ptr);
-                _ASSERTE(!isPE32);
-                PutIA64Imm64((UINT64 *)pos, targetOffset);
-            }
-            else if (curType == srRelocIA64PcRel64) {
-                _ASSERTE(slotNum == 1);
-                ptr = (char *) ((intptr_t) GetIA64Rel64((UINT64 *) ptr));
-                oldStarPos   = (SSIZE_T) ptr;
-                targetOffset = externalAddress ? (size_t) ptr
-                                               : cur->section->computeOffset(ptr);
-                _ASSERTE(!isPE32);
-                PutIA64Rel64((UINT64 *)pos, targetOffset);
-            }
-            else {
-                _ASSERTE(curType != srRelocIA64PcRel25);
-                ptr = (char *) GET_UNALIGNED_VALPTR(ptr);
-                oldStarPos   = (SSIZE_T) ptr;
-                targetOffset = externalAddress ? (size_t) ptr
-                                               : cur->section->computeOffset(ptr);
-                IfFailRet(UnsignedFitsIn32Bits(targetOffset));  // Check for overflow
-                SET_UNALIGNED_VAL32(pos, targetOffset);
-                /* Zero the upper 32-bits for a machine with 64-bit pointers */
-                if (!isPE32)
-                    SET_UNALIGNED_VAL32(pos+1, 0);
-            }
-        }
-#ifdef LOGGING
-        else
-        {
-            if (curType == srRelocIA64PcRel25)
-            {
-                oldStarPos = GetIA64Rel25((UINT64 *) pos, slotNum);
-            }
-            else
-            {
-                if (curType == srRelocIA64PcRel64)
-                {
-                    _ASSERTE(slotNum == 1);
-                    oldStarPos = GetIA64Rel64((UINT64 *) pos);
-                }
-                else if (curType == srRelocIA64Imm64)
-                {
-                    oldStarPos = GetIA64Imm64((UINT64 *)pos);
-                }
-                else
-                {
-                    oldStarPos = GET_UNALIGNED_VAL32(pos);
-                }
-            }
-        }
+        oldStarPos = GET_UNALIGNED_VAL32(pos);
 #endif
 
         //
@@ -425,17 +306,12 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
         // Record base relocs as necessary.
         //
 
-        bool  fBaseReloc = false;
-        bool  fNeedBrl   = false;
+        int baseReloc = 0;
         INT64 newStarPos = 0; // oldStarPos gets updated to newStarPos
 
-        if (curType == srRelocAbsolute || curType == srRelocAbsoluteTagged) {
-            _ASSERTE(!externalAddress);
+        if (curType == srRelocAbsolute) {
 
             newStarPos = GET_UNALIGNED_INT32(pos);
-
-            if (curType == srRelocAbsoluteTagged)
-                newStarPos = (newStarPos & ~0x80000001) >> 1;
 
             if (rdataRvaBase > 0 && ! strcmp((const char *)(cur->section->m_name), ".rdata"))
                 IfFailRet(AddOvf_S_U32(newStarPos, rdataRvaBase));
@@ -443,9 +319,6 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
                 IfFailRet(AddOvf_S_U32(newStarPos, dataRvaBase));
             else
                 IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_baseRVA));
-
-            if (curType == srRelocAbsoluteTagged)
-                newStarPos = (newStarPos << 1) | 0x80000001;
 
             SET_UNALIGNED_VAL32(pos, newStarPos);
         }
@@ -460,225 +333,61 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
         }
         else if (curType == srRelocFilePos)
         {
-            _ASSERTE(!externalAddress);
             newStarPos = GET_UNALIGNED_VAL32(pos);
             IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_filePos));
             SET_UNALIGNED_VAL32(pos, newStarPos);
         }
-        else if (curType == srRelocRelative)
-        {
-            if (externalAddress) {
-#if defined(HOST_AMD64)
-                newStarPos = GET_UNALIGNED_INT32(pos);
-#else  // x86
-                UINT64 targetAddr = GET_UNALIGNED_VAL32(pos);
-                IfFailRet(SubOvf_U_U(newStarPos, targetAddr, imageBase));
-#endif
-            }
-            else {
-                newStarPos = GET_UNALIGNED_INT32(pos);
-                IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_baseRVA));
-            }
-            IfFailRet(SubOvf_S_U32(newStarPos, curRVA));
-            IfFailRet(SignedFitsIn31Bits(newStarPos));  // Check for overflow
-            SET_UNALIGNED_VAL32(pos, newStarPos);
-        }
-        else if (curType == srRelocCodeRelative)
-        {
-            newStarPos = GET_UNALIGNED_INT32(pos);
-            IfFailRet(SubOvf_S_U32(newStarPos, codeRvaBase));
-            if (externalAddress)
-                IfFailRet(SubOvf_S_U(newStarPos, imageBase));
-            else
-                IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_baseRVA));
-            IfFailRet(SignedFitsIn31Bits(newStarPos));  // Check for overflow
-            SET_UNALIGNED_VAL32(pos, newStarPos);
-
-        }
-        else if (curType == srRelocIA64PcRel25)
-        {
-            _ASSERTE((m_baseRVA & 15) == 0);
-            _ASSERTE((cur->section->m_baseRVA & 15) == 0);
-
-            newStarPos = GetIA64Rel25((UINT64 *) pos, slotNum);
-            IfFailRet(SubOvf_S_U32(newStarPos, curRVA));
-            if (externalAddress)
-                IfFailRet(SubOvf_S_U(newStarPos, imageBase));
-            else
-                IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_baseRVA));
-
-            INT64 hiBits = newStarPos >> 24;
-
-            _ASSERTE((hiBits==0) || (hiBits==-1));
-
-            IfFailRet(AddOvf_S_U32(newStarPos, GetIA64Rel25((UINT64 *) pos, slotNum)));
-
-            hiBits = newStarPos >> 24;
-
-            _ASSERTE((hiBits==0) || (hiBits==-1));
-
-            INT32 delta32 = (INT32) newStarPos;
-
-            PutIA64Rel25((UINT64 *) pos, slotNum, delta32);
-
-            _ASSERTE(GetIA64Rel25((UINT64 *) pos, slotNum) == delta32);
-
-#ifdef LOGGING
-            if (newStarPos < s_minPcRel25)
-                s_minPcRel25 = newStarPos;
-            if (newStarPos > s_maxPcRel25)
-                s_maxPcRel25 = newStarPos;
-#endif
-        }
-        else if (curType == srRelocIA64PcRel64)
-        {
-            _ASSERTE((m_baseRVA & 15) == 0);
-            _ASSERTE(slotNum == 1);
-
-            newStarPos = GetIA64Rel64((UINT64 *) pos);
-            IfFailRet(SubOvf_S_U32(newStarPos, m_baseRVA));
-
-            if (externalAddress)
-                IfFailRet(SubOvf_S_U(newStarPos, imageBase));
-            else
-            {
-                _ASSERTE((cur->section->m_baseRVA & 15) == 0);
-                IfFailRet(AddOvf_S_U32(newStarPos, cur->section->m_baseRVA));
-            }
-
-            INT64 hiBits = newStarPos >> 24;
-
-            fNeedBrl = (hiBits != 0) && (hiBits != -1);
-
-            /* Can we convert the brl.call into a br.call? */
-            if (!fNeedBrl)
-            {
-                INT32 delta32 = (INT32) newStarPos;
-
-                UINT64  temp0 = ((UINT64 *) pos)[0];
-                UINT64  temp1 = ((UINT64 *) pos)[1];
-#ifdef _DEBUG
-                //
-                // make certain we're decoding a brl opcode, with template 4 or 5
-                //
-                UINT64  templa = (temp0 >>  0) & 0x1f;
-                UINT64  opcode = (temp1 >> 60) & 0xf;
-
-                _ASSERTE(((opcode == 0xC) || (opcode == 0xD)) &&
-                         ((templa == 0x4) || (templa == 0x5)));
-#endif
-                const UINT64 mask0 = UI64(0x00003FFFFFFFFFE1);
-                const UINT64 mask1 = UI64(0x7700000FFF800000);
-
-                /* Clear all bits used as part of the slot1 and slot2 */
-                temp0 &= mask0;   // opcode becomes 4 or 5
-                temp1 &= mask1;
-
-                temp0 |= 0x10;    // template becomes 0x10 or 0x11
-                temp1 |= 0x200;   // slot 1 becomes nop.i
-
-                ((UINT64 *) pos)[0] = temp0;
-                ((UINT64 *) pos)[1] = temp1;
-
-                PutIA64Rel25((UINT64 *) pos, 2, delta32);
-                _ASSERTE(GetIA64Rel25((UINT64 *) pos, 2) == delta32);
-            }
-            else
-            {
-                PutIA64Rel64((UINT64 *) pos, newStarPos);
-                _ASSERTE(GetIA64Rel64((UINT64 *) pos) == newStarPos);
-            }
-        }
         else if (curType == srRelocHighLow)
         {
-            _ASSERTE(isPE32);
-
-            // we have a 32-bit value at pos
-            UINT64 value = GET_UNALIGNED_VAL32(pos);
-
-            if (!externalAddress)
+            if (isPE32)
             {
+                // we have a 32-bit value at pos
+                UINT64 value = GET_UNALIGNED_VAL32(pos);
+
                 IfFailRet(AddOvf_U_U32(value, cur->section->m_baseRVA));
                 IfFailRet(AddOvf_U_U(value, imageBase));
+
+                IfFailRet(UnsignedFitsIn32Bits(value));  // Check for overflow
+                SET_UNALIGNED_VAL32(pos, value);
+
+                newStarPos = value;
+
+                baseReloc = IMAGE_REL_BASED_HIGHLOW;
             }
-
-            IfFailRet(UnsignedFitsIn32Bits(value));  // Check for overflow
-            SET_UNALIGNED_VAL32(pos, value);
-
-            newStarPos = value;
-
-            fBaseReloc = true;
-        }
-        else if (curType == srRelocDir64)
-        {
-            _ASSERTE(!isPE32);
-
-            // we have a 64-bit value at pos
-            UINT64 UNALIGNED * p_value = (UINT64 *) pos;
-            targetOffset = *p_value;
-
-            if (!externalAddress)
+            else
             {
+                // we have a 64-bit value at pos
+                UINT64 UNALIGNED * p_value = (UINT64 *) pos;
+                targetOffset = *p_value;
+
                 // The upper bits of targetOffset must be zero
                 IfFailRet(UnsignedFitsIn32Bits(targetOffset));
 
                 IfFailRet(AddOvf_U_U32(targetOffset, cur->section->m_baseRVA));
                 IfFailRet(AddOvf_U_U(targetOffset, imageBase));
+
+                *p_value   = targetOffset;
+                newStarPos = targetOffset;
+
+                baseReloc =  IMAGE_REL_BASED_DIR64;
             }
-
-            *p_value   = targetOffset;
-            newStarPos = targetOffset;
-            fBaseReloc = true;
-        }
-        else if (curType == srRelocIA64Imm64)
-        {
-            _ASSERTE(!isPE32);
-            _ASSERTE((curRVA & 15) == 0);       // This reloc should be 16-byte aligned
-
-            // we have a 64-bit value encoded in the instruction at pos
-            targetOffset = GetIA64Imm64((UINT64 *)pos);
-
-            if (!externalAddress)
-            {
-                // The upper bits of targetOffset must be zero
-                IfFailRet(UnsignedFitsIn32Bits(targetOffset));
-
-                IfFailRet(AddOvf_U_U32(targetOffset, cur->section->m_baseRVA));
-                IfFailRet(AddOvf_U_U(targetOffset, imageBase));
-            }
-
-            PutIA64Imm64((UINT64 *)pos, targetOffset);
-            newStarPos = targetOffset;
-            fBaseReloc = true;
         }
         else
         {
             _ASSERTE(!"Unknown Relocation type");
         }
 
-        if (fBaseReloc && !noBaseBaseReloc)
+        if (baseReloc != 0)
         {
-            pBaseRelocSection->AddBaseReloc(curRVA, curType);
+            pBaseRelocSection->AddBaseReloc(curRVA, baseReloc);
         }
 
 #ifdef LOGGING
-        const char* sectionName;
-
-        if (externalAddress)
-        {
-            sectionName = "external";
-        }
-        else
-        {
-            sectionName = cur->section->m_name;
-        }
-
         LOG((LF_ZAP, LL_INFO1000000,
-             "to %-7s+%04x, old =" FMT_ADDR "new =" FMT_ADDR "%s%s\n",
-             sectionName, targetOffset,
+             "to %-7s+%04x, old =" FMT_ADDR "new =" FMT_ADDR "%s\n",
+             cur->section->m_name, targetOffset,
              DBG_ADDR(oldStarPos), DBG_ADDR(newStarPos),
-             fBaseReloc ? "(BASE RELOC)" : "",
-             fNeedBrl   ? "(BRL)"        : ""  ));
+             baseReloc ? "(BASE RELOC)" : ""));
 #endif
 
     }
@@ -686,41 +395,7 @@ HRESULT PEWriterSection::applyRelocs(IMAGE_NT_HEADERS  *  pNtHeaders,
 }
 
 /******************************************************************/
-
-PESeedSection::PESeedSection(PEDecoder * peDecoder,
-                             IMAGE_SECTION_HEADER * seedSection)
-  : PEWriterSection((const char *)seedSection->Name,
-              VAL32(seedSection->Characteristics),
-              VAL32(seedSection->SizeOfRawData),
-              0),
-    m_pSeedFileDecoder(peDecoder),
-    m_pSeedSectionHeader(seedSection)
-{
-    m_baseRVA = VAL32(seedSection->VirtualAddress);
-}
-
-HRESULT  PESeedSection::write(HANDLE file) {
-    ULONG sizeOfSection = VAL32(m_pSeedSectionHeader->SizeOfRawData);
-    LPCVOID sectionData = PBYTE(m_pSeedFileDecoder->GetBase()) + m_pSeedSectionHeader->PointerToRawData;
-
-    DWORD dwWritten = 0;
-    if (!WriteFile(file, sectionData, sizeOfSection, &dwWritten, NULL)) {
-        return HRESULT_FROM_GetLastError();
-    }
-    _ASSERTE(dwWritten == sizeOfSection);
-    return S_OK;
-}
-
-unsigned PESeedSection::writeMem(void ** pMem) {
-    ULONG sizeOfSection = VAL32(m_pSeedSectionHeader->SizeOfRawData);
-    LPCVOID sectionData = PBYTE(m_pSeedFileDecoder->GetBase()) + m_pSeedSectionHeader->PointerToRawData;
-
-    COPY_AND_ADVANCE(*pMem, sectionData, sizeOfSection);
-    return sizeOfSection;
-}
-
-/******************************************************************/
-HRESULT PEWriter::Init(PESectionMan *pFrom, DWORD createFlags, LPCWSTR seedFileName)
+HRESULT PEWriter::Init(PESectionMan *pFrom, DWORD createFlags)
 {
     if (pFrom)
         *(PESectionMan*)this = *pFrom;
@@ -772,10 +447,6 @@ HRESULT PEWriter::Init(PESectionMan *pFrom, DWORD createFlags, LPCWSTR seedFileN
     if ((createFlags & ICEE_CREATE_MACHINE_MASK) == ICEE_CREATE_MACHINE_I386)
     {
         m_ntHeaders->FileHeader.Machine = VAL16(IMAGE_FILE_MACHINE_I386);
-    }
-    else if ((createFlags & ICEE_CREATE_MACHINE_MASK) == ICEE_CREATE_MACHINE_IA64)
-    {
-        m_ntHeaders->FileHeader.Machine = VAL16(IMAGE_FILE_MACHINE_IA64);
     }
     else if ((createFlags & ICEE_CREATE_MACHINE_MASK) == ICEE_CREATE_MACHINE_AMD64)
     {
@@ -878,102 +549,11 @@ HRESULT PEWriter::Init(PESectionMan *pFrom, DWORD createFlags, LPCWSTR seedFileN
 
     m_file = INVALID_HANDLE_VALUE;
 
-    //
-    // Seed file
-    //
-
-    m_hSeedFile = INVALID_HANDLE_VALUE;
-    m_hSeedFileMap = INVALID_HANDLE_VALUE;
-    m_pSeedFileDecoder = NULL;
-    m_iSeedSections = 0;
-    m_pSeedSectionToAdd = NULL;
-
-    if (seedFileName)
-    {
-        HandleHolder hFile (WszCreateFile(seedFileName,
-                                     GENERIC_READ,
-                                     FILE_SHARE_READ,
-                                     NULL,
-                                     OPEN_EXISTING,
-                                     FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-                                     NULL));
-
-        if (hFile == INVALID_HANDLE_VALUE)
-            return HRESULT_FROM_GetLastError();
-
-        MapViewHolder hMapFile (WszCreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL));
-        DWORD dwFileLen = SafeGetFileSize(hFile, 0);
-        if (dwFileLen == 0xffffffff)
-            return HRESULT_FROM_GetLastError();
-
-        if (hMapFile == NULL)
-            return HRESULT_FROM_GetLastError();
-
-        BYTE * baseFileView = (BYTE*) MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, 0);
-
-        PEDecoder * pPEDecoder = new (nothrow) PEDecoder(baseFileView, (COUNT_T)dwFileLen);
-        if (pPEDecoder == NULL) return E_OUTOFMEMORY;
-
-        if (pPEDecoder->Has32BitNTHeaders())
-        {
-            if ((createFlags & ICEE_CREATE_FILE_PE32) == 0)
-                return E_FAIL;
-
-            setImageBase32(DWORD(size_t(pPEDecoder->GetPreferredBase())));
-        }
-        else
-        {
-            if ((createFlags & ICEE_CREATE_FILE_PE64) == 0)
-                return E_FAIL;
-
-            setImageBase64(UINT64((intptr_t) pPEDecoder->GetPreferredBase()));
-        }
-
-        setFileAlignment   (VAL32(pPEDecoder->GetFileAlignment()));
-        setSectionAlignment(VAL32(pPEDecoder->GetSectionAlignment()));
-
-        hFile.SuppressRelease();
-        hMapFile.SuppressRelease();
-
-        m_hSeedFile = hFile;
-        m_hSeedFileMap = hMapFile;
-        m_pSeedFileDecoder = pPEDecoder;
-
-#ifdef HOST_64BIT
-        m_pSeedFileNTHeaders = pPEDecoder->GetNTHeaders64();
-#else
-        m_pSeedFileNTHeaders = pPEDecoder->GetNTHeaders32();
-#endif
-
-        // Add the seed sections
-
-        m_pSeedSections = m_pSeedFileDecoder->FindFirstSection();
-
-        m_pSeedSectionToAdd = m_pSeedSections;
-        m_iSeedSections = m_pSeedFileDecoder->GetNumberOfSections();
-
-        for (unsigned i = 0; i < m_iSeedSections; m_pSeedSectionToAdd++, i++) {
-            PESection * dummy;
-            getSectionCreate((const char *)(m_pSeedSectionToAdd->Name),
-                VAL32(m_pSeedSectionToAdd->Characteristics),
-                &dummy);
-        }
-
-        m_pSeedSectionToAdd = NULL;
-    }
-
     return S_OK;
 }
 
 /******************************************************************/
 HRESULT PEWriter::Cleanup() {
-
-    if (m_hSeedFile != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(m_hSeedFile);
-        CloseHandle(m_hSeedFileMap);
-        delete m_pSeedFileDecoder;
-    }
 
     if (isPE32())
     {
@@ -993,43 +573,10 @@ HRESULT PEWriter::Cleanup() {
     return PESectionMan::Cleanup();
 }
 
-PESection* PEWriter::getSection(const char* name)
-{
-    int     len = (int)strlen(name);
-
-    // the section name can be at most 8 characters including the null.
-    if (len < 8)
-        len++;
-    else
-        len = 8;
-
-    // dbPrintf(("looking for section %s\n", name));
-    // Skip over the seed sections
-
-    for(PESection** cur = sectStart+m_iSeedSections; cur < sectCur; cur++) {
-        // dbPrintf(("searching section %s\n", (*cur)->m_ame));
-        if (strncmp((*cur)->m_name, name, len) == 0) {
-            // dbPrintf(("found section %s\n", (*cur)->m_name));
-            return(*cur);
-        }
-    }
-    return(0);
-}
-
 HRESULT PEWriter::newSection(const char* name, PESection **section,
                             unsigned flags, unsigned estSize,
                             unsigned estRelocs)
 {
-    if (m_pSeedSectionToAdd) {
-        _ASSERTE(strcmp((const char *)(m_pSeedSectionToAdd->Name), name) == 0 &&
-            VAL32(m_pSeedSectionToAdd->Characteristics) == flags);
-
-        PESeedSection * ret = new (nothrow) PESeedSection(m_pSeedFileDecoder, m_pSeedSectionToAdd);
-        *section = ret;
-        TESTANDRETURNMEMORY(ret);
-        return S_OK;
-    }
-
     PEWriterSection * ret = new (nothrow) PEWriterSection(name, flags, estSize, estRelocs);
     *section = ret;
     TESTANDRETURNMEMORY(ret);
@@ -1165,15 +712,13 @@ class SectionNameSorter : protected CQuickSort<entry>
     entry *             m_entries;
     PEWriterSection **  m_sections;
     unsigned            m_count;
-    unsigned            m_seedCount;
 
   public:
-    SectionNameSorter(entry *entries, PEWriterSection ** sections, int count, unsigned seedSections)
+    SectionNameSorter(entry *entries, PEWriterSection ** sections, int count)
       : CQuickSort<entry>(entries, count),
         m_entries(entries),
         m_sections(sections),
-        m_count(unsigned(count)),
-        m_seedCount(seedSections)
+        m_count(unsigned(count))
     {}
 
     // Sorts the entries according to alphabetical + numerical order
@@ -1182,16 +727,6 @@ class SectionNameSorter : protected CQuickSort<entry>
     {
         PEWriterSection * firstSection = m_sections[first->arrayIndex];
         PEWriterSection * secondSection = m_sections[second->arrayIndex];
-
-        // Seed sections are always at the start, in the order they were
-        // added to the PEWriter
-
-        if (firstSection->isSeedSection() || secondSection->isSeedSection()) {
-            if (firstSection->isSeedSection() && secondSection->isSeedSection())
-                return first->arrayIndex - second->arrayIndex;
-
-            return firstSection->isSeedSection() ? -1 : 1;
-        }
 
         // Sort the names
 
@@ -1225,11 +760,7 @@ class SectionNameSorter : protected CQuickSort<entry>
 
         for (unsigned i = 1; i < m_count; i++, ePrev = e, e++) {
 
-            // Seed sections should stay at the front
-            _ASSERTE(i >= m_seedCount || i == e->arrayIndex);
-
-            if (!m_sections[ePrev->arrayIndex]->isSeedSection() &&
-                (ePrev->nameLength == e->nameLength) &&
+            if ((ePrev->nameLength == e->nameLength) &&
                 strncmp(ePrev->name, e->name, e->nameLength) == 0)
             {
                 continue;
@@ -1308,7 +839,7 @@ HRESULT PEWriter::linkSortSections(entry * entries,
         _ASSERTE(index == -1 || index == atoi(p));
 
         e->nameLength = (unsigned char)(p - e->name);
-        e->index = index;
+        e->index = (char)index;
         e->arrayIndex = (unsigned short)(cur - getSectStart());
         e++;
     }
@@ -1317,7 +848,7 @@ HRESULT PEWriter::linkSortSections(entry * entries,
     // Sort the entries according to alphabetical + numerical order
     //
 
-    SectionNameSorter sorter(entries, getSectStart(), int(e - entries), m_iSeedSections);
+    SectionNameSorter sorter(entries, getSectStart(), int(e - entries));
     *piUniqueSections = sorter.SortSections();
 
     *piEntries = unsigned(e - entries);
@@ -1367,7 +898,6 @@ HRESULT PEWriter::linkSortHeaders(entry * entries, unsigned iEntries, unsigned i
     for (entry * e = entries ; e < entriesEnd; e++)
     {
         if (ePrev != NULL
-            && !getSectStart()[ePrev->arrayIndex]->isSeedSection()
             && e->nameLength == ePrev->nameLength
             && strncmp(e->name, ePrev->name, e->nameLength) == 0)
         {
@@ -1433,10 +963,6 @@ HRESULT PEWriter::linkPlaceSections(entry * entries, unsigned iEntries)
         entry * e = entries + VAL32(h->FirstEntryIndex);
         PEWriterSection *s = getSectStart()[e->arrayIndex];
 
-        if (s->isSeedSection()) {
-            virtualPos = s->getBaseRVA();
-        }
-
         h->VirtualAddress = VAL32(virtualPos);
         h->PointerToRawData = VAL32(filePos);
 
@@ -1501,11 +1027,6 @@ HRESULT PEWriter::linkPlaceSections(entry * entries, unsigned iEntries)
 
 void PEWriter::setSectionIndex(IMAGE_SECTION_HEADER * h, unsigned sectionIndex) {
 
-    if (getSectStart()[sectionIndex]->isSeedSection()) {
-        h->SectionIndex = VAL32(sectionIndex);
-        return;
-    }
-
     //
     // Reserve some dummy "array index" values for special sections
     // at the start of the image (after the seed sections)
@@ -1523,7 +1044,7 @@ void PEWriter::setSectionIndex(IMAGE_SECTION_HEADER * h, unsigned sectionIndex) 
         }
         else if (strcmp((char *) h->Name, *s) == 0)
         {
-            h->SectionIndex = VAL32(m_iSeedSections + DWORD(s - SpecialNames));
+            h->SectionIndex = VAL32(DWORD(s - SpecialNames));
             break;
         }
     }
@@ -1537,7 +1058,7 @@ HRESULT PEWriter::link() {
     // NOTE:
     // link() can be called more than once!  This is because at least one compiler
     // (the prejitter) needs to know the base addresses of some segments before it
-    // builds others. It's up to the caller to insure the layout remains the same
+    // builds others. It's up to the caller to ensure the layout remains the same
     // after changes are made, though.
     //
 
@@ -1589,7 +1110,7 @@ HRESULT PEWriter::link() {
     iUniqueSections++; // One more for .reloc
     filePos = sizeof(IMAGE_DOS_HEADER)+sizeof(x86StubPgm) + m_ntHeadersSize;
 
-    m_ntHeaders->FileHeader.NumberOfSections = VAL16(iUniqueSections);
+    m_ntHeaders->FileHeader.NumberOfSections = (WORD)VAL16(iUniqueSections);
 
     filePos += iUniqueSections * sizeof(IMAGE_SECTION_HEADER);
     filePos  = roundUp(filePos, VAL32(m_ntHeaders->OptionalHeader.FileAlignment));
@@ -1597,17 +1118,6 @@ HRESULT PEWriter::link() {
     m_ntHeaders->OptionalHeader.SizeOfHeaders = VAL32(filePos);
 
     virtualPos = roundUp(filePos, VAL32(m_ntHeaders->OptionalHeader.SectionAlignment));
-
-    if (m_hSeedFile != INVALID_HANDLE_VALUE) {
-        // We do not support relocating/sliding down the seed sections
-        if (filePos > VAL32(m_pSeedSections->VirtualAddress) ||
-            virtualPos > VAL32(m_pSeedSections->VirtualAddress))
-           return E_FAIL;
-
-        if (virtualPos < VAL32(m_pSeedSections->VirtualAddress)) {
-            virtualPos = VAL32(m_pSeedSections->VirtualAddress);
-        }
-    }
 
     // Now finally assign RVAs to the sections
 
@@ -1952,7 +1462,7 @@ HRESULT PEWriter::write(void ** ppImage)
     size_t lSize = filePos;
 
     // allocate the block we are handing back to the caller
-    void * pImage = (void *) ::CoTaskMemAlloc(lSize);
+    void * pImage = (void *) CoTaskMemAlloc(lSize);
     if (NULL == pImage)
     {
         return E_OUTOFMEMORY;
@@ -1985,7 +1495,7 @@ HRESULT PEWriter::write(void ** ppImage)
     // make sure we wrote the exact numbmer of bytes expected
     _ASSERTE(lSize == (size_t) (pCur - (char *)pImage));
 
-    // give pointer to memory image back to caller (who must free with ::CoTaskMemFree())
+    // give pointer to memory image back to caller (who must free with CoTaskMemFree())
     *ppImage = pImage;
 
     // all done
@@ -1998,6 +1508,11 @@ HRESULT PEWriter::getFileTimeStamp(DWORD *pTimeStamp)
         *pTimeStamp = m_peFileTimeStamp;
 
     return S_OK;
+}
+
+void PEWriter::setFileHeaderTimeStamp(DWORD timeStamp)
+{
+    m_ntHeaders->FileHeader.TimeDateStamp = timeStamp;
 }
 
 DWORD PEWriter::getImageBase32()
@@ -2014,8 +1529,6 @@ UINT64 PEWriter::getImageBase64()
 
 void PEWriter::setImageBase32(DWORD imageBase)
 {
-    _ASSERTE(m_hSeedFile == INVALID_HANDLE_VALUE);
-
     _ASSERTE(isPE32());
     ntHeaders32()->OptionalHeader.ImageBase = VAL32(imageBase);
 }

@@ -5,40 +5,9 @@ namespace System.Text.Json.Serialization
 {
     public partial class JsonConverter<T>
     {
-        internal sealed override bool WriteCoreAsObject(
-            Utf8JsonWriter writer,
-            object? value,
-            JsonSerializerOptions options,
-            ref WriteStack state)
-        {
-            if (
-#if NET5_0_OR_GREATER
-                // Short-circuit the check against "is not null"; treated as a constant by recent versions of the JIT.
-                typeof(T).IsValueType)
-#else
-                IsValueType)
-#endif
-            {
-                // Value types can never have a null except for Nullable<T>.
-                if (value == null && Nullable.GetUnderlyingType(TypeToConvert) == null)
-                {
-                    ThrowHelper.ThrowJsonException_DeserializeUnableToConvertValue(TypeToConvert);
-                }
-
-                // Root object is a boxed value type, we need to push it to the reference stack before it gets unboxed here.
-                if (options.ReferenceHandlingStrategy == ReferenceHandlingStrategy.IgnoreCycles && value != null)
-                {
-                    state.ReferenceResolver.PushReferenceForCycleDetection(value);
-                }
-            }
-
-            T actualValue = (T)value!;
-            return WriteCore(writer, actualValue, options, ref state);
-        }
-
         internal bool WriteCore(
             Utf8JsonWriter writer,
-            in T value,
+            in T? value,
             JsonSerializerOptions options,
             ref WriteStack state)
         {
@@ -46,32 +15,37 @@ namespace System.Text.Json.Serialization
             {
                 return TryWrite(writer, value, options, ref state);
             }
-            catch (InvalidOperationException ex) when (ex.Source == ThrowHelper.ExceptionSourceValueToRethrowAsJsonException)
+            catch (Exception ex)
             {
-                ThrowHelper.ReThrowWithPath(ref state, ex);
-                throw;
-            }
-            catch (JsonException ex) when (ex.Path == null)
-            {
-                // JsonExceptions where the Path property is already set
-                // typically originate from nested calls to JsonSerializer;
-                // treat these cases as any other exception type and do not
-                // overwrite any exception information.
-
-                ThrowHelper.AddJsonExceptionInformation(ref state, ex);
-                throw;
-            }
-            catch (NotSupportedException ex)
-            {
-                // If the message already contains Path, just re-throw. This could occur in serializer re-entry cases.
-                // To get proper Path semantics in re-entry cases, APIs that take 'state' need to be used.
-                if (ex.Message.Contains(" Path: "))
+                if (!state.SupportAsync)
                 {
-                    throw;
+                    // Async serializers should dispose sync and
+                    // async disposables from the async root method.
+                    state.DisposePendingDisposablesOnException();
                 }
 
-                ThrowHelper.ThrowNotSupportedException(ref state, ex);
-                return default;
+                switch (ex)
+                {
+                    case InvalidOperationException when ex.Source == ThrowHelper.ExceptionSourceValueToRethrowAsJsonException:
+                        ThrowHelper.ReThrowWithPath(ref state, ex);
+                        break;
+
+                    case JsonException { Path: null } jsonException:
+                        // JsonExceptions where the Path property is already set
+                        // typically originate from nested calls to JsonSerializer;
+                        // treat these cases as any other exception type and do not
+                        // overwrite any exception information.
+                        ThrowHelper.AddJsonExceptionInformation(ref state, jsonException);
+                        break;
+
+                    case NotSupportedException when !ex.Message.Contains(" Path: "):
+                        // If the message already contains Path, just re-throw. This could occur in serializer re-entry cases.
+                        // To get proper Path semantics in re-entry cases, APIs that take 'state' need to be used.
+                        ThrowHelper.ThrowNotSupportedException(ref state, ex);
+                        break;
+                }
+
+                throw;
             }
         }
     }

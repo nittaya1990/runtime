@@ -7,8 +7,17 @@ namespace System.Collections.ObjectModel
 {
     internal static class CollectionHelpers
     {
-        internal static void ValidateCopyToArguments(int sourceCount, Array array!!, int index)
+        internal static void ValidateCopyToArguments(int sourceCount, Array array, int index)
         {
+#if NET8_0_OR_GREATER
+            ArgumentNullException.ThrowIfNull(array);
+#else
+            if (array is null)
+            {
+                throw new ArgumentNullException(nameof(array));
+            }
+#endif
+
             if (array.Rank != 1)
             {
                 throw new ArgumentException(SR.Arg_RankMultiDimNotSupported, nameof(array));
@@ -19,10 +28,15 @@ namespace System.Collections.ObjectModel
                 throw new ArgumentException(SR.Arg_NonZeroLowerBound, nameof(array));
             }
 
+#if NET8_0_OR_GREATER
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(index, array.Length);
+#else
             if (index < 0 || index > array.Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
+                throw new ArgumentOutOfRangeException(nameof(index));
             }
+#endif
 
             if (array.Length - index < sourceCount)
             {
@@ -48,7 +62,7 @@ namespace System.Collections.ObjectModel
                 // We can't cast array of value type to object[], so we don't support widening of primitive types here.
                 if (array is not object?[] objects)
                 {
-                    throw new ArgumentException(SR.Argument_InvalidArrayType, nameof(array));
+                    throw new ArgumentException(SR.Argument_IncompatibleArrayType, nameof(array));
                 }
 
                 try
@@ -60,7 +74,7 @@ namespace System.Collections.ObjectModel
                 }
                 catch (ArrayTypeMismatchException)
                 {
-                    throw new ArgumentException(SR.Argument_InvalidArrayType, nameof(array));
+                    throw new ArgumentException(SR.Argument_IncompatibleArrayType, nameof(array));
                 }
             }
         }

@@ -1,4 +1,5 @@
-﻿<root>
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
   <!-- 
     Microsoft ResX Schema 
     
@@ -134,7 +135,7 @@
   <data name="NoProcessHandle" xml:space="preserve">
     <value>Process was not started by this object, so requested information cannot be determined.</value>
   </data>
-  <data name="MissingProccess" xml:space="preserve">
+  <data name="MissingProcess" xml:space="preserve">
     <value>Process with an Id of {0} is not running.</value>
   </data>
   <data name="BadMinWorkset" xml:space="preserve">
@@ -167,7 +168,7 @@
   <data name="CouldntGetProcessInfos" xml:space="preserve">
     <value>Couldn't get process information from performance counter.</value>
   </data>
-  <data name="InputIdleUnkownError" xml:space="preserve">
+  <data name="InputIdleUnknownError" xml:space="preserve">
     <value>WaitForInputIdle failed.  This could be because the process does not have a graphical interface.</value>
   </data>
   <data name="FileNameMissing" xml:space="preserve">
@@ -269,14 +270,20 @@
   <data name="CantSetDuplicatePassword" xml:space="preserve">
     <value>ProcessStartInfo.Password and ProcessStartInfo.PasswordInClearText cannot both be set. Use only one of them.</value>
   </data>
+  <data name="CantEnableConflictingLogonFlags" xml:space="preserve">
+    <value>ProcessStartInfo.LoadUserProfile and ProcessStartInfo.UseCredentialsForNetworkingOnly cannot both be set. Use only one of them.</value>
+  </data>
   <data name="ArgumentOutOfRange_IndexCountBuffer" xml:space="preserve">
     <value>Index and count must refer to a location within the buffer.</value>
   </data>
   <data name="ArgumentOutOfRange_IndexCount" xml:space="preserve">
     <value>Index and count must refer to a location within the string.</value>
   </data>
-  <data name="ArgumentOutOfRange_Index" xml:space="preserve">
+  <data name="ArgumentOutOfRange_IndexMustBeLess" xml:space="preserve">
     <value>Index was out of range. Must be non-negative and less than the size of the collection.</value>
+  </data>
+  <data name="ArgumentOutOfRange_IndexMustBeLessOrEqual" xml:space="preserve">
+    <value>Index was out of range. Must be non-negative and less than or equal to the size of the collection.</value>
   </data>
   <data name="Argument_EncodingConversionOverflowBytes" xml:space="preserve">
     <value>The output byte buffer is too small to contain the encoded data, encoding '{0}' fallback '{1}'.</value>
@@ -292,9 +299,6 @@
   </data>
   <data name="Argument_InvalidCharSequenceNoIndex" xml:space="preserve">
     <value>String contains invalid Unicode code points.</value>
-  </data>
-  <data name="ArgumentOutOfRange_NeedNonNegNum" xml:space="preserve">
-    <value>Non-negative number required.</value>
   </data>
   <data name="CantStartAsUser" xml:space="preserve">
     <value>The Process object must have the UseShellExecute property set to false in order to start a process as a user.</value>
@@ -328,5 +332,8 @@
   </data>
   <data name="InvalidSysctl" xml:space="preserve">
     <value>sysctl {0} failed with {1} error.</value>
+  </data>
+  <data name="InvalidPerfData" xml:space="preserve">
+    <value>Invalid performance counter data with type '{0}'.</value>
   </data>
 </root>

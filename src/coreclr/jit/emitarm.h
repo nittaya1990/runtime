@@ -27,10 +27,8 @@ unsigned emitOutput_Thumb2Instr(BYTE* dst, code_t code);
 /*             Debug-only routines to display instructions              */
 /************************************************************************/
 
-#ifdef DEBUG
-
 void emitDispInst(instruction ins, insFlags flags);
-void emitDispImm(int imm, bool addComma, bool alwaysHex = false);
+void emitDispImm(int imm, bool addComma, bool alwaysHex = false, bool isAddrOffset = false);
 void emitDispReloc(BYTE* addr);
 void emitDispCond(int cond);
 void emitDispShiftOpts(insOpts opt);
@@ -43,6 +41,14 @@ void emitDispAddrRR(regNumber reg1, regNumber reg2, emitAttr attr);
 void emitDispAddrRRI(regNumber reg1, regNumber reg2, int imm, emitAttr attr);
 void emitDispAddrPUW(regNumber reg, int imm, insOpts opt, emitAttr attr);
 void emitDispGC(emitAttr attr);
+void emitDispLargeJmp(instrDesc* id,
+                      bool       isNew,
+                      bool       doffs,
+                      bool       asmfm,
+                      unsigned   offs = 0,
+                      BYTE*      code = 0,
+                      size_t     sz   = 0,
+                      insGroup*  ig   = NULL);
 
 void emitDispInsHelp(instrDesc* id,
                      bool       isNew,
@@ -52,8 +58,6 @@ void emitDispInsHelp(instrDesc* id,
                      BYTE*      code = 0,
                      size_t     sz   = 0,
                      insGroup*  ig   = NULL);
-
-#endif // DEBUG
 
 /************************************************************************/
 /*  Private members that deal with target-dependent instr. descriptors  */
@@ -77,7 +81,7 @@ bool emitInsIsStore(instruction ins);
 bool emitInsIsLoadOrStore(instruction ins);
 
 emitter::insFormat emitInsFormat(instruction ins);
-emitter::code_t emitInsCode(instruction ins, insFormat fmt);
+emitter::code_t    emitInsCode(instruction ins, insFormat fmt);
 
 // Generate code for a load or store operation and handle the case
 // of contained GT_LEA op1 with [base + index<<scale + offset]
@@ -86,7 +90,7 @@ void emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataReg, GenTr
 
 static bool IsMovInstruction(instruction ins);
 static bool isModImmConst(int imm);
-static int encodeModImmConst(int imm);
+static int  encodeModImmConst(int imm);
 
 static int insUnscaleImm(instruction ins, int imm);
 
@@ -191,6 +195,12 @@ inline static unsigned getBitWidth(emitAttr size)
     assert(size <= EA_8BYTE);
     return (unsigned)size * BITS_PER_BYTE;
 }
+
+/************************************************************************/
+/*                   Output target-independent instructions             */
+/************************************************************************/
+
+void emitIns_J(instruction ins, BasicBlock* dst, int instrCount = 0);
 
 /************************************************************************/
 /*           The public entry points to output instructions             */
@@ -320,12 +330,13 @@ void emitIns_Call(EmitCallType          callType,
                   VARSET_VALARG_TP ptrVars,
                   regMaskTP        gcrefRegs,
                   regMaskTP        byrefRegs,
-                  const DebugInfo& di     = DebugInfo(),
-                  regNumber        ireg   = REG_NA,
-                  regNumber        xreg   = REG_NA,
-                  unsigned         xmul   = 0,
-                  ssize_t          disp   = 0,
-                  bool             isJump = false);
+                  const DebugInfo& di          = DebugInfo(),
+                  regNumber        ireg        = REG_NA,
+                  regNumber        xreg        = REG_NA,
+                  unsigned         xmul        = 0,
+                  ssize_t          disp        = 0,
+                  bool             isJump      = false,
+                  bool             noSafePoint = false);
 
 /*****************************************************************************
  *
@@ -339,7 +350,7 @@ inline bool emitIsCondJump(instrDesc* jmp)
 
 /*****************************************************************************
  *
- *  Given an instrDesc, return true if it's a comapre and jump.
+ *  Given an instrDesc, return true if it's a compare and jump.
  */
 
 inline bool emitIsCmpJump(instrDesc* jmp)

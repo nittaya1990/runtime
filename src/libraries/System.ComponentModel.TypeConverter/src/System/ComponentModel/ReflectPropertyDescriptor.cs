@@ -46,6 +46,8 @@ namespace System.ComponentModel
     /// </summary>
     internal sealed class ReflectPropertyDescriptor : PropertyDescriptor
     {
+        private const string ComponentClassIsProtected = "_componentClass is already a protected through [DynamicallyAccessedModifiers(All)] or is a registered type.";
+
         private static readonly object s_noValue = new object();
 
         private static readonly int s_bitDefaultValueQueried = InterlockedBitVector32.CreateMask();
@@ -59,8 +61,7 @@ namespace System.ComponentModel
         private static readonly int s_bitAmbientValueQueried = InterlockedBitVector32.CreateMask(s_bitReadOnlyChecked);
         private static readonly int s_bitSetOnDemand = InterlockedBitVector32.CreateMask(s_bitAmbientValueQueried);
 
-        private InterlockedBitVector32 _state;             // Contains the state bits for this proeprty descriptor.
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
+        private InterlockedBitVector32 _state;             // Contains the state bits for this property descriptor.
         private readonly Type _componentClass;             // used to determine if we should all on us or on the designer
         private readonly Type _type;                       // the data type of the property
         private object? _defaultValue;               // the default value of the property (or noValue)
@@ -77,9 +78,8 @@ namespace System.ComponentModel
         /// <summary>
         /// The main constructor for ReflectPropertyDescriptors.
         /// </summary>
-        [RequiresUnreferencedCode(PropertyDescriptorPropertyTypeMessage)]
         public ReflectPropertyDescriptor(
-            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type componentClass,
+            Type componentClass,
             string name,
             Type type,
             Attribute[]? attributes)
@@ -111,11 +111,10 @@ namespace System.ComponentModel
         }
 
         /// <summary>
-        /// A constructor for ReflectPropertyDescriptors that have no attributes.
+        /// A constructor for ReflectPropertyDescriptors.
         /// </summary>
-        [RequiresUnreferencedCode(PropertyDescriptorPropertyTypeMessage)]
         public ReflectPropertyDescriptor(
-            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type componentClass,
+            Type componentClass,
             string name,
             Type type,
             PropertyInfo propInfo,
@@ -244,6 +243,8 @@ namespace System.ComponentModel
         /// <summary>
         /// The EventDescriptor for the "{propertyname}Changed" event on the component, or null if there isn't one for this property.
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2077:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         private EventDescriptor ChangedEventValue
         {
             get
@@ -316,6 +317,10 @@ namespace System.ComponentModel
         /// <summary>
         /// The GetMethod for this property
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2077:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2080:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         private MethodInfo GetMethodValue
         {
             get
@@ -370,6 +375,8 @@ namespace System.ComponentModel
         /// <summary>
         /// Access to the reset method, if one exists for this property.
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2077:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         private MethodInfo? ResetMethodValue
         {
             get
@@ -398,6 +405,12 @@ namespace System.ComponentModel
         /// <summary>
         /// Accessor for the set method
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2077:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2075:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2080:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         private MethodInfo? SetMethodValue
         {
             get
@@ -454,6 +467,8 @@ namespace System.ComponentModel
         /// <summary>
         /// Accessor for the ShouldSerialize method.
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2077:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         private MethodInfo? ShouldSerializeMethodValue
         {
             get
@@ -481,8 +496,11 @@ namespace System.ComponentModel
         /// <summary>
         /// Allows interested objects to be notified when this property changes.
         /// </summary>
-        public override void AddValueChanged(object component!!, EventHandler handler!!)
+        public override void AddValueChanged(object component, EventHandler handler)
         {
+            ArgumentNullException.ThrowIfNull(component);
+            ArgumentNullException.ThrowIfNull(handler);
+
             // If there's an event called <propertyname>Changed, hook the caller's handler directly up to that on the component
             EventDescriptor changedEvent = ChangedEventValue;
             if (changedEvent != null && changedEvent.EventType.IsInstanceOfType(handler))
@@ -533,7 +551,7 @@ namespace System.ComponentModel
 
         internal Type? ExtenderGetReceiverType() => _receiverType;
 
-        internal Type ExtenderGetType(IExtenderProvider provider) => PropertyType;
+        internal Type ExtenderGetType() => PropertyType;
 
         internal object? ExtenderGetValue(IExtenderProvider? provider, object? component)
         {
@@ -724,6 +742,10 @@ namespace System.ComponentModel
 
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2072:UnrecognizedReflectionPattern",
             Justification = "ReflectPropertyDescriptor ctors are all marked as RequiresUnreferencedCode because PropertyType can't be annotated as 'All'.")]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2075:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2080:UnrecognizedReflectionPattern",
+            Justification = ComponentClassIsProtected)]
         protected override void FillAttributes(IList attributes)
         {
             Debug.Assert(_componentClass != null, "Must have a component class for FillAttributes");
@@ -737,7 +759,7 @@ namespace System.ComponentModel
             // 1. Attributes of the property type. These are the lowest level and should be
             //     overwritten by any newer attributes.
             //
-            // 2. Attributes obtained from any SpecificTypeAttribute. These supercede attributes
+            // 2. Attributes obtained from any SpecificTypeAttribute. These supersede attributes
             //     for the property type.
             //
             // 3. Attributes of the property itself, from base class to most derived. This way
@@ -746,7 +768,7 @@ namespace System.ComponentModel
             // 4. Attributes from our base MemberDescriptor. While this seems opposite of what
             //     we want, MemberDescriptor only has attributes if someone passed in a new
             //     set in the constructor. Therefore, these attributes always
-            //     supercede existing values.
+            //     supersede existing values.
             //
 
 
@@ -892,7 +914,6 @@ namespace System.ComponentModel
             {
                 component = GetInvocationTarget(_componentClass, component)!;
 
-
                 try
                 {
                     return GetMethodValue.Invoke(component, null);
@@ -907,10 +928,7 @@ namespace System.ComponentModel
                         name = site.Name;
                     }
 
-                    if (name == null)
-                    {
-                        name = component.GetType().FullName;
-                    }
+                    name ??= component.GetType().FullName;
 
                     if (t is TargetInvocationException)
                     {
@@ -956,14 +974,8 @@ namespace System.ComponentModel
         /// </summary>
         public override void RemoveValueChanged(object? component, EventHandler handler)
         {
-            if (component == null)
-            {
-                throw new ArgumentNullException(nameof(component));
-            }
-            if (handler == null)
-            {
-                throw new ArgumentNullException(nameof(handler));
-            }
+            ArgumentNullException.ThrowIfNull(component);
+            ArgumentNullException.ThrowIfNull(handler);
 
             // If there's an event called <propertyname>Changed, we hooked the caller's
             // handler directly up to that on the component, so remove it now.

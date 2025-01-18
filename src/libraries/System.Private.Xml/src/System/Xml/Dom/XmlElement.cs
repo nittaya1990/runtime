@@ -2,12 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml.Schema;
-using System.Xml.XPath;
 using System.Collections;
 using System.Diagnostics;
-using System.Globalization;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Xml.Schema;
+using System.Xml.XPath;
 
 namespace System.Xml
 {
@@ -37,7 +37,7 @@ namespace System.Xml
             }
         }
 
-        protected internal XmlElement(string prefix, string localName, string? namespaceURI, XmlDocument doc)
+        protected internal XmlElement(string? prefix, string localName, string? namespaceURI, XmlDocument doc)
         : this(doc.AddXmlName(prefix, localName, namespaceURI, null), true, doc)
         {
         }
@@ -99,6 +99,7 @@ namespace System.Xml
         }
 
         // Gets or sets the namespace prefix of this node.
+        [AllowNull]
         public override string Prefix
         {
             get { return _name.Prefix; }
@@ -242,10 +243,7 @@ namespace System.Xml
                 {
                     lock (OwnerDocument.objLock)
                     {
-                        if (_attributes == null)
-                        {
-                            _attributes = new XmlAttributeCollection(this);
-                        }
+                        _attributes ??= new XmlAttributeCollection(this);
                     }
                 }
 
@@ -348,7 +346,7 @@ namespace System.Xml
 
         // Sets the value of the attribute with the specified name
         // and namespace.
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         public virtual string? SetAttribute(string localName, string? namespaceURI, string? value)
         {
             XmlAttribute? attr = GetAttributeNode(localName, namespaceURI);

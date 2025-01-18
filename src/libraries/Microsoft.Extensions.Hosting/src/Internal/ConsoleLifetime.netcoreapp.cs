@@ -9,16 +9,19 @@ namespace Microsoft.Extensions.Hosting.Internal
 {
     public partial class ConsoleLifetime : IHostLifetime
     {
-        private PosixSignalRegistration _sigIntRegistration;
-        private PosixSignalRegistration _sigQuitRegistration;
-        private PosixSignalRegistration _sigTermRegistration;
+        private PosixSignalRegistration? _sigIntRegistration;
+        private PosixSignalRegistration? _sigQuitRegistration;
+        private PosixSignalRegistration? _sigTermRegistration;
 
         private partial void RegisterShutdownHandlers()
         {
-            Action<PosixSignalContext> handler = HandlePosixSignal;
-            _sigIntRegistration = PosixSignalRegistration.Create(PosixSignal.SIGINT, handler);
-            _sigQuitRegistration = PosixSignalRegistration.Create(PosixSignal.SIGQUIT, handler);
-            _sigTermRegistration = PosixSignalRegistration.Create(PosixSignal.SIGTERM, handler);
+            if (!OperatingSystem.IsWasi())
+            {
+                Action<PosixSignalContext> handler = HandlePosixSignal;
+                _sigIntRegistration = PosixSignalRegistration.Create(PosixSignal.SIGINT, handler);
+                _sigQuitRegistration = PosixSignalRegistration.Create(PosixSignal.SIGQUIT, handler);
+                _sigTermRegistration = PosixSignalRegistration.Create(PosixSignal.SIGTERM, handler);
+            }
         }
 
         private void HandlePosixSignal(PosixSignalContext context)

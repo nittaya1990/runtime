@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic.Utils;
 using System.Linq.Expressions;
 
@@ -9,6 +10,7 @@ namespace System.Dynamic
     /// <summary>
     /// Represents the unary dynamic operation at the call site, providing the binding semantic and the details about the operation.
     /// </summary>
+    [RequiresDynamicCode(Expression.CallSiteRequiresDynamicCode)]
     public abstract class UnaryOperationBinder : DynamicMetaObjectBinder
     {
         /// <summary>
@@ -24,7 +26,7 @@ namespace System.Dynamic
         /// <summary>
         /// The result type of the operation.
         /// </summary>
-        public override sealed Type ReturnType
+        public sealed override Type ReturnType
         {
             get
             {
@@ -70,7 +72,7 @@ namespace System.Dynamic
         /// <returns>The <see cref="DynamicMetaObject"/> representing the result of the binding.</returns>
         public sealed override DynamicMetaObject Bind(DynamicMetaObject target, DynamicMetaObject[]? args)
         {
-            ContractUtils.RequiresNotNull(target, nameof(target));
+            ArgumentNullException.ThrowIfNull(target);
             ContractUtils.Requires(args == null || args.Length == 0, nameof(args));
 
             return target.BindUnaryOperation(this);
@@ -79,7 +81,7 @@ namespace System.Dynamic
         /// <summary>
         /// Always returns <c>true</c> because this is a standard <see cref="DynamicMetaObjectBinder"/>.
         /// </summary>
-        internal override sealed bool IsStandardBinder => true;
+        internal sealed override bool IsStandardBinder => true;
 
         internal static bool OperationIsValid(ExpressionType operation)
         {

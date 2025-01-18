@@ -7,11 +7,9 @@ namespace System.Diagnostics
     // hardware supports it. Otherwise, the class will fall back to DateTime
     // and uses ticks as a measurement.
 
+    [DebuggerDisplay("{DebuggerDisplay,nq}")]
     public partial class Stopwatch
     {
-        private const long TicksPerMillisecond = 10000;
-        private const long TicksPerSecond = TicksPerMillisecond * 1000;
-
         private long _elapsed;
         private long _startTimeStamp;
         private bool _isRunning;
@@ -26,7 +24,7 @@ namespace System.Diagnostics
         // performance-counter frequency, in counts per ticks.
         // This can speed up conversion from high frequency performance-counter
         // to ticks.
-        private static readonly double s_tickFrequency = (double)TicksPerSecond / Frequency;
+        private static readonly double s_tickFrequency = (double)TimeSpan.TicksPerSecond / Frequency;
 
         public Stopwatch()
         {
@@ -88,6 +86,14 @@ namespace System.Diagnostics
             _isRunning = true;
         }
 
+        /// <summary>
+        /// Returns the <see cref="Elapsed"/> time as a string.
+        /// </summary>
+        /// <returns>
+        /// Elapsed time string in the same format used by <see cref="TimeSpan.ToString()"/>.
+        /// </returns>
+        public override string ToString() => Elapsed.ToString();
+
         public bool IsRunning
         {
             get { return _isRunning; }
@@ -100,7 +106,7 @@ namespace System.Diagnostics
 
         public long ElapsedMilliseconds
         {
-            get { return GetElapsedDateTimeTicks() / TicksPerMillisecond; }
+            get { return GetElapsedDateTimeTicks() / TimeSpan.TicksPerMillisecond; }
         }
 
         public long ElapsedTicks
@@ -150,5 +156,7 @@ namespace System.Diagnostics
             // convert high resolution perf counter to DateTime ticks
             return unchecked((long)(GetRawElapsedTicks() * s_tickFrequency));
         }
+
+        private string DebuggerDisplay => $"{Elapsed} (IsRunning = {_isRunning})";
     }
 }

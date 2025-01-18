@@ -49,7 +49,7 @@ namespace System.Data
         /// Retrieves the type converter for this object.
         /// </summary>
         [RequiresUnreferencedCode("Generic TypeConverters may require the generic types to be annotated. For example, NullableConverter requires the underlying type to be DynamicallyAccessedMembers All.")]
-        TypeConverter ICustomTypeDescriptor.GetConverter() => null!;
+        TypeConverter? ICustomTypeDescriptor.GetConverter() => null;
 
         /// <summary>
         /// Retrieves the default event.
@@ -66,7 +66,7 @@ namespace System.Data
         /// <summary>
         /// Retrieves the an editor for this object.
         /// </summary>
-        [RequiresUnreferencedCode("Editors registered in TypeDescriptor.AddEditorTable may be trimmed.")]
+        [RequiresUnreferencedCode("Design-time attributes are not preserved when trimming. Types referenced by attributes like EditorAttribute and DesignerAttribute may not be available after trimming.")]
         object? ICustomTypeDescriptor.GetEditor(Type editorBaseType) => null;
 
         /// <summary>

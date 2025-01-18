@@ -3,6 +3,9 @@
 //
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.DataTypes.@double;
 
 public struct VT
 {
@@ -33,7 +36,9 @@ public class doubleMDArrTest
     static double[][,] ja1_b = new double[2][,];
     static double[][, ,] ja2_b = new double[2][, ,];
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
 
         bool pass = true;

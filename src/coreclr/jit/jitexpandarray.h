@@ -3,7 +3,7 @@
 
 #pragma once
 
-// An array of T that expands automatically (and never shrinks) to accomodate
+// An array of T that expands automatically (and never shrinks) to accommodate
 // any index access. Elements added as a result of automatic expansion are
 // value-initialized (that is, they are assigned T()).
 template <class T>
@@ -28,7 +28,7 @@ protected:
     // Assumptions:
     //    Assumes that the element array has aready been allocated
     //    and that low and high are valid indices. The array is not
-    //    expanded to accomodate invalid indices.
+    //    expanded to accommodate invalid indices.
     //
     void InitializeRange(unsigned low, unsigned high)
     {
@@ -54,7 +54,10 @@ public:
     //    of size max(`minSize`, `idx`) is allocated.
     //
     JitExpandArray(CompAllocator alloc, unsigned minSize = 1)
-        : m_alloc(alloc), m_members(nullptr), m_size(0), m_minSize(minSize)
+        : m_alloc(alloc)
+        , m_members(nullptr)
+        , m_size(0)
+        , m_minSize(minSize)
     {
         assert(minSize > 0);
     }
@@ -219,8 +222,30 @@ public:
     // Notes:
     //    See JitExpandArray constructor notes.
     //
-    JitExpandArrayStack(CompAllocator alloc, unsigned minSize = 1) : JitExpandArray<T>(alloc, minSize), m_used(0)
+    JitExpandArrayStack(CompAllocator alloc, unsigned minSize = 1)
+        : JitExpandArray<T>(alloc, minSize)
+        , m_used(0)
     {
+    }
+
+    //------------------------------------------------------------------------
+    // GetRef: Get a reference to the element at index `idx`.
+    //
+    // Arguments:
+    //    idx - the element index
+    //
+    // Return Value:
+    //    A reference to the element at index `idx`.
+    //
+    // Notes:
+    //    Like `Get`, but returns a reference, so suitable for use as
+    //    the LHS of an assignment.
+    //
+    T& GetRef(unsigned idx)
+    {
+        T& itemRef = JitExpandArray<T>::GetRef(idx);
+        m_used     = max((idx + 1), m_used);
+        return itemRef;
     }
 
     //------------------------------------------------------------------------
@@ -329,6 +354,27 @@ public:
     //    The element index does not exceed the current stack depth.
     //
     T GetNoExpand(unsigned idx) const
+    {
+        assert(idx < m_used);
+        return this->m_members[idx];
+    }
+
+    //------------------------------------------------------------------------
+    // GetRefNoExpand: Get a reference to the element at index `idx`.
+    //
+    // Arguments:
+    //    idx - the element index
+    //
+    // Return Value:
+    //    A reference to the element at index `idx`.
+    //
+    // Notes:
+    //    Unlike `GetRef` this does not expand the array if the index is not valid.
+    //
+    // Assumptions:
+    //    The element index does not exceed the current stack depth.
+    //
+    T& GetRefNoExpand(unsigned idx)
     {
         assert(idx < m_used);
         return this->m_members[idx];

@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Internal.Cryptography;
 using System.Runtime.Versioning;
+using Internal.Cryptography;
 
 namespace System.Security.Cryptography.X509Certificates
 {
@@ -30,8 +30,11 @@ namespace System.Security.Cryptography.X509Certificates
             return certificate.GetPrivateKey<DSA>();
         }
 
-        public static X509Certificate2 CopyWithPrivateKey(this X509Certificate2 certificate!!, DSA privateKey!!)
+        public static X509Certificate2 CopyWithPrivateKey(this X509Certificate2 certificate, DSA privateKey)
         {
+            ArgumentNullException.ThrowIfNull(certificate);
+            ArgumentNullException.ThrowIfNull(privateKey);
+
             if (certificate.HasPrivateKey)
                 throw new InvalidOperationException(SR.Cryptography_Cert_AlreadyHasPrivateKey);
 

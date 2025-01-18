@@ -5,6 +5,8 @@
 #include "pal_types.h"
 #include "pal_utilities.h"
 #include "pal_safecrt.h"
+#include "pal_x509.h"
+#include "pal_ssl.h"
 #include "openssl.h"
 
 #ifdef FEATURE_DISTRO_AGNOSTIC_SSL
@@ -18,6 +20,12 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_1_0_RTM
+c_static_assert(CRYPTO_EX_INDEX_X509 == 3);
+#else
+c_static_assert(CRYPTO_EX_INDEX_X509 == 10);
+#endif
 
 // See X509NameType.SimpleName
 #define NAME_TYPE_SIMPLE 0
@@ -445,40 +453,6 @@ int32_t CryptoNative_GetX509NameRawBytes(X509_NAME* x509Name, uint8_t* pBuf, int
 
 /*
 Function:
-GetX509EkuFieldCount
-
-Used by System.Security.Cryptography.X509Certificates' OpenSslX509Encoder to identify the
-number of Extended Key Usage OIDs present in the EXTENDED_KEY_USAGE structure.
-
-Return values:
-0 if the field count cannot be determined, or the count of OIDs present in the EKU.
-Note that 0 does not always indicate an error, merely that GetX509EkuField should not be called.
-*/
-int32_t CryptoNative_GetX509EkuFieldCount(EXTENDED_KEY_USAGE* eku)
-{
-    // No error queue impact.
-    return sk_ASN1_OBJECT_num(eku);
-}
-
-/*
-Function:
-GetX509EkuField
-
-Used by System.Security.Cryptography.X509Certificates' OpenSslX509Encoder to get a pointer to the
-ASN1_OBJECT structure which represents the OID in a particular spot in the EKU.
-
-Return values:
-NULL if eku is NULL or loc is out of bounds, otherwise a pointer to the ASN1_OBJECT structure encoding
-that particular OID.
-*/
-ASN1_OBJECT* CryptoNative_GetX509EkuField(EXTENDED_KEY_USAGE* eku, int32_t loc)
-{
-    // No error queue impact.
-    return sk_ASN1_OBJECT_value(eku, loc);
-}
-
-/*
-Function:
 GetX509NameInfo
 
 Used by System.Security.Cryptography.X509Certificates' OpenSslX509CertificateReader as the entire
@@ -620,8 +594,8 @@ BIO* CryptoNative_GetX509NameInfo(X509* x509, int32_t nameType, int32_t forIssue
                 break;
         }
 
-        STACK_OF(GENERAL_NAME)* altNames = (STACK_OF(GENERAL_NAME)*)(
-            X509_get_ext_d2i(x509, forIssuer ? NID_issuer_alt_name : NID_subject_alt_name, NULL, NULL));
+        GENERAL_NAMES* altNames = (GENERAL_NAMES*)
+            X509_get_ext_d2i(x509, forIssuer ? NID_issuer_alt_name : NID_subject_alt_name, NULL, NULL);
 
         if (altNames)
         {
@@ -661,8 +635,11 @@ BIO* CryptoNative_GetX509NameInfo(X509* x509, int32_t nameType, int32_t forIssue
                                 if (sizeof(szOidUpn) == cchLocalOid &&
                                     0 == strncmp(localOid, szOidUpn, sizeof(szOidUpn)))
                                 {
-                                    // OTHERNAME->ASN1_TYPE->union.field
-                                    str = value->value->value.asn1_string;
+                                    if (value->value)
+                                    {
+                                        // OTHERNAME->ASN1_TYPE->union.field
+                                        str = value->value->value.asn1_string;
+                                    }
                                 }
                             }
 
@@ -674,13 +651,13 @@ BIO* CryptoNative_GetX509NameInfo(X509* x509, int32_t nameType, int32_t forIssue
                     {
                         BIO* b = BIO_new(BIO_s_mem());
                         ASN1_STRING_print_ex(b, str, ASN1_STRFLGS_UTF8_CONVERT);
-                        sk_GENERAL_NAME_free(altNames);
+                        GENERAL_NAMES_free(altNames);
                         return b;
                     }
                 }
             }
 
-            sk_GENERAL_NAME_free(altNames);
+            GENERAL_NAMES_free(altNames);
         }
     }
 
@@ -954,6 +931,20 @@ int32_t CryptoNative_X509StoreSetVerifyTime(X509_STORE* ctx,
         return 0;
     }
 
+#if defined(FEATURE_DISTRO_AGNOSTIC_SSL) && defined(TARGET_ARM) && defined(TARGET_LINUX)
+    if (g_libSslUses32BitTime)
+    {
+        if (verifyTime > INT_MAX || verifyTime < INT_MIN)
+        {
+            return 0;
+        }
+
+        // Cast to a signature that takes a 32-bit value for the time.
+        ((void (*)(X509_VERIFY_PARAM*, int32_t))(void*)(X509_VERIFY_PARAM_set_time))(verifyParams, (int32_t)verifyTime);
+        return 1;
+    }
+#endif
+
     X509_VERIFY_PARAM_set_time(verifyParams, verifyTime);
     return 1;
 }
@@ -966,7 +957,7 @@ Used by System.Security.Cryptography.X509Certificates' OpenSslX509CertificateRea
 to turn the contents of a file into an ICertificatePal object.
 
 Return values:
-If bio containns a valid DER-encoded X509 object, a pointer to that X509 structure that was deserialized,
+If bio contains a valid DER-encoded X509 object, a pointer to that X509 structure that was deserialized,
 otherwise NULL.
 */
 X509* CryptoNative_ReadX509AsDerFromBio(BIO* bio)
@@ -1041,7 +1032,7 @@ of X509* to OpenSSL.
 Return values:
 A STACK_OF(X509*) with no comparator.
 */
-STACK_OF(X509) * CryptoNative_NewX509Stack()
+STACK_OF(X509) * CryptoNative_NewX509Stack(void)
 {
     ERR_clear_error();
     return sk_X509_new_null();
@@ -1166,13 +1157,123 @@ Gets the version of openssl library.
 Return values:
 Version number as MNNFFRBB (major minor fix final beta/patch)
 */
-int64_t CryptoNative_OpenSslVersionNumber()
+int64_t CryptoNative_OpenSslVersionNumber(void)
 {
     // No error queue impact.
     return (int64_t)OpenSSL_version_num();
 }
 
-void CryptoNative_RegisterLegacyAlgorithms()
+static void ExDataFreeOcspResponse(
+    void* parent,
+    void* ptr,
+    CRYPTO_EX_DATA* ad,
+    int idx,
+    long argl,
+    void* argp)
+{
+    (void)parent;
+    (void)ad;
+    (void)idx;
+    (void)argl;
+    (void)argp;
+
+    if (ptr != NULL)
+    {
+        if (idx == g_x509_ocsp_index)
+        {
+            OCSP_RESPONSE_free((OCSP_RESPONSE*)ptr);
+        }
+    }
+}
+
+// In the OpenSSL 1.0.2 headers, the `from` argument is not const (became const in 1.1.0)
+// In the OpenSSL 3 headers, `from_d` changed from (void*) to (void**).
+static int ExDataDupOcspResponse(
+    CRYPTO_EX_DATA* to,
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_1_0_RTM
+    const CRYPTO_EX_DATA* from,
+#else
+    CRYPTO_EX_DATA* from,
+#endif
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_3_0_RTM
+    void** from_d,
+#else
+    void* from_d,
+#endif
+    int idx,
+    long argl,
+    void* argp)
+{
+    (void)to;
+    (void)from;
+    (void)idx;
+    (void)argl;
+    (void)argp;
+
+    // From the docs (https://www.openssl.org/docs/man1.1.1/man3/CRYPTO_get_ex_new_index.html):
+    // "The from_d parameter needs to be cast to a void **pptr as the API has currently the wrong signature ..."
+    void** pptr = (void**)from_d;
+
+    if (pptr != NULL)
+    {
+        if (idx == g_x509_ocsp_index)
+        {
+            *pptr = NULL;
+        }
+    }
+
+    // If the dup_func() returns 0 the whole CRYPTO_dup_ex_data() will fail.
+    // So, return 1 unless we returned 0 already.
+    return 1;
+}
+
+static void ExDataFreeNoOp(
+    void* parent,
+    void* ptr,
+    CRYPTO_EX_DATA* ad,
+    int idx,
+    long argl,
+    void* argp)
+{
+    (void)parent;
+    (void)ptr;
+    (void)ad;
+    (void)idx;
+    (void)argl;
+    (void)argp;
+
+    // do nothing.
+}
+
+static int ExDataDupNoOp(
+    CRYPTO_EX_DATA* to,
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_1_1_0_RTM
+    const CRYPTO_EX_DATA* from,
+#else
+    CRYPTO_EX_DATA* from,
+#endif
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_3_0_RTM
+    void** from_d,
+#else
+    void* from_d,
+#endif
+    int idx,
+    long argl,
+    void* argp)
+{
+    (void)to;
+    (void)from;
+    (void)from_d;
+    (void)idx;
+    (void)argl;
+    (void)argp;
+
+    // do nothing, this should lead to copy of the pointer being stored in the
+    // destination, we treat the ptr as an opaque blob.
+    return 1;
+}
+
+void CryptoNative_RegisterLegacyAlgorithms(void)
 {
 #ifdef NEED_OPENSSL_3_0
     if (API_EXISTS(OSSL_PROVIDER_try_load))
@@ -1237,7 +1338,7 @@ Return values:
 0 on success
 non-zero on failure
 */
-static int32_t EnsureOpenSsl10Initialized()
+static int32_t EnsureOpenSsl10Initialized(void)
 {
     int ret = 0;
     int numLocks = 0;
@@ -1304,6 +1405,11 @@ static int32_t EnsureOpenSsl10Initialized()
     // Ensure that the error message table is loaded.
     ERR_load_crypto_strings();
 
+    // In OpenSSL 1.0.2-, CRYPTO_EX_INDEX_X509 is 10.
+    g_x509_ocsp_index = CRYPTO_get_ex_new_index(10, 0, NULL, NULL, ExDataDupOcspResponse, ExDataFreeOcspResponse);
+    // In OpenSSL 1.0.2-, CRYPTO_EX_INDEX_SSL_SESSION is 3.
+    g_ssl_sess_cert_index = CRYPTO_get_ex_new_index(3, 0, NULL, NULL, ExDataDupNoOp, ExDataFreeNoOp);
+
 done:
     if (ret != 0)
     {
@@ -1334,7 +1440,7 @@ done:
 pthread_mutex_t g_err_mutex = PTHREAD_MUTEX_INITIALIZER;
 int volatile g_err_unloaded = 0;
 
-static void HandleShutdown()
+static void HandleShutdown(void)
 {
     // Generally, a mutex to set a boolean is overkill, but this lock
     // ensures that there are no callers already inside the string table
@@ -1348,7 +1454,7 @@ static void HandleShutdown()
     assert(!result && "Releasing the error string table mutex failed.");
 }
 
-static int32_t EnsureOpenSsl11Initialized()
+static int32_t EnsureOpenSsl11Initialized(void)
 {
     // In OpenSSL 1.0 we call OPENSSL_add_all_algorithms_conf() and ERR_load_crypto_strings(),
     // so do the same for 1.1
@@ -1368,12 +1474,17 @@ static int32_t EnsureOpenSsl11Initialized()
     // atexit handler, so we will indicate that we're in the shutdown state
     // and stop asking problematic questions from other threads.
     atexit(HandleShutdown);
+
+    // In OpenSSL 1.1.0+, CRYPTO_EX_INDEX_X509 is 3.
+    g_x509_ocsp_index = CRYPTO_get_ex_new_index(3, 0, NULL, NULL, ExDataDupOcspResponse, ExDataFreeOcspResponse);
+    // In OpenSSL 1.1.0+, CRYPTO_EX_INDEX_SSL_SESSION is 2.
+    g_ssl_sess_cert_index = CRYPTO_get_ex_new_index(2, 0, NULL, NULL, ExDataDupNoOp, ExDataFreeNoOp);
     return 0;
 }
 
 #endif
 
-int32_t CryptoNative_OpenSslAvailable()
+int32_t CryptoNative_OpenSslAvailable(void)
 {
 #ifdef FEATURE_DISTRO_AGNOSTIC_SSL
     // OpenLibrary will attempt to open libssl. DlOpen will handle
@@ -1385,9 +1496,13 @@ int32_t CryptoNative_OpenSslAvailable()
 }
 
 static int32_t g_initStatus = 1;
+int g_x509_ocsp_index = -1;
+int g_ssl_sess_cert_index = -1;
 
-static int32_t EnsureOpenSslInitializedCore()
+static int32_t EnsureOpenSslInitializedCore(void)
 {
+    int ret = 0;
+
     // If portable then decide which OpenSSL we are, and call the right one.
     // If 1.0, call the 1.0 one.
     // Otherwise call the 1.1 one.
@@ -1396,27 +1511,37 @@ static int32_t EnsureOpenSslInitializedCore()
 
     if (API_EXISTS(SSL_state))
     {
-        return EnsureOpenSsl10Initialized();
+        ret = EnsureOpenSsl10Initialized();
     }
     else
     {
-        return EnsureOpenSsl11Initialized();
+        ret = EnsureOpenSsl11Initialized();
     }
 #elif OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0_RTM
-    return EnsureOpenSsl10Initialized();
+    ret = EnsureOpenSsl10Initialized();
 #else
-    return EnsureOpenSsl11Initialized();
+    ret = EnsureOpenSsl11Initialized();
 #endif
+
+    if (ret == 0)
+    {
+        // On OpenSSL 1.0.2 our expected index is 0.
+        // On OpenSSL 1.1.0+ 0 is a reserved value and we expect 1.
+        assert(g_x509_ocsp_index != -1);
+        assert(g_ssl_sess_cert_index != -1);
+    }
+
+    return ret;
 }
 
-static void EnsureOpenSslInitializedOnce()
+static void EnsureOpenSslInitializedOnce(void)
 {
     g_initStatus = EnsureOpenSslInitializedCore();
 }
 
 static pthread_once_t g_initializeShim = PTHREAD_ONCE_INIT;
 
-int32_t CryptoNative_EnsureOpenSslInitialized()
+int32_t CryptoNative_EnsureOpenSslInitialized(void)
 {
     pthread_once(&g_initializeShim, EnsureOpenSslInitializedOnce);
     return g_initStatus;

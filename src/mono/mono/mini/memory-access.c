@@ -51,6 +51,7 @@ mini_emit_memset (MonoCompile *cfg, int destreg, int offset, int size, int val, 
 
 	val_reg = alloc_preg (cfg);
 
+MONO_DISABLE_WARNING(4127) /* conditional expression is constant */
 	if (SIZEOF_REGISTER == 8)
 		MONO_EMIT_NEW_I8CONST (cfg, val_reg, val);
 	else
@@ -85,6 +86,7 @@ mini_emit_memset (MonoCompile *cfg, int destreg, int offset, int size, int val, 
 			size -= 8;
 		}
 	}
+MONO_RESTORE_WARNING
 
 set_4:
 	while (size >= 4) {
@@ -114,10 +116,22 @@ mini_emit_memcpy (MonoCompile *cfg, int destreg, int doffset, int srcreg, int so
 {
 	int cur_reg;
 
-	/*FIXME arbitrary hack to avoid unbound code expansion.*/
-	g_assert (size < MAX_INLINE_COPY_SIZE);
+	if (size >= MAX_INLINE_COPY_SIZE) {
+		MonoInst *iargs [3];
+
+		int reg = alloc_ireg (cfg);
+		EMIT_NEW_UNALU (cfg, iargs [0], OP_MOVE, reg, destreg);
+		reg = alloc_ireg (cfg);
+		EMIT_NEW_UNALU (cfg, iargs [1], OP_MOVE, reg, srcreg);
+		EMIT_NEW_ICONST (cfg, iargs [2], size);
+
+		mono_emit_method_call (cfg, mini_get_memcpy_method (), iargs, NULL);
+		return;
+	}
+
 	g_assert (align > 0);
 
+MONO_DISABLE_WARNING(4127) /* conditional expression is constant */
 	if (align < TARGET_SIZEOF_VOID_P) {
 		if (align == 4)
 			goto copy_4;
@@ -139,7 +153,6 @@ mini_emit_memcpy (MonoCompile *cfg, int destreg, int doffset, int srcreg, int so
 			goto copy_4;
 	}
 
-
 	if (SIZEOF_REGISTER == 8) {
 		while (size >= 8) {
 			cur_reg = alloc_preg (cfg);
@@ -150,6 +163,7 @@ mini_emit_memcpy (MonoCompile *cfg, int destreg, int doffset, int srcreg, int so
 			size -= 8;
 		}
 	}
+MONO_RESTORE_WARNING
 
 copy_4:
 	while (size >= 4) {
@@ -196,7 +210,16 @@ mini_emit_memcpy_internal (MonoCompile *cfg, MonoInst *dest, MonoInst *src, Mono
 		if (!size_ins)
 			EMIT_NEW_ICONST (cfg, size_ins, size);
 		iargs [2] = size_ins;
-		mono_emit_method_call (cfg, mini_get_memcpy_method (), iargs, NULL);
+		if (COMPILE_LLVM (cfg)) {
+			MonoInst *ins;
+			MONO_INST_NEW (cfg, ins, OP_MEMMOVE);
+			ins->sreg1 = iargs [0]->dreg;
+			ins->sreg2 = iargs [1]->dreg;
+			ins->sreg3 = iargs [2]->dreg;
+			MONO_ADD_INS (cfg->cbb, ins);
+		} else {
+			mono_emit_method_call (cfg, mini_get_memcpy_method (), iargs, NULL);
+		}
 	} else {
 		mini_emit_memcpy (cfg, dest->dreg, 0, src->dreg, 0, size, align);
 	}
@@ -458,6 +481,7 @@ mini_emit_memory_load (MonoCompile *cfg, MonoType *type, MonoInst *src, int offs
 	/* LLVM can handle unaligned loads and stores, so there's no reason to
 	 * manually decompose an unaligned load here into a memcpy if we're
 	 * using LLVM. */
+#ifdef NO_UNALIGNED_ACCESS
 	if ((ins_flag & MONO_INST_UNALIGNED) && !COMPILE_LLVM (cfg)) {
 		MonoInst *addr, *tmp_var;
 		int align;
@@ -475,9 +499,10 @@ mini_emit_memory_load (MonoCompile *cfg, MonoType *type, MonoInst *src, int offs
 
 		mini_emit_memcpy_const_size (cfg, addr, src, size, 1);
 		EMIT_NEW_TEMPLOAD (cfg, ins, tmp_var->inst_c0);
-	} else {
+	} else 
+#endif
 		EMIT_NEW_LOAD_MEMBASE_TYPE (cfg, ins, type, src->dreg, offset);
-	}
+	
 	ins->flags |= ins_flag;
 
 	if (ins_flag & MONO_INST_VOLATILE) {
@@ -501,6 +526,7 @@ mini_emit_memory_store (MonoCompile *cfg, MonoType *type, MonoInst *dest, MonoIn
 	if (!(ins_flag & MONO_INST_NONULLCHECK))
 		MONO_EMIT_NULL_CHECK (cfg, dest->dreg, FALSE);
 
+#ifdef NO_UNALIGNED_ACCESS
 	if ((ins_flag & MONO_INST_UNALIGNED) && !COMPILE_LLVM (cfg)) {
 		MonoInst *addr, *mov, *tmp_var;
 
@@ -508,7 +534,9 @@ mini_emit_memory_store (MonoCompile *cfg, MonoType *type, MonoInst *dest, MonoIn
 		EMIT_NEW_TEMPSTORE (cfg, mov, tmp_var->inst_c0, value);
 		EMIT_NEW_VARLOADA (cfg, addr, tmp_var, tmp_var->inst_vtype);
 		mini_emit_memory_copy_internal (cfg, dest, addr, mono_class_from_mono_type_internal (type), 1, FALSE, (ins_flag & MONO_INST_STACK_STORE) != 0);
-	} else {
+	} else 
+#endif
+	{
 		MonoInst *ins;
 
 		/* FIXME: should check item at sp [1] is compatible with the type of the store. */
@@ -528,28 +556,20 @@ mini_emit_memory_copy_bytes (MonoCompile *cfg, MonoInst *dest, MonoInst *src, Mo
 {
 	int align = (ins_flag & MONO_INST_UNALIGNED) ? 1 : TARGET_SIZEOF_VOID_P;
 
-	/*
-	 * FIXME: It's unclear whether we should be emitting both the acquire
-	 * and release barriers for cpblk. It is technically both a load and
-	 * store operation, so it seems like that's the sensible thing to do.
-	 *
-	 * FIXME: We emit full barriers on both sides of the operation for
-	 * simplicity. We should have a separate atomic memcpy method instead.
-	 */
 	if (ins_flag & MONO_INST_VOLATILE) {
-		/* Volatile loads have acquire semantics, see 12.6.7 in Ecma 335 */
-		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_SEQ);
+		/* Volatile stores have release semantics, see 12.6.7 in Ecma 335 */
+		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_REL);
 	}
 
 	if ((cfg->opt & MONO_OPT_INTRINS) && (size->opcode == OP_ICONST)) {
-		mini_emit_memcpy_const_size (cfg, dest, src, size->inst_c0, align);
+		mini_emit_memcpy_const_size (cfg, dest, src, GTMREG_TO_INT (size->inst_c0), align);
 	} else {
 		mini_emit_memcpy_internal (cfg, dest, src, size, 0, align);
 	}
 
 	if (ins_flag & MONO_INST_VOLATILE) {
 		/* Volatile loads have acquire semantics, see 12.6.7 in Ecma 335 */
-		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_SEQ);
+		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_ACQ);
 	}
 }
 
@@ -565,7 +585,7 @@ mini_emit_memory_init_bytes (MonoCompile *cfg, MonoInst *dest, MonoInst *value, 
 
 	//FIXME unrolled memset only supports zeroing
 	if ((cfg->opt & MONO_OPT_INTRINS) && (size->opcode == OP_ICONST) && (value->opcode == OP_ICONST) && (value->inst_c0 == 0)) {
-		mini_emit_memset_const_size (cfg, dest, value->inst_c0, size->inst_c0, align);
+		mini_emit_memset_const_size (cfg, dest, GTMREG_TO_INT (value->inst_c0), GTMREG_TO_INT (size->inst_c0), align);
 	} else {
 		mini_emit_memset_internal (cfg, dest, value, 0, size, 0, align);
 	}
@@ -584,24 +604,16 @@ mini_emit_memory_copy (MonoCompile *cfg, MonoInst *dest, MonoInst *src, MonoClas
 	if (ins_flag & MONO_INST_UNALIGNED)
 		explicit_align = 1;
 
-	/*
-	 * FIXME: It's unclear whether we should be emitting both the acquire
-	 * and release barriers for cpblk. It is technically both a load and
-	 * store operation, so it seems like that's the sensible thing to do.
-	 *
-	 * FIXME: We emit full barriers on both sides of the operation for
-	 * simplicity. We should have a separate atomic memcpy method instead.
-	 */
 	if (ins_flag & MONO_INST_VOLATILE) {
-		/* Volatile loads have acquire semantics, see 12.6.7 in Ecma 335 */
-		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_SEQ);
+		/* Volatile stores have release semantics, see 12.6.7 in Ecma 335 */
+		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_REL);
 	}
 
 	mini_emit_memory_copy_internal (cfg, dest, src, klass, explicit_align, native, (ins_flag & MONO_INST_STACK_STORE) != 0);
 
 	if (ins_flag & MONO_INST_VOLATILE) {
 		/* Volatile loads have acquire semantics, see 12.6.7 in Ecma 335 */
-		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_SEQ);
+		mini_emit_memory_barrier (cfg, MONO_MEMORY_BARRIER_ACQ);
 	}
 }
 #else /* !DISABLE_JIT */

@@ -4,8 +4,6 @@
 using System;
 using System.Diagnostics;
 using Internal.TypeSystem;
-
-using ILCompiler;
 using ILCompiler.DependencyAnalysis.ARM;
 
 namespace ILCompiler.DependencyAnalysis
@@ -13,56 +11,27 @@ namespace ILCompiler.DependencyAnalysis
     /// <summary>
     /// ARM specific portions of ReadyToRunHelperNode
     /// </summary>
-    partial class ReadyToRunHelperNode
+    public partial class ReadyToRunHelperNode
     {
         protected override void EmitCode(NodeFactory factory, ref ARMEmitter encoder, bool relocsOnly)
         {
             switch (Id)
             {
-                case ReadyToRunHelperId.VirtualCall:
-                    {
-                        MethodDesc targetMethod = (MethodDesc)Target;
-
-                        Debug.Assert(!targetMethod.OwningType.IsInterface);
-                        Debug.Assert(!targetMethod.CanMethodBeInSealedVTable());
-
-                        int pointerSize = factory.Target.PointerSize;
-
-                        int slot = 0;
-                        if (!relocsOnly)
-                        {
-                            slot = VirtualMethodSlotHelper.GetVirtualMethodSlot(factory, targetMethod, targetMethod.OwningType);
-                            Debug.Assert(slot != -1);
-                        }
-
-                        encoder.EmitLDR(encoder.TargetRegister.InterproceduralScratch, encoder.TargetRegister.Arg0, 0);
-                        encoder.EmitLDR(encoder.TargetRegister.InterproceduralScratch, encoder.TargetRegister.InterproceduralScratch,
-                                        EETypeNode.GetVTableOffset(pointerSize) + (slot * pointerSize));
-                        encoder.EmitJMP(encoder.TargetRegister.InterproceduralScratch);
-                    }
-                    break;
-
                 case ReadyToRunHelperId.GetNonGCStaticBase:
                     {
                         MetadataType target = (MetadataType)Target;
                         bool hasLazyStaticConstructor = factory.PreinitializationManager.HasLazyStaticConstructor(target);
-                        encoder.EmitMOV(encoder.TargetRegister.Result, factory.TypeNonGCStaticsSymbol(target));
 
                         if (!hasLazyStaticConstructor)
                         {
+                            encoder.EmitMOV(encoder.TargetRegister.Result, factory.TypeNonGCStaticsSymbol(target));
                             encoder.EmitRET();
                         }
                         else
                         {
-                            // We need to trigger the cctor before returning the base. It is stored at the beginning of the non-GC statics region.
-                            encoder.EmitMOV(encoder.TargetRegister.Arg2, factory.TypeNonGCStaticsSymbol(target));
-                            encoder.EmitLDR(encoder.TargetRegister.Arg3, encoder.TargetRegister.Arg2,
-                                            ((short)(factory.Target.PointerSize - NonGCStaticsNode.GetClassConstructorContextSize(factory.Target))));
-                            encoder.EmitCMP(encoder.TargetRegister.Arg3, 1);
-                            encoder.EmitRETIfEqual();
-
-                            encoder.EmitMOV(encoder.TargetRegister.Arg1, encoder.TargetRegister.Result);
-                            encoder.EmitMOV(encoder.TargetRegister.Arg0/*Result*/, encoder.TargetRegister.Arg2);
+                            // The fast path check is not necessary. It is always expanded by RyuJIT.
+                            encoder.EmitMOV(encoder.TargetRegister.Arg1, factory.TypeNonGCStaticsSymbol(target));
+                            encoder.EmitMOV(encoder.TargetRegister.Arg0/*Result*/, encoder.TargetRegister.Arg1);
                             encoder.EmitSUB(encoder.TargetRegister.Arg0, NonGCStaticsNode.GetClassConstructorContextSize(factory.Target));
                             encoder.EmitJMP(factory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnNonGCStaticBase));
                         }
@@ -100,22 +69,16 @@ namespace ILCompiler.DependencyAnalysis
                     {
                         MetadataType target = (MetadataType)Target;
                         encoder.EmitMOV(encoder.TargetRegister.Result, factory.TypeGCStaticsSymbol(target));
-                        encoder.EmitLDR(encoder.TargetRegister.Result, encoder.TargetRegister.Result);
                         if (!factory.PreinitializationManager.HasLazyStaticConstructor(target))
                         {
+                            encoder.EmitLDR(encoder.TargetRegister.Result, encoder.TargetRegister.Result);
                             encoder.EmitRET();
                         }
                         else
                         {
-                            // We need to trigger the cctor before returning the base. It is stored at the beginning of the non-GC statics region.
-                            encoder.EmitMOV(encoder.TargetRegister.Arg2, factory.TypeNonGCStaticsSymbol(target));
-                            encoder.EmitLDR(encoder.TargetRegister.Arg3, encoder.TargetRegister.Arg2,
-                                            ((short)(factory.Target.PointerSize - NonGCStaticsNode.GetClassConstructorContextSize(factory.Target))));
-                            encoder.EmitCMP(encoder.TargetRegister.Arg3, 1);
-                            encoder.EmitRETIfEqual();
-
-                            encoder.EmitMOV(encoder.TargetRegister.Arg1, encoder.TargetRegister.Result);
-                            encoder.EmitMOV(encoder.TargetRegister.Arg0/*Result*/, encoder.TargetRegister.Arg2);
+                            // The fast path check is not necessary. It is always expanded by RyuJIT.
+                            encoder.EmitLDR(encoder.TargetRegister.Arg1, encoder.TargetRegister.Result);
+                            encoder.EmitMOV(encoder.TargetRegister.Arg0, factory.TypeNonGCStaticsSymbol(target));
                             encoder.EmitSUB(encoder.TargetRegister.Arg0, NonGCStaticsNode.GetClassConstructorContextSize(factory.Target));
                             encoder.EmitJMP(factory.HelperEntrypoint(HelperEntrypoint.EnsureClassConstructorRunAndReturnGCStaticBase));
                         }
@@ -128,7 +91,7 @@ namespace ILCompiler.DependencyAnalysis
 
                         if (target.TargetNeedsVTableLookup)
                         {
-                            Debug.Assert(!target.TargetMethod.CanMethodBeInSealedVTable());
+                            Debug.Assert(!target.TargetMethod.CanMethodBeInSealedVTable(factory));
 
                             encoder.EmitLDR(encoder.TargetRegister.Arg2, encoder.TargetRegister.Arg1);
 
@@ -161,14 +124,12 @@ namespace ILCompiler.DependencyAnalysis
 
                 case ReadyToRunHelperId.ResolveVirtualFunction:
                     {
-                        ARMDebug.EmitHelperNYIAssert(factory, ref encoder, ReadyToRunHelperId.ResolveVirtualFunction);
-                        /*
-                       ***
-                       NOT TESTED!!!
-                       ***
                         MethodDesc targetMethod = (MethodDesc)Target;
                         if (targetMethod.OwningType.IsInterface)
                         {
+                            // Not tested
+                            encoder.EmitDebugBreak();
+
                             encoder.EmitMOV(encoder.TargetRegister.Arg1, factory.InterfaceDispatchCell(targetMethod));
                             encoder.EmitJMP(factory.ExternSymbol("RhpResolveInterfaceMethod"));
                         }
@@ -179,7 +140,7 @@ namespace ILCompiler.DependencyAnalysis
 
                             encoder.EmitLDR(encoder.TargetRegister.Result, encoder.TargetRegister.Arg0);
 
-                            Debug.Assert(!targetMethod.CanMethodBeInSealedVTable());
+                            Debug.Assert(!targetMethod.CanMethodBeInSealedVTable(factory));
 
                             int slot = VirtualMethodSlotHelper.GetVirtualMethodSlot(factory, targetMethod, targetMethod.OwningType);
                             Debug.Assert(slot != -1);
@@ -187,7 +148,6 @@ namespace ILCompiler.DependencyAnalysis
                                             ((short)(EETypeNode.GetVTableOffset(factory.Target.PointerSize) + (slot * factory.Target.PointerSize))));
                             encoder.EmitRET();
                         }
-                        */
                     }
                     break;
 

@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Win32;
 
 namespace System.Diagnostics.Eventing.Reader
@@ -62,8 +62,10 @@ namespace System.Diagnostics.Eventing.Reader
         {
         }
 
-        public EventLogReader(EventLogQuery eventQuery!!, EventBookmark bookmark)
+        public EventLogReader(EventLogQuery eventQuery, EventBookmark bookmark)
         {
+            ArgumentNullException.ThrowIfNull(eventQuery);
+
             string logfile = null;
             if (eventQuery.ThePathType == PathType.FilePath)
                 logfile = eventQuery.Path;
@@ -216,7 +218,7 @@ namespace System.Diagnostics.Eventing.Reader
             // fact that we've already read some events in our buffer that the user
             // hasn't seen yet.
             //
-            offset = offset - (_eventCount - _currentIndex);
+            offset -= (_eventCount - _currentIndex);
 
             SeekReset();
 
@@ -228,8 +230,10 @@ namespace System.Diagnostics.Eventing.Reader
             Seek(bookmark, 0);
         }
 
-        public void Seek(EventBookmark bookmark!!, long offset)
+        public void Seek(EventBookmark bookmark, long offset)
         {
+            ArgumentNullException.ThrowIfNull(bookmark);
+
             SeekReset();
             using (EventLogHandle bookmarkHandle = EventLogRecord.GetBookmarkHandleFromBookmark(bookmark))
             {

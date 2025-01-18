@@ -5,6 +5,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel.Design;
 using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.DotNet.RemoteExecutor;
 using Moq;
 using Xunit;
 
@@ -13,7 +17,7 @@ namespace System.ComponentModel.Tests
     [Collection(nameof(DisableParallelization))] // manipulates cache
     public class TypeDescriptorTests
     {
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_InvokeObject_GetProviderReturnsExpected()
         {
             var instance = new object();
@@ -21,6 +25,10 @@ namespace System.ComponentModel.Tests
             mockProvider1
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
+                .Verifiable();
+            mockProvider1
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
                 .Verifiable();
             var mockProvider2 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider2
@@ -30,6 +38,10 @@ namespace System.ComponentModel.Tests
             mockProvider2
                 .Setup(p => p.GetCache(instance))
                 .Returns(new Dictionary<int, string>());
+            mockProvider2
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
 
             TypeDescriptor.AddProvider(mockProvider1.Object, instance);
             TypeDescriptionProvider actualProvider1 = TypeDescriptor.GetProvider(instance);
@@ -47,7 +59,7 @@ namespace System.ComponentModel.Tests
             mockProvider2.Verify(p => p.IsSupportedType(typeof(int)), Times.Once());
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_InvokeObjectMultipleTimes_Refreshes()
         {
             var instance = new object();
@@ -61,7 +73,7 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.GetCache(instance))
                 .Returns(new Dictionary<int, string>())
                 .Verifiable();
-            
+
             int callCount = 0;
             RefreshEventHandler handler = (e) =>
             {
@@ -96,7 +108,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_InvokeType_GetProviderReturnsExpected()
         {
             Type type = typeof(AddProvider_InvokeType_GetProviderReturnsExpectedType);
@@ -133,7 +145,7 @@ namespace System.ComponentModel.Tests
         private class AddProvider_InvokeType_GetProviderReturnsExpectedType { }
 
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_InvokeTypeMultipleTimes_Refreshes()
         {
             var type = typeof(AddProvider_InvokeTypeMultipleTimes_RefreshesType);
@@ -147,7 +159,7 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.GetCache(type))
                 .Returns(new Dictionary<int, string>())
                 .Verifiable();
-            
+
             int callCount = 0;
             RefreshEventHandler handler = (e) =>
             {
@@ -184,28 +196,28 @@ namespace System.ComponentModel.Tests
 
         private class AddProvider_InvokeTypeMultipleTimes_RefreshesType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_NullProvider_ThrowsArgumentNullException()
         {
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.AddProvider(null, new object()));
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.AddProvider(null, typeof(int)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_NullInstance_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             Assert.Throws<ArgumentNullException>("instance", () => TypeDescriptor.AddProvider(mockProvider.Object, (object)null));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProvider_NullType_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             Assert.Throws<ArgumentNullException>("type", () => TypeDescriptor.AddProvider(mockProvider.Object, null));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_InvokeObject_GetProviderReturnsExpected()
         {
             var instance = new object();
@@ -213,6 +225,10 @@ namespace System.ComponentModel.Tests
             mockProvider1
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
+                .Verifiable();
+            mockProvider1
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
                 .Verifiable();
             var mockProvider2 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider2
@@ -222,6 +238,10 @@ namespace System.ComponentModel.Tests
             mockProvider2
                 .Setup(p => p.GetCache(instance))
                 .Returns(new Dictionary<int, string>());
+            mockProvider2
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
 
             TypeDescriptor.AddProviderTransparent(mockProvider1.Object, instance);
             TypeDescriptionProvider actualProvider1 = TypeDescriptor.GetProvider(instance);
@@ -239,7 +259,7 @@ namespace System.ComponentModel.Tests
             mockProvider2.Verify(p => p.IsSupportedType(typeof(int)), Times.Once());
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_InvokeObjectMultipleTimes_Refreshes()
         {
             var instance = new object();
@@ -253,7 +273,7 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.GetCache(instance))
                 .Returns(new Dictionary<int, string>())
                 .Verifiable();
-            
+
             int callCount = 0;
             RefreshEventHandler handler = (e) =>
             {
@@ -288,7 +308,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_InvokeType_GetProviderReturnsExpected()
         {
             Type type = typeof(AddProviderTransparent_InvokeType_GetProviderReturnsExpectedType);
@@ -324,7 +344,7 @@ namespace System.ComponentModel.Tests
 
         private class AddProviderTransparent_InvokeType_GetProviderReturnsExpectedType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_InvokeTypeMultipleTimes_Refreshes()
         {
             var type = typeof(AddProviderTransparent_InvokeTypeMultipleTimes_RefreshesType);
@@ -338,7 +358,7 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.GetCache(type))
                 .Returns(new Dictionary<int, string>())
                 .Verifiable();
-            
+
             int callCount = 0;
             RefreshEventHandler handler = (e) =>
             {
@@ -375,21 +395,21 @@ namespace System.ComponentModel.Tests
 
         private class AddProviderTransparent_InvokeTypeMultipleTimes_RefreshesType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_NullProvider_ThrowsArgumentNullException()
         {
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.AddProviderTransparent(null, new object()));
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.AddProviderTransparent(null, typeof(int)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_NullInstance_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             Assert.Throws<ArgumentNullException>("instance", () => TypeDescriptor.AddProviderTransparent(mockProvider.Object, (object)null));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void AddProviderTransparent_NullType_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -455,18 +475,23 @@ namespace System.ComponentModel.Tests
         [InlineData(typeof(char), typeof(CharConverter))]
         [InlineData(typeof(double), typeof(DoubleConverter))]
         [InlineData(typeof(string), typeof(StringConverter))]
+        [InlineData(typeof(Int128), typeof(Int128Converter))]
         [InlineData(typeof(short), typeof(Int16Converter))]
         [InlineData(typeof(int), typeof(Int32Converter))]
         [InlineData(typeof(long), typeof(Int64Converter))]
         [InlineData(typeof(float), typeof(SingleConverter))]
+        [InlineData(typeof(Half), typeof(HalfConverter))]
+        [InlineData(typeof(UInt128), typeof(UInt128Converter))]
         [InlineData(typeof(ushort), typeof(UInt16Converter))]
         [InlineData(typeof(uint), typeof(UInt32Converter))]
         [InlineData(typeof(ulong), typeof(UInt64Converter))]
         [InlineData(typeof(object), typeof(TypeConverter))]
         [InlineData(typeof(void), typeof(TypeConverter))]
+        [InlineData(typeof(DateOnly), typeof(DateOnlyConverter))]
         [InlineData(typeof(DateTime), typeof(DateTimeConverter))]
         [InlineData(typeof(DateTimeOffset), typeof(DateTimeOffsetConverter))]
         [InlineData(typeof(decimal), typeof(DecimalConverter))]
+        [InlineData(typeof(TimeOnly), typeof(TimeOnlyConverter))]
         [InlineData(typeof(TimeSpan), typeof(TimeSpanConverter))]
         [InlineData(typeof(Guid), typeof(GuidConverter))]
         [InlineData(typeof(Array), typeof(ArrayConverter))]
@@ -543,7 +568,7 @@ namespace System.ComponentModel.Tests
             Assert.Equal(1, properties.Count);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeObject_RemovesProvider()
         {
             var instance = new object();
@@ -555,6 +580,10 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
                 .Verifiable();
+            mockProvider1
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
             var mockProvider2 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider2
                 .Setup(p => p.GetCache(instance))
@@ -563,6 +592,10 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
                 .Verifiable();
+            mockProvider2
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
             var mockProvider3 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider3
                 .Setup(p => p.GetCache(instance))
@@ -570,6 +603,10 @@ namespace System.ComponentModel.Tests
             mockProvider3
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
+                .Verifiable();
+            mockProvider3
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
                 .Verifiable();
 
             TypeDescriptor.AddProvider(mockProvider1.Object, instance);
@@ -598,7 +635,7 @@ namespace System.ComponentModel.Tests
             mockProvider3.Verify(p => p.IsSupportedType(typeof(int)), Times.Once());
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeObjectWithProviders_Refreshes()
         {
             var instance = new object();
@@ -635,7 +672,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeObjectWithoutProviders_Refreshes()
         {
             var instance = new object();
@@ -660,7 +697,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeType_RemovesProvider()
         {
             Type type = typeof(RemoveProvider_InvokeType_RemovesProviderType);
@@ -717,7 +754,7 @@ namespace System.ComponentModel.Tests
 
         private class RemoveProvider_InvokeType_RemovesProviderType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeTypeWithProviders_Refreshes()
         {
             Type type = typeof(RemoveProvider_InvokeObjectWithProviders_RefreshesType);
@@ -756,7 +793,7 @@ namespace System.ComponentModel.Tests
 
         private class RemoveProvider_InvokeObjectWithProviders_RefreshesType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_InvokeTypeWithoutProviders_Refreshes()
         {
             Type type = typeof(RemoveProvider_InvokeTypeWithoutProviders_RefreshesType);
@@ -790,14 +827,14 @@ namespace System.ComponentModel.Tests
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.RemoveProvider(null, typeof(int)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_NullInstance_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             Assert.Throws<ArgumentNullException>("instance", () => TypeDescriptor.RemoveProvider(mockProvider.Object, (object)null));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProvider_NullType_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -805,7 +842,7 @@ namespace System.ComponentModel.Tests
         }
 
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeObject_RemovesProvider()
         {
             var instance = new object();
@@ -817,6 +854,10 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
                 .Verifiable();
+            mockProvider1
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
             var mockProvider2 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider2
                 .Setup(p => p.GetCache(instance))
@@ -825,6 +866,10 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
                 .Verifiable();
+            mockProvider2
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
+                .Verifiable();
             var mockProvider3 = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider3
                 .Setup(p => p.GetCache(instance))
@@ -832,6 +877,10 @@ namespace System.ComponentModel.Tests
             mockProvider3
                 .Setup(p => p.IsSupportedType(typeof(int)))
                 .Returns(true)
+                .Verifiable();
+            mockProvider3
+                .Setup(p => p.RequireRegisteredTypes)
+                .Returns(false)
                 .Verifiable();
 
             TypeDescriptor.AddProvider(mockProvider1.Object, instance);
@@ -860,7 +909,7 @@ namespace System.ComponentModel.Tests
             mockProvider3.Verify(p => p.IsSupportedType(typeof(int)), Times.Once());
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeObjectWithProviders_Refreshes()
         {
             var instance = new object();
@@ -897,7 +946,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeObjectWithoutProviders_Refreshes()
         {
             var instance = new object();
@@ -922,7 +971,7 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeType_RemovesProvider()
         {
             Type type = typeof(RemoveProviderTransparent_InvokeType_RemovesProviderType);
@@ -979,7 +1028,7 @@ namespace System.ComponentModel.Tests
 
         private class RemoveProviderTransparent_InvokeType_RemovesProviderType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeTypeWithProviders_Refreshes()
         {
             Type type = typeof(RemoveProviderTransparent_InvokeObjectWithProviders_RefreshesType);
@@ -1018,7 +1067,7 @@ namespace System.ComponentModel.Tests
 
         private class RemoveProviderTransparent_InvokeObjectWithProviders_RefreshesType { }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_InvokeTypeWithoutProviders_Refreshes()
         {
             Type type = typeof(RemoveProviderTransparent_InvokeTypeWithoutProviders_RefreshesType);
@@ -1052,14 +1101,14 @@ namespace System.ComponentModel.Tests
             Assert.Throws<ArgumentNullException>("provider", () => TypeDescriptor.RemoveProviderTransparent(null, typeof(int)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_NullInstance_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             Assert.Throws<ArgumentNullException>("instance", () => TypeDescriptor.RemoveProviderTransparent(mockProvider.Object, (object)null));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void RemoveProviderTransparent_NullType_ThrowsArgumentNullException()
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -1106,7 +1155,7 @@ namespace System.ComponentModel.Tests
             Assert.NotEqual(firstAssociatedObject, firstAssociation);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotMonoAOT))] // Mock will try to JIT 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))] // Mock will try to JIT
         public void SortDescriptorArray_Invoke_ReturnsExpected()
         {
             var notADescriptor1 = new object();
@@ -1224,6 +1273,254 @@ namespace System.ComponentModel.Tests
         }
 
         class TwiceDerivedCultureInfo : DerivedCultureInfo
+        {
+        }
+
+        private volatile bool _concurrentError;
+        private bool ConcurrentError
+        {
+            get => _concurrentError;
+            set => Interlocked.Exchange(ref _concurrentError, value);
+        }
+
+        private void ConcurrentTest(TypeWithProperty instance)
+        {
+            var properties = TypeDescriptor.GetProperties(instance);
+            Thread.Sleep(10);
+            if (properties.Count > 0)
+            {
+                ConcurrentError = true;
+            }
+        }
+
+        [SkipOnPlatform(TestPlatforms.Browser, "Thread.Start is not supported on browsers.")]
+        [Fact]
+        public void ConcurrentGetProperties_ReturnsExpected()
+        {
+            const int Timeout = 60000;
+            int concurrentCount = Environment.ProcessorCount * 2;
+
+            using var finished = new CountdownEvent(concurrentCount);
+
+            var instances = new TypeWithProperty[concurrentCount];
+            for (int i = 0; i < concurrentCount; i++)
+            {
+                instances[i] = new TypeWithProperty();
+            }
+
+            for (int i = 0; i < concurrentCount; i++)
+            {
+                int i2 = i;
+                new Thread(() =>
+                {
+                    ConcurrentTest(instances[i2]);
+                    finished.Signal();
+                }).Start();
+            }
+
+            finished.Wait(Timeout);
+
+            if (finished.CurrentCount != 0)
+            {
+                Assert.Fail("Timeout. Possible deadlock.");
+            }
+            else
+            {
+                Assert.False(ConcurrentError, "Fallback type descriptor is used. Possible race condition.");
+            }
+        }
+
+        [SkipOnPlatform(TestPlatforms.Browser, "Thread.Start is not supported on browsers.")]
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public static void ConcurrentAddProviderAndGetProvider()
+        {
+            // Use a timeout value lower than RemoteExecutor in order to get a nice Fail message.
+            const int Timeout = 50000;
+
+            RemoteInvokeOptions options = new()
+            {
+                TimeOut = 60000
+            };
+
+            RemoteExecutor.Invoke(() =>
+            {
+                using var finished = new CountdownEvent(2);
+
+                Thread t1 = new Thread(() =>
+                {
+                    ConcurrentAddProvider();
+                    finished.Signal();
+                });
+
+                Thread t2 = new Thread(() =>
+                {
+                    ConcurrentGetProvider();
+                    finished.Signal();
+                });
+
+                t1.Start();
+                t2.Start();
+                finished.Wait(Timeout);
+
+                if (finished.CurrentCount != 0)
+                {
+                    Assert.Fail("Timeout. Possible deadlock.");
+                }
+            }, options).Dispose();
+
+            static void ConcurrentAddProvider()
+            {
+                var provider = new EmptyPropertiesTypeProvider();
+                TypeDescriptor.AddProvider(provider, typeof(MyClass));
+
+                // This test primarily verifies no deadlock, but verify the values anyway.
+                Assert.True(TypeDescriptor.GetProvider(typeof(MyClass)).IsSupportedType(typeof(MyClass)));
+            }
+
+            static void ConcurrentGetProvider()
+            {
+                TypeDescriptionProvider provider = TypeDescriptor.GetProvider(typeof(TypeWithProperty));
+
+                // This test primarily verifies no deadlock, but verify the values anyway.
+                Assert.True(provider.IsSupportedType(typeof(TypeWithProperty)));
+            }
+        }
+
+        public sealed class EmptyPropertiesTypeProvider : TypeDescriptionProvider
+        {
+            private sealed class EmptyPropertyListDescriptor : ICustomTypeDescriptor
+            {
+                public AttributeCollection GetAttributes() => AttributeCollection.Empty;
+
+                public string? GetClassName() => null;
+
+                public string? GetComponentName() => null;
+
+                public TypeConverter? GetConverter() => new TypeConverter();
+
+                public EventDescriptor? GetDefaultEvent() => null;
+
+                public PropertyDescriptor? GetDefaultProperty() => null;
+
+                public object? GetEditor(Type editorBaseType) => null;
+
+                public EventDescriptorCollection GetEvents() => EventDescriptorCollection.Empty;
+
+                public EventDescriptorCollection GetEvents(Attribute[]? attributes) => GetEvents();
+
+                public PropertyDescriptorCollection GetProperties() => PropertyDescriptorCollection.Empty;
+
+                public PropertyDescriptorCollection GetProperties(Attribute[]? attributes) => GetProperties();
+
+                public object? GetPropertyOwner(PropertyDescriptor? pd) => null;
+            }
+            public override ICustomTypeDescriptor GetTypeDescriptor(Type objectType, object? instance)
+            {
+                return new EmptyPropertyListDescriptor();
+            }
+        }
+
+        [TypeDescriptionProvider(typeof(EmptyPropertiesTypeProvider))]
+        public sealed class TypeWithProperty
+        {
+            public int OneProperty { get; set; }
+        }
+
+        public static IEnumerable<object[]> GetConverter_ByMultithread_ReturnsExpected_TestData()
+        {
+            yield return new object[] { typeof(MyClass), typeof(MyTypeConverter) };
+            yield return new object[] { typeof(MyInheritedClassWithCustomTypeDescriptionProvider), typeof(MyInheritedClassWithCustomTypeDescriptionProviderConverter) };
+            yield return new object[] { typeof(MyInheritedClassWithInheritedTypeDescriptionProvider), typeof(MyTypeConverter) };
+        }
+
+        [Theory]
+        [MemberData(nameof(GetConverter_ByMultithread_ReturnsExpected_TestData))]
+        public async Task GetConverter_ByMultithread_ReturnsExpected(Type typeForGetConverter, Type expectedConverterType)
+        {
+            TypeConverter[] actualConverters = await Task.WhenAll(
+                Enumerable.Range(0, 100).Select(_ =>
+                    Task.Run(() => TypeDescriptor.GetConverter(typeForGetConverter))));
+
+            Assert.All(actualConverters,
+                currentConverter => Assert.IsType(expectedConverterType, currentConverter));
+        }
+
+        public static IEnumerable<object[]> GetConverterWithAddProvider_ByMultithread_Success_TestData()
+        {
+            foreach (object[] currentTestCase in GetConverter_ByMultithread_ReturnsExpected_TestData())
+            {
+                yield return currentTestCase;
+            }
+        }
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]  // Mock will try to JIT
+        [MemberData(nameof(GetConverterWithAddProvider_ByMultithread_Success_TestData))]
+        public async Task GetConverterWithAddProvider_ByMultithread_Success(Type typeForGetConverter, Type expectedConverterType)
+        {
+            TypeConverter[] actualConverters = await Task.WhenAll(
+                Enumerable.Range(0, 200).Select(_ =>
+                    Task.Run(() =>
+                    {
+                        var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
+                        var someInstance = new object();
+                        TypeDescriptor.AddProvider(mockProvider.Object, someInstance);
+                        return TypeDescriptor.GetConverter(typeForGetConverter);
+                    })));
+            Assert.All(actualConverters,
+                currentConverter => Assert.IsType(expectedConverterType, currentConverter));
+        }
+
+        [TypeDescriptionProvider(typeof(MyClassTypeDescriptionProvider))]
+        public class MyClass
+        {
+        }
+
+        [TypeDescriptionProvider(typeof(MyInheritedClassWithCustomTypeDescriptionProviderTypeDescriptionProvider))]
+        public class MyInheritedClassWithCustomTypeDescriptionProvider : MyClass
+        {
+        }
+
+        public class MyInheritedClassWithInheritedTypeDescriptionProvider : MyClass
+        {
+        }
+
+        public class MyClassTypeDescriptionProvider : TypeDescriptionProvider
+        {
+            public override ICustomTypeDescriptor GetTypeDescriptor(Type objectType, object instance)
+            {
+                return new MyClassTypeDescriptor();
+            }
+        }
+
+        public class MyInheritedClassWithCustomTypeDescriptionProviderTypeDescriptionProvider : TypeDescriptionProvider
+        {
+            public override ICustomTypeDescriptor GetTypeDescriptor(Type objectType, object instance)
+            {
+                return new MyInheritedClassWithCustomTypeDescriptionProviderTypeDescriptor();
+            }
+        }
+
+        public class MyClassTypeDescriptor : CustomTypeDescriptor
+        {
+            public override TypeConverter GetConverter()
+            {
+                return new MyTypeConverter();
+            }
+        }
+
+        public class MyInheritedClassWithCustomTypeDescriptionProviderTypeDescriptor : CustomTypeDescriptor
+        {
+            public override TypeConverter GetConverter()
+            {
+                return new MyInheritedClassWithCustomTypeDescriptionProviderConverter();
+            }
+        }
+
+        public class MyTypeConverter : TypeConverter
+        {
+        }
+
+        public class MyInheritedClassWithCustomTypeDescriptionProviderConverter : TypeConverter
         {
         }
     }

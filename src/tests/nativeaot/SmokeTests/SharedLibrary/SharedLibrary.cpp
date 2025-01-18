@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
     if (checkSimpleExceptionHandling() != 100)
         return 5;
 
-    // CoreRT is not designed to be unloadable, so this won't actually unload the library properly. Verify that attempt
+    // NativeAOT is not designed to be unloadable, so this won't actually unload the library properly. Verify that attempt
     // to unload the library does not to crash at least.
 #ifdef TARGET_WINDOWS
     FreeLibrary(handle);
@@ -81,4 +81,11 @@ int main(int argc, char* argv[])
 #endif
 
     return 100;
+}
+
+extern "C" const char* __stdcall __asan_default_options()
+{
+    // NativeAOT is not designed to be unloadable, so we'll leak a few allocations from the shared library.
+    // Disable leak detection as we don't care about these leaks as of now.
+    return "detect_leaks=0 use_sigaltstack=0";
 }

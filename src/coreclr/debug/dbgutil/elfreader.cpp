@@ -9,12 +9,24 @@
 #include <inttypes.h>
 #include "elfreader.h"
 
+#ifndef Elf_Ehdr
 #define Elf_Ehdr   ElfW(Ehdr)
+#endif
+#ifndef Elf_Phdr
 #define Elf_Phdr   ElfW(Phdr)
+#endif
+#ifndef Elf_Shdr
 #define Elf_Shdr   ElfW(Shdr)
+#endif
+#ifndef Elf_Nhdr
 #define Elf_Nhdr   ElfW(Nhdr)
+#endif
+#ifndef Elf_Dyn
 #define Elf_Dyn    ElfW(Dyn)
+#endif
+#ifndef Elf_Sym
 #define Elf_Sym    ElfW(Sym)
+#endif
 
 #if TARGET_64BIT
 #define PRIx PRIx64
@@ -103,7 +115,7 @@ ElfReader::~ElfReader()
 
 //
 // Initialize the ELF reader from a module the base address. This function
-// caches the info neccessary in the ElfReader class look up symbols.
+// caches the info necessary in the ElfReader class look up symbols.
 //
 bool
 ElfReader::PopulateForSymbolLookup(uint64_t baseAddress)
@@ -115,11 +127,12 @@ ElfReader::PopulateForSymbolLookup(uint64_t baseAddress)
     // Enumerate program headers searching for the PT_DYNAMIC header, etc.
     if (!EnumerateProgramHeaders(
         baseAddress,
-#ifdef TARGET_ALPINE_LINUX
-        // On Alpine, the below dynamic entries for hash, string table, etc. are
-        // RVAs instead of absolute address like on all other Linux distros. Get
-        // the "loadbias" (basically the base address of the module) and add to
-        // these RVAs.
+#if defined(TARGET_LINUX_MUSL) || defined(TARGET_RISCV64)
+        // On musl based platforms (Alpine) and RISCV64 (VisionFive2 board),
+        // the below dynamic entries for hash,
+        // string table, etc. are RVAs instead of absolute address like on all
+        // other Linux distros. Get the "loadbias" (basically the base address
+        // of the module) and add to these RVAs.
         &loadbias,
 #else
         nullptr,
@@ -313,7 +326,7 @@ ElfReader::GetStringAtIndex(int index, std::string& result)
     return true;
 }
 
-#ifdef HOST_UNIX
+#if defined(HOST_UNIX) && !defined(TARGET_HAIKU)
 
 //
 // Enumerate all the ELF info starting from the root program header. This
@@ -387,10 +400,9 @@ ElfReader::EnumerateLinkMapEntries(Elf_Dyn* dynamicAddr)
         }
         // Read the module's name and make sure the memory is added to the core dump
         std::string moduleName;
-        int i = 0;
-        if (map.l_name != nullptr)
+        if (map.l_name != 0)
         {
-            for (; i < PATH_MAX; i++)
+            for (int i = 0; i < PATH_MAX; i++)
             {
                 char ch;
                 if (!ReadMemory(map.l_name + i, &ch, sizeof(ch))) {
@@ -403,7 +415,7 @@ ElfReader::EnumerateLinkMapEntries(Elf_Dyn* dynamicAddr)
                 moduleName.append(1, ch);
             }
         }
-        Trace("\nDSO: link_map entry %p l_ld %p l_addr (Ehdr) %" PRIx " %s\n", linkMapAddr, map.l_ld, map.l_addr, moduleName.c_str());
+        Trace("\nDSO: link_map entry %p l_ld %p l_addr (Ehdr) %p l_name %p %s\n", linkMapAddr, map.l_ld, map.l_addr, map.l_name, moduleName.c_str());
 
         // Call the derived class for each module
         VisitModule(map.l_addr, moduleName);
@@ -414,7 +426,7 @@ ElfReader::EnumerateLinkMapEntries(Elf_Dyn* dynamicAddr)
     return true;
 }
 
-#endif // HOST_UNIX
+#endif // defined(HOST_UNIX) && !defined(TARGET_HAIKU)
 
 bool
 ElfReader::EnumerateProgramHeaders(uint64_t baseAddress, uint64_t* ploadbias, Elf_Dyn** pdynamicAddr)
@@ -555,6 +567,8 @@ Elf64_Ehdr::Elf64_Ehdr()
     e_machine = EM_X86_64;
 #elif defined(TARGET_ARM64)
     e_machine = EM_AARCH64;
+#elif defined(TARGET_LOONGARCH64)
+    e_machine = EM_LOONGARCH;
 #endif
     e_flags = 0;
     e_version = 1;

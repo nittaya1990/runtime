@@ -53,16 +53,17 @@ lower_load (MonoCompile *cfg, MonoInst *load, MonoInst *ldaddr)
 	}
 
 	if (replaced_op != load->opcode) {
-		if (cfg->verbose_level > 2)
-			printf ("Incompatible load type: expected %s but got %s\n",
+		if (cfg->verbose_level > 2) {
+			printf ("Incompatible load type: expected " M_PRI_INST " but got " M_PRI_INST "\n",
 				mono_inst_name (replaced_op),
 				mono_inst_name (load->opcode));
+		}
 		return FALSE;
 	} else {
 		if (cfg->verbose_level > 2) { printf ("mem2reg replacing: "); mono_print_ins (load); }
 	}
 
-	load->opcode = mono_type_to_regmove (cfg, type);
+	load->opcode = GUINT_TO_OPCODE (mono_type_to_regmove (cfg, type));
 	mini_type_to_eval_stack_type (cfg, type, load);
 	load->sreg1 = var->dreg;
 	mono_atomic_inc_i32 (&mono_jit_stats.loads_eliminated);
@@ -84,10 +85,11 @@ lower_store (MonoCompile *cfg, MonoInst *store, MonoInst *ldaddr)
 
 
 	if (replaced_op != store->opcode) {
-		if (cfg->verbose_level > 2)
-			printf ("Incompatible store_reg type: expected %s but got %s\n",
+		if (cfg->verbose_level > 2) {
+			printf ("Incompatible store_reg type: expected " M_PRI_INST " but got " M_PRI_INST "\n",
 				mono_inst_name (replaced_op),
 				mono_inst_name (store->opcode));
+		}
 		return FALSE;
 	} else {
 		if (cfg->verbose_level > 2) { printf ("mem2reg replacing: "); mono_print_ins (store); }
@@ -95,9 +97,9 @@ lower_store (MonoCompile *cfg, MonoInst *store, MonoInst *ldaddr)
 
 	int coerce_op = mono_type_to_stloc_coerce (type);
 	if (coerce_op)
-		store->opcode = coerce_op;
+		store->opcode = GINT_TO_OPCODE (coerce_op);
 	else
-		store->opcode = mono_type_to_regmove (cfg, type);
+		store->opcode = GUINT_TO_OPCODE (mono_type_to_regmove (cfg, type));
 	mini_type_to_eval_stack_type (cfg, type, store);
 	store->dreg = var->dreg;
 	mono_atomic_inc_i32 (&mono_jit_stats.stores_eliminated);
@@ -321,14 +323,11 @@ handle_instruction:
 static gboolean
 recompute_aliased_variables (MonoCompile *cfg, int *restored_vars)
 {
-	int i;
-	MonoBasicBlock *bb;
-	MonoInst *ins;
 	int kills = 0;
 	int adds = 0;
 	*restored_vars = 0;
 
-	for (i = 0; i < cfg->num_varinfo; i++) {
+	for (guint i = 0; i < cfg->num_varinfo; i++) {
 		MonoInst *var = cfg->varinfo [i];
 		if (var->flags & MONO_INST_INDIRECT) {
 			if (cfg->verbose_level > 2) {
@@ -342,8 +341,8 @@ recompute_aliased_variables (MonoCompile *cfg, int *restored_vars)
 	if (!kills)
 		return FALSE;
 
-	for (bb = cfg->bb_entry; bb; bb = bb->next_bb) {
-		for (ins = bb->code; ins; ins = ins->next) {
+	for (MonoBasicBlock *bb = cfg->bb_entry; bb; bb = bb->next_bb) {
+		for (MonoInst *ins = bb->code; ins; ins = ins->next) {
 			if (ins->opcode == OP_LDADDR) {
 				MonoInst *var;
 

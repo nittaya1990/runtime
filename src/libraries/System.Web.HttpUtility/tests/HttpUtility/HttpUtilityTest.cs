@@ -284,6 +284,20 @@ namespace System.Web.Tests
             });
         }
 
+        [Fact]
+        public void HtmlEncode_IHtmlString_UseToHtmlString()
+        {
+            Assert.Equal(string.Empty, HttpUtility.HtmlEncode(new ActionHtmlString(() => null)));
+            Assert.Equal(string.Empty, HttpUtility.HtmlEncode(new ActionHtmlString(() => string.Empty)));
+            Assert.Equal("<", HttpUtility.HtmlEncode(new ActionHtmlString(() => "<")));
+            Assert.Throws<FormatException>(() => HttpUtility.HtmlEncode(new ActionHtmlString(() => throw new FormatException())));
+        }
+
+        private sealed class ActionHtmlString(Func<string> toHtmlString) : IHtmlString
+        {
+            public string ToHtmlString() => toHtmlString();
+        }
+
         #endregion HtmlEncode
 
         #region JavaScriptStringEncode
@@ -296,6 +310,7 @@ namespace System.Web.Tests
                 yield return new object[] { "", "" };
                 yield return new object[] {"No escaping needed.", "No escaping needed."};
                 yield return new object[] {"The \t and \n will need to be escaped.", "The \\t and \\n will need to be escaped."};
+                yield return new object[] {"The \t and \n will need to be escaped.>", "The \\t and \\n will need to be escaped.\\u003e" };
                 for (char c = char.MinValue; c < TestMaxChar; c++)
                 {
                     if (c >= 0 && c <= 7 || c == 11 || c >= 14 && c <= 31 || c == 38 || c == 39 || c == 60 || c == 62 || c == 133 || c == 8232 || c == 8233)
@@ -443,6 +458,16 @@ namespace System.Web.Tests
             Assert.Equal(expected, HttpUtility.ParseQueryString(expected).ToString());
         }
 
+
+        [Fact]
+        public void ParseQueryString_nullValue_ToString()
+        {
+            var nameValueCollection = System.Web.HttpUtility.ParseQueryString(string.Empty);
+            nameValueCollection.Add("baz", null);
+            var s = nameValueCollection.ToString();
+            Assert.Equal(string.Empty, s);
+        }
+
         #endregion ParseQueryString
 
         #region UrlDecode(ToBytes)
@@ -563,7 +588,7 @@ namespace System.Web.Tests
 
         static bool IsUrlSafeChar(char c)
         {
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            if (char.IsAsciiLetterOrDigit(c))
             {
                 return true;
             }
@@ -751,9 +776,11 @@ namespace System.Web.Tests
         [InlineData("http://eXample.net:80/default.xxx?sdsd=sds", "http://eXample.net:80/default.xxx?sdsd=sds")]
         [InlineData("http://EXAMPLE.NET/default.xxx?sdsd=sds", "http://EXAMPLE.NET/default.xxx?sdsd=sds")]
         [InlineData("http://EXAMPLE.NET/d\u00E9fault.xxx?sdsd=sds", "http://EXAMPLE.NET/d%c3%a9fault.xxx?sdsd=sds")]
+        [InlineData("http://EXAMPLE.NET/d fault.xxx?sdsd=sds", "http://EXAMPLE.NET/d%20fault.xxx?sdsd=sds")]
         [InlineData("file:///C/Users", "file:///C/Users")]
         [InlineData("mailto:user@example.net", "mailto:user@example.net")]
         [InlineData("http://example\u200E.net/", "http://example%e2%80%8e.net/")]
+        [InlineData("http://ex ample\u200E.net/", "http://ex%20ample%e2%80%8e.net/")]
         public void UrlPathEncode(string decoded, string encoded)
         {
             Assert.Equal(encoded, HttpUtility.UrlPathEncode(decoded));
@@ -768,6 +795,7 @@ namespace System.Web.Tests
         [InlineData("foo&bar")]
         [InlineData("foo&name=bar")]
         [InlineData("name=bar&foo&foo")]
+        [InlineData("_return_fields%2b=extattrs&name%3a=somename.somedomain.local")]
         public void ParseAndToStringMaintainAllKeyValuePairs(string input)
         {
             var values = HttpUtility.ParseQueryString(input);

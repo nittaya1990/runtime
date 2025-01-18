@@ -77,7 +77,7 @@ namespace System.Data.Common
         string? ICustomTypeDescriptor.GetComponentName() => null;
 
         [RequiresUnreferencedCode("Generic TypeConverters may require the generic types to be annotated. For example, NullableConverter requires the underlying type to be DynamicallyAccessedMembers All.")]
-        TypeConverter ICustomTypeDescriptor.GetConverter() => null!;
+        TypeConverter? ICustomTypeDescriptor.GetConverter() => null;
 
         [RequiresUnreferencedCode("The built-in EventDescriptor implementation uses Reflection which requires unreferenced code.")]
         EventDescriptor? ICustomTypeDescriptor.GetDefaultEvent() => null;
@@ -85,7 +85,7 @@ namespace System.Data.Common
         [RequiresUnreferencedCode("PropertyDescriptor's PropertyType cannot be statically discovered.")]
         PropertyDescriptor? ICustomTypeDescriptor.GetDefaultProperty() => null;
 
-        [RequiresUnreferencedCode("Editors registered in TypeDescriptor.AddEditorTable may be trimmed.")]
+        [RequiresUnreferencedCode("Design-time attributes are not preserved when trimming. Types referenced by attributes like EditorAttribute and DesignerAttribute may not be available after trimming.")]
         object? ICustomTypeDescriptor.GetEditor(Type editorBaseType) => null;
 
         EventDescriptorCollection ICustomTypeDescriptor.GetEvents() => new EventDescriptorCollection(null);

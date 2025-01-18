@@ -38,6 +38,11 @@ void* SystemNative_LoadLibrary(const char* filename)
     return dlopen(filename, RTLD_LAZY);
 }
 
+void* SystemNative_GetLoadLibraryError(void)
+{
+    return dlerror();
+}
+
 void* SystemNative_GetProcAddress(void* handle, const char* symbol)
 {
     // We're not trying to disambiguate between "symbol was not found" and "symbol found, but
@@ -51,12 +56,6 @@ void SystemNative_FreeLibrary(void* handle)
     dlclose(handle);
 }
 
-#ifdef TARGET_ANDROID
-void* SystemNative_GetDefaultSearchOrderPseudoHandle(void)
-{
-    return (void*)RTLD_DEFAULT;
-}
-#else
 static void* volatile g_defaultSearchOrderPseudoHandle = NULL;
 void* SystemNative_GetDefaultSearchOrderPseudoHandle(void)
 {
@@ -64,11 +63,16 @@ void* SystemNative_GetDefaultSearchOrderPseudoHandle(void)
     void* defaultSearchOrderPseudoHandle = (void*)g_defaultSearchOrderPseudoHandle;
     if (defaultSearchOrderPseudoHandle == NULL)
     {
+#ifdef TARGET_ANDROID
+        int flag = RTLD_NOW;
+#else
+        int flag = RTLD_LAZY;
+#endif
+
         // Assign back to the static as well as the local here.
         // We don't need to check for a race between two threads as the value returned by
         // dlopen here will always be the same in a given environment.
-        g_defaultSearchOrderPseudoHandle = defaultSearchOrderPseudoHandle = dlopen(NULL, RTLD_LAZY);
+        g_defaultSearchOrderPseudoHandle = defaultSearchOrderPseudoHandle = dlopen(NULL, flag);
     }
     return defaultSearchOrderPseudoHandle;
 }
-#endif

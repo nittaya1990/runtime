@@ -14,6 +14,7 @@ using System.Runtime.Versioning;
 namespace System.Runtime.InteropServices
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
+    [RequiresUnreferencedCode("Built-in COM support is not trim compatible", Url = "https://aka.ms/dotnet-illink/com")]
     public class ComAwareEventInfo : EventInfo
     {
         private readonly EventInfo _innerEventInfo;
@@ -106,14 +107,15 @@ namespace System.Runtime.InteropServices
                 throw new InvalidOperationException(SR.InvalidOperation_NoComEventInterfaceAttribute);
             }
 
+            ComEventInterfaceAttribute interfaceAttribute = (ComEventInterfaceAttribute)comEventInterfaces[0];
+
             if (comEventInterfaces.Length > 1)
             {
-                throw new AmbiguousMatchException(SR.AmbiguousMatch_MultipleEventInterfaceAttributes);
+                throw new AmbiguousMatchException(SR.Format(SR.AmbiguousMatch_MultipleEventInterfaceAttributes, interfaceAttribute));
             }
 
-            Type sourceInterface = ((ComEventInterfaceAttribute)comEventInterfaces[0]).SourceInterface;
+            Type sourceInterface = interfaceAttribute.SourceInterface;
             Guid guid = sourceInterface.GUID;
-
             MethodInfo methodInfo = sourceInterface.GetMethod(eventInfo.Name)!;
             Attribute? dispIdAttribute = Attribute.GetCustomAttribute(methodInfo, typeof(DispIdAttribute));
             if (dispIdAttribute == null)

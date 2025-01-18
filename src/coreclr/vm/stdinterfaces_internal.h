@@ -55,7 +55,7 @@ HRESULT __stdcall ErrorInfo_GetSource(IUnknown* pUnk, BSTR* pbstrSource);
 
 
 //------------------------------------------------------------------------------------------
-//      IDispatch methods for COM+ objects. These methods dispatch to the appropriate
+//      IDispatch methods for CLR objects. These methods dispatch to the appropriate
 //      implementation based on the flags of the class that implements them.
 
 
@@ -93,36 +93,8 @@ HRESULT __stdcall   Dispatch_Invoke (
                                     EXCEPINFO *pexcepinfo,
                                     unsigned int *puArgErr);
 
-
 //------------------------------------------------------------------------------------------
-//      IDispatch methods for COM+ objects that use our OleAut's implementation.
-
-
-// IDispatch::GetIDsofNames
-HRESULT __stdcall   OleAutDispatchImpl_GetIDsOfNames (
-                                    IDispatch* pDisp,
-                                    REFIID riid,
-                                    _In_reads_(cNames) OLECHAR **rgszNames,
-                                    unsigned int cNames,
-                                    LCID lcid,
-                                    DISPID *rgdispid);
-
-// IDispatch::Invoke
-HRESULT __stdcall   OleAutDispatchImpl_Invoke (
-                                    IDispatch* pDisp,
-                                    DISPID dispidMember,
-                                    REFIID riid,
-                                    LCID lcid,
-                                    unsigned short wFlags,
-                                    DISPPARAMS *pdispparams,
-                                    VARIANT *pvarResult,
-                                    EXCEPINFO *pexcepinfo,
-                                    unsigned int *puArgErr);
-
-
-
-//------------------------------------------------------------------------------------------
-//      IDispatch methods for COM+ objects that use our internal implementation.
+//      IDispatch methods for CLR objects that use our internal implementation.
 
 
 // IDispatch::GetIDsofNames
@@ -148,7 +120,7 @@ HRESULT __stdcall   InternalDispatchImpl_Invoke (
 
 
 //------------------------------------------------------------------------------------------
-//      IDispatchEx methods for COM+ objects
+//      IDispatchEx methods for CLR objects
 
 
 // IDispatchEx::GetTypeInfoCount
@@ -240,7 +212,7 @@ HRESULT __stdcall   DispatchEx_InvokeEx (
                                     IServiceProvider *pspCaller);
 
 //------------------------------------------------------------------------------------------
-//      IMarshal methods for COM+ objects
+//      IMarshal methods for CLR objects
 
 HRESULT __stdcall Marshal_GetUnmarshalClass (
                                     IMarshal* pMarsh,
@@ -271,7 +243,7 @@ HRESULT __stdcall Marshal_DisconnectObject (IMarshal* pMarsh, ULONG dwReserved);
 
 
 //------------------------------------------------------------------------------------------
-//      IConnectionPointContainer methods for COM+ objects
+//      IConnectionPointContainer methods for CLR objects
 
 interface IEnumConnectionPoints;
 
@@ -283,7 +255,7 @@ HRESULT __stdcall ConnectionPointContainer_FindConnectionPoint(IUnknown* pUnk,
                                     IConnectionPoint **ppCP);
 
 //------------------------------------------------------------------------------------------
-//      IObjectSafety methods for COM+ objects
+//      IObjectSafety methods for CLR objects
 
 interface IObjectSafety;
 

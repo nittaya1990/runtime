@@ -3,6 +3,9 @@
 //
 
 using System;
+using Xunit;
+
+namespace JIT.Methodical.MDArray.DataTypes.@long;
 
 public struct VT
 {
@@ -41,7 +44,9 @@ public class longMDArrTest
     static long[][,] ja1_c = new long[2][,];
     static long[][, ,] ja2_c = new long[2][, ,];
 
-    public static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
 
         bool pass = true;

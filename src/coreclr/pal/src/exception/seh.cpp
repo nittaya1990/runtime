@@ -25,7 +25,6 @@ Abstract:
 #include "pal/debug.h"
 #include "pal/init.h"
 #include "pal/process.h"
-#include "pal/malloc.hpp"
 #include "pal/signal.hpp"
 #include "pal/virtual.h"
 
@@ -61,6 +60,7 @@ PGET_GCMARKER_EXCEPTION_CODE g_getGcMarkerExceptionCode = NULL;
 // Return address of the SEHProcessException, which is used to enable walking over
 // the signal handler trampoline on some Unixes where the libunwind cannot do that.
 void* g_SEHProcessExceptionReturnAddress = NULL;
+void* g_InvokeActivationHandlerReturnAddress = NULL;
 
 /* Internal function definitions **********************************************/
 
@@ -108,7 +108,7 @@ SEHCleanup()
 {
     TRACE("Cleaning up SEH\n");
 
-    SEHCleanupSignals();
+    SEHCleanupSignals(false /* isChildProcess */);
 }
 
 /*++
@@ -277,6 +277,7 @@ SEHProcessException(PAL_SEHException* exception)
         if (CatchHardwareExceptionHolder::IsEnabled())
         {
             EnsureExceptionRecordsOnHeap(exception);
+            exception->IsExternal = true;
             PAL_ThrowExceptionFromContext(exception->GetContextRecord(), exception);
         }
     }
@@ -303,7 +304,7 @@ PAL_ERROR SEHEnable(CPalThread *pthrCurrent)
 {
 #if HAVE_MACH_EXCEPTIONS
     return pthrCurrent->EnableMachExceptions();
-#elif defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun)
+#elif defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun) || defined(__HAIKU__)
     return NO_ERROR;
 #else// HAVE_MACH_EXCEPTIONS
 #error not yet implemented
@@ -328,7 +329,7 @@ PAL_ERROR SEHDisable(CPalThread *pthrCurrent)
 {
 #if HAVE_MACH_EXCEPTIONS
     return pthrCurrent->DisableMachExceptions();
-#elif defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun)
+#elif defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__sun) || defined(__HAIKU__)
     return NO_ERROR;
 #else // HAVE_MACH_EXCEPTIONS
 #error not yet implemented

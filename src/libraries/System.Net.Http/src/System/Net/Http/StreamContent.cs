@@ -17,18 +17,18 @@ namespace System.Net.Http
         private bool _contentConsumed;
         private long _start;
 
-        public StreamContent(Stream content!!)
+        public StreamContent(Stream content)
         {
+            ArgumentNullException.ThrowIfNull(content);
+
             // Indicate that we should use default buffer size by setting size to 0.
             InitializeContent(content, 0);
         }
 
-        public StreamContent(Stream content!!, int bufferSize)
+        public StreamContent(Stream content, int bufferSize)
         {
-            if (bufferSize <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(bufferSize));
-            }
+            ArgumentNullException.ThrowIfNull(content);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize);
 
             InitializeContent(content, bufferSize);
         }
@@ -97,11 +97,15 @@ namespace System.Net.Http
             base.Dispose(disposing);
         }
 
-        protected override Stream CreateContentReadStream(CancellationToken cancellationToken) =>
-            new ReadOnlyStream(_content);
+        protected override Stream CreateContentReadStream(CancellationToken cancellationToken)
+        {
+            SeekToStartIfSeekable();
+            return new ReadOnlyStream(_content);
+        }
 
         protected override Task<Stream> CreateContentReadStreamAsync()
         {
+            SeekToStartIfSeekable();
             // Wrap the stream with a read-only stream to prevent someone from writing to the stream.
             return Task.FromResult<Stream>(new ReadOnlyStream(_content));
         }
@@ -132,62 +136,54 @@ namespace System.Net.Http
             _contentConsumed = true;
         }
 
+        private void SeekToStartIfSeekable()
+        {
+            if (_content.CanSeek)
+            {
+                _content.Position = _start;
+            }
+        }
+
         private sealed class ReadOnlyStream : DelegatingStream
         {
-            public override bool CanWrite
+            public ReadOnlyStream(Stream innerStream) : base(innerStream)
             {
-                get { return false; }
             }
+
+            public override bool CanWrite => false;
+
+            public override void Flush() { }
+
+            public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override void EndWrite(IAsyncResult asyncResult) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override void Write(ReadOnlySpan<byte> buffer) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override void WriteByte(byte value) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException(SR.net_http_content_readonly_stream);
 
             public override int WriteTimeout
             {
-                get { throw new NotSupportedException(SR.net_http_content_readonly_stream); }
-                set { throw new NotSupportedException(SR.net_http_content_readonly_stream); }
-            }
-
-            public ReadOnlyStream(Stream innerStream)
-                : base(innerStream)
-            {
-            }
-
-            public override void Flush()
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override Task FlushAsync(CancellationToken cancellationToken)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override void SetLength(long value)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override void Write(byte[] buffer, int offset, int count)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override void Write(ReadOnlySpan<byte> buffer)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override void WriteByte(byte value)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override Task WriteAsync(byte[] buffer, int offset, int count, Threading.CancellationToken cancellationToken)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
-            }
-
-            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-            {
-                throw new NotSupportedException(SR.net_http_content_readonly_stream);
+                get => throw new InvalidOperationException(SR.net_http_content_readonly_stream);
+                set => throw new InvalidOperationException(SR.net_http_content_readonly_stream);
             }
         }
     }

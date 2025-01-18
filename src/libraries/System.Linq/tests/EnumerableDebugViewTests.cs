@@ -14,7 +14,7 @@ namespace System.Linq.Tests
 
     public class EnumerableDebugViewTests
     {
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void NonGenericEnumerableDebugView_ThrowsForNullSource()
         {
             Exception exc = Assert.Throws<TargetInvocationException>(() => CreateSystemCore_EnumerableDebugView(null));
@@ -22,7 +22,7 @@ namespace System.Linq.Tests
             Assert.Equal("enumerable", ane.ParamName);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void NonGenericEnumerableDebugView_ThrowsForEmptySource()
         {
             IEnumerable source = Enumerable.Range(10, 0);
@@ -33,7 +33,7 @@ namespace System.Linq.Tests
             Assert.False(string.IsNullOrEmpty(GetEmptyProperty(exc.InnerException)));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void NonGenericEnumerableDebugView_NonEmptySource()
         {
             IEnumerable source = Enumerable.Range(10, 5).Select(i => (object)i);
@@ -41,7 +41,7 @@ namespace System.Linq.Tests
             Assert.Equal<object>(source.Cast<object>().ToArray(), GetItems<object>(debugView));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void GenericEnumerableDebugView_ThrowsForNullSource()
         {
             Exception exc = Assert.Throws<TargetInvocationException>(() => CreateSystemCore_EnumerableDebugView<int>(null));
@@ -49,7 +49,7 @@ namespace System.Linq.Tests
             Assert.Equal("enumerable", ane.ParamName);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void GenericEnumerableDebugView_ThrowsForEmptySource()
         {
             IEnumerable<int> source = Enumerable.Range(10, 0);
@@ -60,7 +60,7 @@ namespace System.Linq.Tests
             Assert.False(string.IsNullOrEmpty(GetEmptyProperty(exc.InnerException)));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void GenericEnumerableDebugView_NonEmptySource()
         {
             IEnumerable<int> source = Enumerable.Range(10, 5);
@@ -72,7 +72,7 @@ namespace System.Linq.Tests
         {
             Type edvType = typeof(Enumerable).GetTypeInfo().Assembly.GetType("System.Linq.SystemCore_EnumerableDebugView");
             ConstructorInfo ctor = edvType.GetTypeInfo().DeclaredConstructors.First();
-            return ctor.Invoke(new object[] { source });
+            return ctor.Invoke([source]);
         }
 
         private static object CreateSystemCore_EnumerableDebugView<T>(IEnumerable<T> source)
@@ -80,7 +80,7 @@ namespace System.Linq.Tests
             Type edvOpenGenericType = typeof(Enumerable).GetTypeInfo().Assembly.GetType("System.Linq.SystemCore_EnumerableDebugView`1");
             Type edvClosedGenericType = edvOpenGenericType.MakeGenericType(typeof(T));
             ConstructorInfo ctor = edvClosedGenericType.GetTypeInfo().DeclaredConstructors.First();
-            return ctor.Invoke(new object[] { source });
+            return ctor.Invoke([source]);
         }
 
         private static T[] GetItems<T>(object debugView)

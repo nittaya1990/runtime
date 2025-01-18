@@ -3,13 +3,14 @@
 
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using Microsoft.Win32.SafeHandles;
 
 internal static partial class Interop
 {
     internal static partial class Advapi32
     {
-        [LibraryImport(Interop.Libraries.Advapi32, EntryPoint = "LsaLookupNames2",  SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        [LibraryImport(Interop.Libraries.Advapi32, EntryPoint = "LsaLookupNames2", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         internal static partial uint LsaLookupNames2(
             SafeLsaPolicyHandle handle,
             int flags,
@@ -19,27 +20,46 @@ internal static partial class Interop
             out SafeLsaMemoryHandle sids
         );
 
-        [NativeMarshalling(typeof(Native))]
+        [NativeMarshalling(typeof(Marshaller))]
         internal struct MARSHALLED_UNICODE_STRING
         {
             internal ushort Length;
             internal ushort MaximumLength;
             internal string Buffer;
 
-            public struct Native
+            [CustomMarshaller(typeof(MARSHALLED_UNICODE_STRING), MarshalMode.ManagedToUnmanagedIn, typeof(Marshaller))]
+            [CustomMarshaller(typeof(MARSHALLED_UNICODE_STRING), MarshalMode.ElementIn, typeof(Marshaller))]
+            public static class Marshaller
             {
-                internal ushort Length;
-                internal ushort MaximumLength;
-                internal IntPtr Buffer;
-
-                public Native(MARSHALLED_UNICODE_STRING managed)
+                public static MARSHALLED_UNICODE_STRING ConvertToManaged(Native unmanaged)
                 {
-                    Length = managed.Length;
-                    MaximumLength = managed.MaximumLength;
-                    Buffer = Marshal.StringToCoTaskMemUni(managed.Buffer);
+                    MARSHALLED_UNICODE_STRING m;
+                    m.Length = unmanaged.Length;
+                    m.MaximumLength = unmanaged.MaximumLength;
+                    m.Buffer = Marshal.PtrToStringUni(unmanaged.Buffer)!;
+                    return m;
                 }
 
-                public void FreeNative() => Marshal.FreeCoTaskMem(Buffer);
+                public static Native ConvertToUnmanaged(MARSHALLED_UNICODE_STRING managed)
+                {
+                    Native n;
+                    n.Length = managed.Length;
+                    n.MaximumLength = managed.MaximumLength;
+                    n.Buffer = Marshal.StringToCoTaskMemUni(managed.Buffer);
+                    return n;
+                }
+
+                public static void Free(Native native)
+                {
+                    Marshal.FreeCoTaskMem(native.Buffer);
+                }
+
+                public struct Native
+                {
+                    internal ushort Length;
+                    internal ushort MaximumLength;
+                    internal IntPtr Buffer;
+                }
             }
         }
     }

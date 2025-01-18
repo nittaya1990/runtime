@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Text.Json.Tests;
@@ -17,18 +18,10 @@ namespace System.Text.Json
 {
     internal static partial class JsonTestHelper
     {
-#if BUILDING_INBOX_LIBRARY
-        public const string DoubleFormatString = null;
-        public const string SingleFormatString = null;
-#else
-        public const string DoubleFormatString = "G17";
-        public const string SingleFormatString = "G9";
-#endif
-
         public static string NewtonsoftReturnStringHelper(TextReader reader)
         {
             var sb = new StringBuilder();
-            var json = new JsonTextReader(reader);
+            var json = new JsonTextReader(reader) { MaxDepth = null };
             while (json.Read())
             {
                 if (json.Value != null)
@@ -140,6 +133,20 @@ namespace System.Text.Json
             return ReaderLoop(data.Length, out length, ref reader);
         }
 
+        public delegate void Utf8JsonReaderAction(ref Utf8JsonReader reader);
+
+        public static void AssertWithSingleAndMultiSegmentReader(string json, Utf8JsonReaderAction action, JsonReaderOptions options = default)
+        {
+            byte[] utf8 = Encoding.UTF8.GetBytes(json);
+
+            var singleSegmentReader = new Utf8JsonReader(utf8, options);
+            action(ref singleSegmentReader);
+
+            ReadOnlySequence<byte> sequence = GetSequence(utf8, segmentSize: 1);
+            var multiSegmentReader = new Utf8JsonReader(sequence, options);
+            action(ref multiSegmentReader);
+        }
+
         public static ReadOnlySequence<byte> CreateSegments(byte[] data)
         {
             ReadOnlyMemory<byte> dataMemory = data;
@@ -178,6 +185,12 @@ namespace System.Text.Json
             BufferSegment<byte> thirdSegment = secondSegment.Append(thirdMem);
 
             return new ReadOnlySequence<byte>(firstSegment, 0, thirdSegment, thirdMem.Length);
+        }
+
+        public static ReadOnlySequence<byte> GetSequence(string json, int segmentSize)
+        {
+            byte[] encoding = Encoding.UTF8.GetBytes(json);
+            return GetSequence(encoding, segmentSize);
         }
 
         public static ReadOnlySequence<byte> GetSequence(byte[] dataUtf8, int segmentSize)
@@ -344,7 +357,7 @@ namespace System.Text.Json
             {
                 writer.Formatting = Formatting.Indented;
 
-                var newtonsoft = new JsonTextReader(new StringReader(jsonString));
+                var newtonsoft = new JsonTextReader(new StringReader(jsonString)) { MaxDepth = null };
                 writer.WriteComment("comment");
                 while (newtonsoft.Read())
                 {
@@ -358,7 +371,7 @@ namespace System.Text.Json
 
         public static List<JsonTokenType> GetTokenTypes(string jsonString)
         {
-            var newtonsoft = new JsonTextReader(new StringReader(jsonString));
+            var newtonsoft = new JsonTextReader(new StringReader(jsonString)) { MaxDepth = null };
             int totalReads = 0;
             while (newtonsoft.Read())
             {
@@ -369,7 +382,7 @@ namespace System.Text.Json
 
             for (int i = 0; i < totalReads; i++)
             {
-                newtonsoft = new JsonTextReader(new StringReader(jsonString));
+                newtonsoft = new JsonTextReader(new StringReader(jsonString)) { MaxDepth = null };
                 for (int j = 0; j < i; j++)
                 {
                     Assert.True(newtonsoft.Read());
@@ -667,29 +680,9 @@ namespace System.Text.Json
             return arrayList;
         }
 
-        public static float NextFloat(Random random)
-        {
-            double mantissa = (random.NextDouble() * 2.0) - 1.0;
-            double exponent = Math.Pow(2.0, random.Next(-126, 128));
-            float value = (float)(mantissa * exponent);
-            return value;
-        }
-
-        public static double NextDouble(Random random, double minValue, double maxValue)
-        {
-            double value = random.NextDouble() * (maxValue - minValue) + minValue;
-            return value;
-        }
-
-        public static decimal NextDecimal(Random random, double minValue, double maxValue)
-        {
-            double value = random.NextDouble() * (maxValue - minValue) + minValue;
-            return (decimal)value;
-        }
-
         public static string GetCompactString(string jsonString)
         {
-            using (JsonTextReader jsonReader = new JsonTextReader(new StringReader(jsonString)))
+            using (var jsonReader = new JsonTextReader(new StringReader(jsonString)) { MaxDepth = null })
             {
                 jsonReader.FloatParseHandling = FloatParseHandling.Decimal;
                 JToken jtoken = JToken.ReadFrom(jsonReader);
@@ -702,7 +695,13 @@ namespace System.Text.Json
             }
         }
 
-        public static void AssertContents(string expectedValue, ArrayBufferWriter<byte> buffer, bool skipSpecialRules = false)
+        public static void AssertContents(
+#if NET
+            [StringSyntax(StringSyntaxAttribute.Json)]
+#endif
+            string expectedValue,
+            ArrayBufferWriter<byte> buffer,
+            bool skipSpecialRules = false)
         {
             string value = Encoding.UTF8.GetString(
                     buffer.WrittenSpan
@@ -714,14 +713,26 @@ namespace System.Text.Json
             AssertContentsAgainstJsonNet(expectedValue, value, skipSpecialRules);
         }
 
-        public static void AssertContents(string expectedValue, MemoryStream stream, bool skipSpecialRules = false)
+        public static void AssertContents(
+#if NET
+            [StringSyntax(StringSyntaxAttribute.Json)]
+#endif
+            string expectedValue,
+            MemoryStream stream,
+            bool skipSpecialRules = false)
         {
             string value = Encoding.UTF8.GetString(stream.ToArray());
 
             AssertContentsAgainstJsonNet(expectedValue, value, skipSpecialRules);
         }
 
-        public static void AssertContentsNotEqual(string expectedValue, ArrayBufferWriter<byte> buffer, bool skipSpecialRules = false)
+        public static void AssertContentsNotEqual(
+#if NET
+            [StringSyntax(StringSyntaxAttribute.Json)]
+#endif
+            string expectedValue,
+            ArrayBufferWriter<byte> buffer,
+            bool skipSpecialRules = false)
         {
             string value = Encoding.UTF8.GetString(
                     buffer.WrittenSpan
@@ -733,26 +744,38 @@ namespace System.Text.Json
             AssertContentsNotEqualAgainstJsonNet(expectedValue, value, skipSpecialRules);
         }
 
-        public static void AssertContentsAgainstJsonNet(string expectedValue, string value, bool skipSpecialRules)
+        public static void AssertContentsAgainstJsonNet(
+#if NET
+            [StringSyntax(StringSyntaxAttribute.Json)]
+#endif
+            string expectedValue,
+            string value,
+            bool skipSpecialRules)
         {
             Assert.Equal(expectedValue.NormalizeToJsonNetFormat(skipSpecialRules), value.NormalizeToJsonNetFormat(skipSpecialRules), ignoreLineEndingDifferences: true);
         }
 
-        public static void AssertContentsNotEqualAgainstJsonNet(string expectedValue, string value, bool skipSpecialRules)
+        public static void AssertContentsNotEqualAgainstJsonNet(
+#if NET
+            [StringSyntax(StringSyntaxAttribute.Json)]
+#endif
+            string expectedValue,
+            string value,
+            bool skipSpecialRules)
         {
             Assert.NotEqual(expectedValue.NormalizeToJsonNetFormat(skipSpecialRules), value.NormalizeToJsonNetFormat(skipSpecialRules));
         }
 
-        public delegate void AssertThrowsActionUtf8JsonReader(Utf8JsonReader json);
+        public delegate void AssertThrowsActionUtf8JsonReader(ref Utf8JsonReader json);
 
         // Cannot use standard Assert.Throws() when testing Utf8JsonReader - ref structs and closures don't get along.
-        public static void AssertThrows<E>(Utf8JsonReader json, AssertThrowsActionUtf8JsonReader action) where E : Exception
+        public static TException AssertThrows<TException>(ref Utf8JsonReader json, AssertThrowsActionUtf8JsonReader action) where TException : Exception
         {
             Exception ex;
 
             try
             {
-                action(json);
+                action(ref json);
                 ex = null;
             }
             catch (Exception e)
@@ -760,48 +783,15 @@ namespace System.Text.Json
                 ex = e;
             }
 
-            if (ex == null)
+            if (ex is TException matchingEx)
             {
-                throw new ThrowsException(typeof(E));
+                return matchingEx;
             }
 
-            if (!(ex is E))
-            {
-                throw new ThrowsException(typeof(E), ex);
-            }
+            throw ex is null ? ThrowsException.ForNoException(typeof(TException)) : ThrowsException.ForIncorrectExceptionType(typeof(TException), ex);
         }
 
-        public delegate void AssertThrowsActionUtf8JsonWriter(ref Utf8JsonWriter writer);
-
-        public static void AssertThrows<E>(
-            ref Utf8JsonWriter writer,
-            AssertThrowsActionUtf8JsonWriter action)
-            where E : Exception
-        {
-            Exception ex;
-
-            try
-            {
-                action(ref writer);
-                ex = null;
-            }
-            catch (Exception e)
-            {
-                ex = e;
-            }
-
-            if (ex == null)
-            {
-                throw new ThrowsException(typeof(E));
-            }
-
-            if (ex.GetType() != typeof(E))
-            {
-                throw new ThrowsException(typeof(E), ex);
-            }
-        }
-
-#if NETCOREAPP
+#if NET
         // This is needed due to the fact that git might normalize line endings when checking-out files
         public static string NormalizeLineEndings(this string value) => value.ReplaceLineEndings();
 #else

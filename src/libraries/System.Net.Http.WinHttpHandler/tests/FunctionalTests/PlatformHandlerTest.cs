@@ -82,7 +82,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientEKUTest(ITestOutputHelper output) : base(output) { }
     }
 
-#if NETCOREAPP
+#if NET
     public sealed class PlatformHandler_HttpClientHandler_Decompression_Tests : HttpClientHandler_Decompression_Test
     {
         public PlatformHandler_HttpClientHandler_Decompression_Tests(ITestOutputHelper output) : base(output) { }
@@ -182,7 +182,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientHandler_Authentication_Test(ITestOutputHelper output) : base(output) { }
     }
 
-#if NETCOREAPP
+#if NET
 #if !WINHTTPHANDLER_TEST // [ActiveIssue("https://github.com/dotnet/runtime/issues/33930")]
     [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
     public sealed class PlatformHandlerTest_Cookies_Http2 : HttpClientHandlerTest_Cookies
@@ -268,8 +268,9 @@ namespace System.Net.Http.Functional.Tests
     {
         protected override Version UseVersion => HttpVersion20.Value;
 
-        public PlatformHandler_HttpClientHandler_ServerCertificates_Http2_Test(ITestOutputHelper output) : base(output) {
-            AllowAllHttp2Certificates = false;
+        public PlatformHandler_HttpClientHandler_ServerCertificates_Http2_Test(ITestOutputHelper output) : base(output)
+        {
+            AllowAllCertificates = false;
         }
     }
 
@@ -332,6 +333,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandlerTest_Cookies_Http11_Http2(ITestOutputHelper output) : base(output) { }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
     public sealed class PlatformHandler_HttpClientHandler_MaxResponseHeadersLength_Http2_Test : HttpClientHandler_MaxResponseHeadersLength_Test
     {
         protected override Version UseVersion => HttpVersion20.Value;

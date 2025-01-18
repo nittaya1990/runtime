@@ -89,19 +89,15 @@ namespace System.Data.Common
 
         public override void SetCapacity(int capacity)
         {
-            SqlBytes[] newValues = new SqlBytes[capacity];
-            if (null != _values)
-            {
-                Array.Copy(_values, newValues, Math.Min(capacity, _values.Length));
-            }
-            _values = newValues;
+            Array.Resize(ref _values, capacity);
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override object ConvertXmlToObject(string s)
         {
             SqlBinary newValue = default;
-            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragmet to reader
+            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragment to reader
             StringReader strReader = new StringReader(tempStr);
 
             IXmlSerializable tmp = newValue;
@@ -114,6 +110,7 @@ namespace System.Data.Common
         }
 
         [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override string ConvertObjectToXml(object value)
         {
             Debug.Assert(!DataStorage.IsObjectNull(value), "we shouldn't have null here");

@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
-using System.Globalization;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
 
 namespace System.DirectoryServices.AccountManagement
 {
@@ -88,8 +88,7 @@ namespace System.DirectoryServices.AccountManagement
             _endReached = false;
             _current = null;
 
-            if (_enumerator != null)
-                _enumerator.Reset();
+            _enumerator?.Reset();
         }
 
         // IDisposable implementation

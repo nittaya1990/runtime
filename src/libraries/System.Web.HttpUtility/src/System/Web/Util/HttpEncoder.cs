@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -12,24 +13,22 @@ namespace System.Web.Util
 {
     internal static class HttpEncoder
     {
-        private static void AppendCharAsUnicodeJavaScript(StringBuilder builder, char c)
-        {
-            builder.Append($"\\u{(int)c:x4}");
-        }
+        private const int MaxStackAllocUrlLength = 256;
+        private const int StackallocThreshold = 512;
 
-        private static bool CharRequiresJavaScriptEncoding(char c) =>
-            c < 0x20 // control chars always have to be encoded
-                || c == '\"' // chars which must be encoded per JSON spec
-                || c == '\\'
-                || c == '\'' // HTML-sensitive chars encoded for safety
-                || c == '<'
-                || c == '>'
-                || (c == '&')
-                || c == '\u0085' // newline chars (see Unicode 6.2, Table 5-1 [http://www.unicode.org/versions/Unicode6.2.0/ch05.pdf]) have to be encoded
-                || c == '\u2028'
-                || c == '\u2029';
+        // Set of safe chars, from RFC 1738.4 minus '+'
+        private static readonly SearchValues<byte> s_urlSafeBytes = SearchValues.Create(
+            "!()*-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"u8);
 
-        [return: NotNullIfNotNull("value")]
+        private static readonly SearchValues<char> s_invalidJavaScriptChars = SearchValues.Create(
+            // Any Control, < 32 (' ')
+            "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000A\u000B\u000C\u000D\u000E\u000F\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F" +
+            // Chars which must be encoded per JSON spec / HTML-sensitive chars encoded for safety
+            "\"&'<>\\" +
+            // newline chars (see Unicode 6.2, Table 5-1 [http://www.unicode.org/versions/Unicode6.2.0/ch05.pdf]) have to be encoded
+            "\u0085\u2028\u2029");
+
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? HtmlAttributeEncode(string? value)
         {
             if (string.IsNullOrEmpty(value))
@@ -38,14 +37,14 @@ namespace System.Web.Util
             }
 
             // Don't create string writer if we don't have nothing to encode
-            int pos = IndexOfHtmlAttributeEncodingChars(value, 0);
-            if (pos == -1)
+            int pos = IndexOfHtmlAttributeEncodingChars(value);
+            if (pos < 0)
             {
                 return value;
             }
 
             StringWriter writer = new StringWriter(CultureInfo.InvariantCulture);
-            HtmlAttributeEncode(value, writer);
+            HtmlAttributeEncodeInternal(value, pos, writer);
             return writer.ToString();
         }
 
@@ -58,174 +57,143 @@ namespace System.Web.Util
 
             ArgumentNullException.ThrowIfNull(output);
 
-            HtmlAttributeEncodeInternal(value, output);
-        }
-
-        private static void HtmlAttributeEncodeInternal(string s, TextWriter output)
-        {
-            int index = IndexOfHtmlAttributeEncodingChars(s, 0);
-            if (index == -1)
+            int pos = IndexOfHtmlAttributeEncodingChars(value);
+            if (pos < 0)
             {
-                output.Write(s);
+                output.Write(value);
+                return;
             }
-            else
+
+            HtmlAttributeEncodeInternal(value, pos, output);
+        }
+
+        private static void HtmlAttributeEncodeInternal(string s, int index, TextWriter output)
+        {
+            output.Write(s.AsSpan(0, index));
+
+            ReadOnlySpan<char> remaining = s.AsSpan(index);
+            for (int i = 0; i < remaining.Length; i++)
             {
-                output.Write(s.AsSpan(0, index));
-
-                ReadOnlySpan<char> remaining = s.AsSpan(index);
-                for (int i = 0; i < remaining.Length; i++)
-                {
-                    char ch = remaining[i];
-                    if (ch <= '<')
-                    {
-                        switch (ch)
-                        {
-                            case '<':
-                                output.Write("&lt;");
-                                break;
-                            case '"':
-                                output.Write("&quot;");
-                                break;
-                            case '\'':
-                                output.Write("&#39;");
-                                break;
-                            case '&':
-                                output.Write("&amp;");
-                                break;
-                            default:
-                                output.Write(ch);
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        output.Write(ch);
-                    }
-                }
-            }
-        }
-
-        [return: NotNullIfNotNull("value")]
-        internal static string? HtmlDecode(string? value) => string.IsNullOrEmpty(value) ? value : WebUtility.HtmlDecode(value);
-
-        internal static void HtmlDecode(string? value, TextWriter output!!)
-        {
-            output.Write(WebUtility.HtmlDecode(value));
-        }
-
-        [return: NotNullIfNotNull("value")]
-        internal static string? HtmlEncode(string? value) => string.IsNullOrEmpty(value) ? value : WebUtility.HtmlEncode(value);
-
-        internal static void HtmlEncode(string? value, TextWriter output!!)
-        {
-            output.Write(WebUtility.HtmlEncode(value));
-        }
-
-        private static int IndexOfHtmlAttributeEncodingChars(string s, int startPos)
-        {
-            Debug.Assert(0 <= startPos && startPos <= s.Length, "0 <= startPos && startPos <= s.Length");
-
-            ReadOnlySpan<char> span = s.AsSpan(startPos);
-            for (int i = 0; i < span.Length; i++)
-            {
-                char ch = span[i];
+                char ch = remaining[i];
                 if (ch <= '<')
                 {
                     switch (ch)
                     {
                         case '<':
+                            output.Write("&lt;");
+                            break;
                         case '"':
+                            output.Write("&quot;");
+                            break;
                         case '\'':
+                            output.Write("&#39;");
+                            break;
                         case '&':
-                            return startPos + i;
-                    }
-                }
-            }
-
-            return -1;
-        }
-
-        private static bool IsNonAsciiByte(byte b) => b >= 0x7F || b < 0x20;
-
-        internal static string JavaScriptStringEncode(string? value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return string.Empty;
-            }
-
-            StringBuilder? b = null;
-            int startIndex = 0;
-            int count = 0;
-            for (int i = 0; i < value.Length; i++)
-            {
-                char c = value[i];
-
-                // Append the unhandled characters (that do not require special treament)
-                // to the string builder when special characters are detected.
-                if (CharRequiresJavaScriptEncoding(c))
-                {
-                    if (b == null)
-                    {
-                        b = new StringBuilder(value.Length + 5);
-                    }
-
-                    if (count > 0)
-                    {
-                        b.Append(value, startIndex, count);
-                    }
-
-                    startIndex = i + 1;
-                    count = 0;
-
-                    switch (c)
-                    {
-                        case '\r':
-                            b.Append("\\r");
-                            break;
-                        case '\t':
-                            b.Append("\\t");
-                            break;
-                        case '\"':
-                            b.Append("\\\"");
-                            break;
-                        case '\\':
-                            b.Append("\\\\");
-                            break;
-                        case '\n':
-                            b.Append("\\n");
-                            break;
-                        case '\b':
-                            b.Append("\\b");
-                            break;
-                        case '\f':
-                            b.Append("\\f");
+                            output.Write("&amp;");
                             break;
                         default:
-                            AppendCharAsUnicodeJavaScript(b, c);
+                            output.Write(ch);
                             break;
                     }
                 }
                 else
                 {
-                    count++;
+                    output.Write(ch);
                 }
             }
-
-            if (b == null)
-            {
-                return value;
-            }
-
-            if (count > 0)
-            {
-                b.Append(value, startIndex, count);
-            }
-
-            return b.ToString();
         }
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(value))]
+        internal static string? HtmlDecode(string? value) => string.IsNullOrEmpty(value) ? value : WebUtility.HtmlDecode(value);
+
+        internal static void HtmlDecode(string? value, TextWriter output)
+        {
+            ArgumentNullException.ThrowIfNull(output);
+
+            output.Write(WebUtility.HtmlDecode(value));
+        }
+
+        [return: NotNullIfNotNull(nameof(value))]
+        internal static string? HtmlEncode(string? value) => string.IsNullOrEmpty(value) ? value : WebUtility.HtmlEncode(value);
+
+        internal static void HtmlEncode(string? value, TextWriter output)
+        {
+            ArgumentNullException.ThrowIfNull(output);
+
+            output.Write(WebUtility.HtmlEncode(value));
+        }
+
+        private static int IndexOfHtmlAttributeEncodingChars(string s) =>
+            s.AsSpan().IndexOfAny("<\"'&");
+
+        internal static string JavaScriptStringEncode(string? value, bool addDoubleQuotes)
+        {
+            int i = value.AsSpan().IndexOfAny(s_invalidJavaScriptChars);
+            if (i < 0)
+            {
+                return addDoubleQuotes ? $"\"{value}\"" : value ?? string.Empty;
+            }
+
+            return EncodeCore(value, i, addDoubleQuotes);
+
+            static string EncodeCore(ReadOnlySpan<char> value, int i, bool addDoubleQuotes)
+            {
+                var vsb = new ValueStringBuilder(stackalloc char[StackallocThreshold]);
+                if (addDoubleQuotes)
+                {
+                    vsb.Append('"');
+                }
+
+                ReadOnlySpan<char> chars = value;
+                do
+                {
+                    vsb.Append(chars.Slice(0, i));
+                    char c = chars[i];
+                    chars = chars.Slice(i + 1);
+                    switch (c)
+                    {
+                        case '\r':
+                            vsb.Append("\\r");
+                            break;
+                        case '\t':
+                            vsb.Append("\\t");
+                            break;
+                        case '\"':
+                            vsb.Append("\\\"");
+                            break;
+                        case '\\':
+                            vsb.Append("\\\\");
+                            break;
+                        case '\n':
+                            vsb.Append("\\n");
+                            break;
+                        case '\b':
+                            vsb.Append("\\b");
+                            break;
+                        case '\f':
+                            vsb.Append("\\f");
+                            break;
+                        default:
+                            vsb.Append("\\u");
+                            vsb.AppendSpanFormattable((int)c, "x4");
+                            break;
+                    }
+
+                    i = chars.IndexOfAny(s_invalidJavaScriptChars);
+                } while (i >= 0);
+
+                vsb.Append(chars);
+
+                if (addDoubleQuotes)
+                {
+                    vsb.Append('"');
+                }
+
+                return vsb.ToString();
+            }
+        }
+
+        [return: NotNullIfNotNull(nameof(bytes))]
         internal static byte[]? UrlDecode(byte[]? bytes, int offset, int count)
         {
             if (!ValidateUrlEncodingParameters(bytes, offset, count))
@@ -233,13 +201,18 @@ namespace System.Web.Util
                 return null;
             }
 
+            return UrlDecode(bytes.AsSpan(offset, count));
+        }
+
+        internal static byte[] UrlDecode(ReadOnlySpan<byte> bytes)
+        {
             int decodedBytesCount = 0;
-            byte[] decodedBytes = new byte[count];
+            int count = bytes.Length;
+            Span<byte> decodedBytes = count <= StackallocThreshold ? stackalloc byte[StackallocThreshold] : new byte[count];
 
             for (int i = 0; i < count; i++)
             {
-                int pos = offset + i;
-                byte b = bytes[pos];
+                byte b = bytes[i];
 
                 if (b == '+')
                 {
@@ -247,8 +220,8 @@ namespace System.Web.Util
                 }
                 else if (b == '%' && i < count - 2)
                 {
-                    int h1 = HexConverter.FromChar(bytes[pos + 1]);
-                    int h2 = HexConverter.FromChar(bytes[pos + 2]);
+                    int h1 = HexConverter.FromChar(bytes[i + 1]);
+                    int h2 = HexConverter.FromChar(bytes[i + 2]);
 
                     if ((h1 | h2) != 0xFF)
                     {
@@ -261,17 +234,10 @@ namespace System.Web.Util
                 decodedBytes[decodedBytesCount++] = b;
             }
 
-            if (decodedBytesCount < decodedBytes.Length)
-            {
-                byte[] newDecodedBytes = new byte[decodedBytesCount];
-                Array.Copy(decodedBytes, newDecodedBytes, decodedBytesCount);
-                decodedBytes = newDecodedBytes;
-            }
-
-            return decodedBytes;
+            return decodedBytes.Slice(0, decodedBytesCount).ToArray();
         }
 
-        [return: NotNullIfNotNull("bytes")]
+        [return: NotNullIfNotNull(nameof(bytes))]
         internal static string? UrlDecode(byte[]? bytes, int offset, int count, Encoding encoding)
         {
             if (!ValidateUrlEncodingParameters(bytes, offset, count))
@@ -279,7 +245,9 @@ namespace System.Web.Util
                 return null;
             }
 
-            UrlDecoder helper = new UrlDecoder(count, encoding);
+            UrlDecoder helper = count <= MaxStackAllocUrlLength
+                ? new UrlDecoder(stackalloc char[MaxStackAllocUrlLength], stackalloc byte[MaxStackAllocUrlLength], encoding)
+                : new UrlDecoder(new char[count], new byte[count], encoding);
 
             // go through the bytes collapsing %XX and %uXXXX and appending
             // each byte as byte, with exception of %uXXXX constructs that
@@ -331,10 +299,10 @@ namespace System.Web.Util
                 helper.AddByte(b);
             }
 
-            return Utf16StringValidator.ValidateString(helper.GetString());
+            return helper.GetString();
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? UrlDecode(string? value, Encoding encoding)
         {
             if (value == null)
@@ -342,8 +310,20 @@ namespace System.Web.Util
                 return null;
             }
 
+            return UrlDecode(value.AsSpan(), encoding);
+        }
+
+        internal static string UrlDecode(ReadOnlySpan<char> value, Encoding encoding)
+        {
+            if (value.IsEmpty)
+            {
+                return string.Empty;
+            }
+
             int count = value.Length;
-            UrlDecoder helper = new UrlDecoder(count, encoding);
+            UrlDecoder helper = count <= MaxStackAllocUrlLength
+                ? new UrlDecoder(stackalloc char[MaxStackAllocUrlLength], stackalloc byte[MaxStackAllocUrlLength], encoding)
+                : new UrlDecoder(new char[count], new byte[count], encoding);
 
             // go through the string's chars collapsing %XX and %uXXXX and
             // appending each char as char, with exception of %XX constructs
@@ -403,75 +383,44 @@ namespace System.Web.Util
                 }
             }
 
-            return Utf16StringValidator.ValidateString(helper.GetString());
+            return helper.GetString();
         }
 
-        [return: NotNullIfNotNull("bytes")]
-        internal static byte[]? UrlEncode(byte[]? bytes, int offset, int count, bool alwaysCreateNewReturnValue)
-        {
-            byte[]? encoded = UrlEncode(bytes, offset, count);
-
-            return (alwaysCreateNewReturnValue && (encoded != null) && (encoded == bytes))
-                ? (byte[])encoded.Clone()
-                : encoded;
-        }
-
-        [return: NotNullIfNotNull("bytes")]
-        private static byte[]? UrlEncode(byte[]? bytes, int offset, int count)
+        [return: NotNullIfNotNull(nameof(bytes))]
+        internal static byte[]? UrlEncode(byte[]? bytes, int offset, int count)
         {
             if (!ValidateUrlEncodingParameters(bytes, offset, count))
             {
                 return null;
             }
 
-            int cSpaces = 0;
-            int cUnsafe = 0;
+            return UrlEncode(bytes.AsSpan(offset, count));
+        }
 
-            // count them first
-            for (int i = 0; i < count; i++)
-            {
-                char ch = (char)bytes[offset + i];
-
-                if (ch == ' ')
-                {
-                    cSpaces++;
-                }
-                else if (!HttpEncoderUtility.IsUrlSafeChar(ch))
-                {
-                    cUnsafe++;
-                }
-            }
-
+        private static byte[] UrlEncode(ReadOnlySpan<byte> bytes)
+        {
             // nothing to expand?
-            if (cSpaces == 0 && cUnsafe == 0)
+            if (!NeedsEncoding(bytes, out int cUnsafe))
             {
-                // DevDiv 912606: respect "offset" and "count"
-                if (0 == offset && bytes.Length == count)
-                {
-                    return bytes;
-                }
-                else
-                {
-                    byte[] subarray = new byte[count];
-                    Buffer.BlockCopy(bytes, offset, subarray, 0, count);
-                    return subarray;
-                }
+                return bytes.ToArray();
             }
 
+            return UrlEncode(bytes, cUnsafe);
+        }
+
+        private static byte[] UrlEncode(ReadOnlySpan<byte> bytes, int cUnsafe)
+        {
             // expand not 'safe' characters into %XX, spaces to +s
-            byte[] expandedBytes = new byte[count + cUnsafe * 2];
+            byte[] expandedBytes = new byte[bytes.Length + cUnsafe * 2];
             int pos = 0;
 
-            for (int i = 0; i < count; i++)
+            foreach (byte b in bytes)
             {
-                byte b = bytes[offset + i];
-                char ch = (char)b;
-
-                if (HttpEncoderUtility.IsUrlSafeChar(ch))
+                if (s_urlSafeBytes.Contains(b))
                 {
                     expandedBytes[pos++] = b;
                 }
-                else if (ch == ' ')
+                else if (b == ' ')
                 {
                     expandedBytes[pos++] = (byte)'+';
                 }
@@ -486,60 +435,45 @@ namespace System.Web.Util
             return expandedBytes;
         }
 
-        //  Helper to encode the non-ASCII url characters only
-        private static string UrlEncodeNonAscii(string str, Encoding e)
+        private static bool NeedsEncoding(ReadOnlySpan<byte> bytes, out int cUnsafe)
         {
-            Debug.Assert(!string.IsNullOrEmpty(str));
-            Debug.Assert(e != null);
-            byte[] bytes = e.GetBytes(str);
-            byte[] encodedBytes = UrlEncodeNonAscii(bytes, 0, bytes.Length);
-            return Encoding.ASCII.GetString(encodedBytes);
+            cUnsafe = 0;
+
+            int i = bytes.IndexOfAnyExcept(s_urlSafeBytes);
+            if (i < 0)
+            {
+                return false;
+            }
+
+            foreach (byte b in bytes.Slice(i))
+            {
+                if (!s_urlSafeBytes.Contains(b) && b != ' ')
+                {
+                    cUnsafe++;
+                }
+            }
+
+            return true;
         }
 
-        private static byte[] UrlEncodeNonAscii(byte[] bytes, int offset, int count)
+        internal static byte[] UrlEncode(string str, Encoding e)
         {
-            int cNonAscii = 0;
-
-            // count them first
-            for (int i = 0; i < count; i++)
+            if (e.GetMaxByteCount(str.Length) <= StackallocThreshold)
             {
-                if (IsNonAsciiByte(bytes[offset + i]))
-                {
-                    cNonAscii++;
-                }
+                Span<byte> byteSpan = stackalloc byte[StackallocThreshold];
+                int encodedBytes = e.GetBytes(str, byteSpan);
+
+                return UrlEncode(byteSpan.Slice(0, encodedBytes));
             }
 
-            // nothing to expand?
-            if (cNonAscii == 0)
-            {
-                return bytes;
-            }
-
-            // expand not 'safe' characters into %XX, spaces to +s
-            byte[] expandedBytes = new byte[count + cNonAscii * 2];
-            int pos = 0;
-
-            for (int i = 0; i < count; i++)
-            {
-                byte b = bytes[offset + i];
-
-                if (IsNonAsciiByte(b))
-                {
-                    expandedBytes[pos++] = (byte)'%';
-                    expandedBytes[pos++] = (byte)HexConverter.ToCharLower(b >> 4);
-                    expandedBytes[pos++] = (byte)HexConverter.ToCharLower(b);
-                }
-                else
-                {
-                    expandedBytes[pos++] = b;
-                }
-            }
-
-            return expandedBytes;
+            byte[] bytes = e.GetBytes(str);
+            return NeedsEncoding(bytes, out int cUnsafe)
+                ? UrlEncode(bytes, cUnsafe)
+                : bytes;
         }
 
         [Obsolete("This method produces non-standards-compliant output and has interoperability issues. The preferred alternative is UrlEncode(*).")]
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? UrlEncodeUnicode(string? value)
         {
             if (value == null)
@@ -556,7 +490,7 @@ namespace System.Web.Util
 
                 if ((ch & 0xff80) == 0)
                 {  // 7 bit?
-                    if (HttpEncoderUtility.IsUrlSafeChar(ch))
+                    if (s_urlSafeBytes.Contains((byte)ch))
                     {
                         sb.Append(ch);
                     }
@@ -584,7 +518,7 @@ namespace System.Web.Util
             return sb.ToString();
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? UrlPathEncode(string? value)
         {
             if (string.IsNullOrEmpty(value))
@@ -592,21 +526,19 @@ namespace System.Web.Util
                 return value;
             }
 
-            string? schemeAndAuthority;
+            ReadOnlySpan<char> schemeAndAuthority;
             string? path;
-            string? queryAndFragment;
+            ReadOnlySpan<char> queryAndFragment;
 
             if (!UriUtil.TrySplitUriForPathEncode(value, out schemeAndAuthority, out path, out queryAndFragment))
             {
                 // If the value is not a valid url, we treat it as a relative url.
                 // We don't need to extract query string from the url since UrlPathEncode()
                 // does not encode query string.
-                schemeAndAuthority = null;
-                path = value;
-                queryAndFragment = null;
+                return UrlPathEncodeImpl(value);
             }
 
-            return schemeAndAuthority + UrlPathEncodeImpl(path) + queryAndFragment;
+            return string.Concat(schemeAndAuthority, UrlPathEncodeImpl(path), queryAndFragment);
         }
 
         // This is the original UrlPathEncode(string)
@@ -617,15 +549,48 @@ namespace System.Web.Util
                 return value;
             }
 
-            // recurse in case there is a query string
-            int i = value.IndexOf('?');
-            if (i >= 0)
+            int i = value.AsSpan().IndexOfAnyExceptInRange((char)0x21, (char)0x7F);
+            if (i < 0)
             {
-                return string.Concat(UrlPathEncodeImpl(value.Substring(0, i)), value.AsSpan(i));
+                return value;
             }
 
-            // encode DBCS characters and spaces only
-            return HttpEncoderUtility.UrlEncodeSpaces(UrlEncodeNonAscii(value, Encoding.UTF8));
+            int indexOfQuery = value.IndexOf('?');
+            if ((uint)indexOfQuery < (uint)i)
+            {
+                // Everything before the Query is valid ASCII
+                return value;
+            }
+
+            ReadOnlySpan<char> toEncode = indexOfQuery >= 0
+                ? value.AsSpan(i, indexOfQuery - i)
+                : value.AsSpan(i);
+
+            byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(toEncode.Length));
+            int utf8Length = Encoding.UTF8.GetBytes(toEncode, bytes);
+            char[] chars = ArrayPool<char>.Shared.Rent(utf8Length * 3);
+            int charCount = 0;
+            foreach (byte b in bytes.AsSpan(0, utf8Length))
+            {
+                if (!char.IsBetween((char)b, (char)0x21, (char)0x7F))
+                {
+                    chars[charCount++] = '%';
+                    chars[charCount++] = HexConverter.ToCharLower(b >> 4);
+                    chars[charCount++] = HexConverter.ToCharLower(b);
+                }
+                else
+                {
+                    chars[charCount++] = (char)b;
+                }
+            }
+
+            ArrayPool<byte>.Shared.Return(bytes);
+            string result = string.Concat(
+                value.AsSpan(0, i),
+                chars.AsSpan(0, charCount),
+                indexOfQuery >= 0 ? value.AsSpan(indexOfQuery) : ReadOnlySpan<char>.Empty);
+            ArrayPool<char>.Shared.Return(chars);
+            return result;
         }
 
         private static bool ValidateUrlEncodingParameters([NotNullWhen(true)] byte[]? bytes, int offset, int count)
@@ -636,30 +601,26 @@ namespace System.Web.Util
             }
 
             ArgumentNullException.ThrowIfNull(bytes);
-            if (offset < 0 || offset > bytes.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if (count < 0 || offset + count > bytes.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(offset, bytes.Length);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, bytes.Length - offset);
 
             return true;
         }
 
         // Internal class to facilitate URL decoding -- keeps char buffer and byte buffer, allows appending of either chars or bytes
-        private sealed class UrlDecoder
+        private ref struct UrlDecoder
         {
-            private readonly int _bufferSize;
-
             // Accumulate characters in a special array
             private int _numChars;
-            private readonly char[] _charBuffer;
+            private readonly Span<char> _charBuffer;
 
             // Accumulate bytes for decoding into characters in a special array
             private int _numBytes;
-            private byte[]? _byteBuffer;
+            private readonly Span<byte> _byteBuffer;
 
             // Encoding to convert chars to bytes
             private readonly Encoding _encoding;
@@ -668,19 +629,17 @@ namespace System.Web.Util
             {
                 if (_numBytes > 0)
                 {
-                    Debug.Assert(_byteBuffer != null);
-                    _numChars += _encoding.GetChars(_byteBuffer, 0, _numBytes, _charBuffer, _numChars);
+                    Debug.Assert(!_byteBuffer.IsEmpty);
+                    _numChars += _encoding.GetChars(_byteBuffer.Slice(0, _numBytes), _charBuffer.Slice(_numChars));
                     _numBytes = 0;
                 }
             }
 
-            internal UrlDecoder(int bufferSize, Encoding encoding)
+            internal UrlDecoder(Span<char> charBuffer, Span<byte> byteBuffer, Encoding encoding)
             {
-                _bufferSize = bufferSize;
+                _charBuffer = charBuffer;
+                _byteBuffer = byteBuffer;
                 _encoding = encoding;
-
-                _charBuffer = new char[bufferSize];
-                // byte buffer created on demand
             }
 
             internal void AddChar(char ch)
@@ -704,11 +663,6 @@ namespace System.Web.Util
                                 else
                 */
                 {
-                    if (_byteBuffer == null)
-                    {
-                        _byteBuffer = new byte[_bufferSize];
-                    }
-
                     _byteBuffer[_numBytes++] = b;
                 }
             }
@@ -720,7 +674,35 @@ namespace System.Web.Util
                     FlushBytes();
                 }
 
-                return _numChars > 0 ? new string(_charBuffer, 0, _numChars) : "";
+                Span<char> chars = _charBuffer.Slice(0, _numChars);
+
+                const char HIGH_SURROGATE_START = '\ud800';
+                const char LOW_SURROGATE_END = '\udfff';
+
+                // Replace any invalid surrogate chars.
+                int idxOfFirstSurrogate = chars.IndexOfAnyInRange(HIGH_SURROGATE_START, LOW_SURROGATE_END);
+                for (int i = idxOfFirstSurrogate; (uint)i < (uint)chars.Length; i++)
+                {
+                    if (char.IsHighSurrogate(chars[i]))
+                    {
+                        if ((uint)(i + 1) >= (uint)chars.Length || !char.IsLowSurrogate(chars[i + 1]))
+                        {
+                            // High surrogate not followed by a low surrogate.
+                            chars[i] = (char)Rune.ReplacementChar.Value;
+                        }
+                        else
+                        {
+                            i++;
+                        }
+                    }
+                    else if (char.IsLowSurrogate(chars[i]))
+                    {
+                        // Low surrogate not preceded by a high surrogate.
+                        chars[i] = (char)Rune.ReplacementChar.Value;
+                    }
+                }
+
+                return chars.ToString();
             }
         }
     }

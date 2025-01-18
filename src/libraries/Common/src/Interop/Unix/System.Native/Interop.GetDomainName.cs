@@ -31,8 +31,13 @@ internal static partial class Interop
                 throw new InvalidOperationException($"{nameof(GetDomainName)}: {err}");
             }
 
-            // Marshal.PtrToStringAnsi uses UTF8 on Unix.
-            return Marshal.PtrToStringAnsi((IntPtr)name)!;
+            string domainName = Marshal.PtrToStringUTF8((IntPtr)name)!;
+            if (domainName == "(none)")
+            {
+                return string.Empty;
+            }
+
+            return domainName;
         }
     }
 }

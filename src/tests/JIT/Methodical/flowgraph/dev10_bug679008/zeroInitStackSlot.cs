@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
- * The JIT was removing a zero-init, but then emitting an untracked lifetime. 
- * Please run under GCSTRESS = 0x4
- */
+* The JIT was removing a zero-init, but then emitting an untracked lifetime.
+* Please run under GCSTRESS = 0x4
+*/
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
+namespace Test_zeroInitStackSlot_cs
+{
 internal struct SqlBinary
 {
     private byte[] _value;
@@ -29,12 +32,13 @@ internal class WarehouseResultDatabase : IDisposable
 
 internal delegate bool WarehouseRowVersionQueryDelegate(WarehouseResultDatabase database, SqlBinary waterMark);
 
-internal class Repro
+public class Repro
 {
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static void TestEntryPoint()
     {
         new Repro().ProcessResults(Query);
-        return 100;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -64,4 +68,5 @@ internal class Repro
             moreDataAvailable = result;
         }
     }
+}
 }

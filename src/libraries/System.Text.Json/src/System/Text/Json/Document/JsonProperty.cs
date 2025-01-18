@@ -18,10 +18,9 @@ namespace System.Text.Json
         public JsonElement Value { get; }
         private string? _name { get; }
 
-        internal JsonProperty(JsonElement value, string? name = null)
+        internal JsonProperty(JsonElement value)
         {
             Value = value;
-            _name = name;
         }
 
         /// <summary>
@@ -94,6 +93,9 @@ namespace System.Text.Json
             return Value.TextEqualsHelper(utf8Text, isPropertyName: true, shouldUnescape: false);
         }
 
+        internal bool NameIsEscaped => Value.ValueIsEscapedHelper(isPropertyName: true);
+        internal ReadOnlySpan<byte> NameSpan => Value.GetPropertyNameRaw();
+
         /// <summary>
         ///   Write the property into the provided writer as a named JSON object property.
         /// </summary>
@@ -110,9 +112,22 @@ namespace System.Text.Json
         /// <exception cref="ObjectDisposedException">
         ///   The parent <see cref="JsonDocument"/> has been disposed.
         /// </exception>>
-        public void WriteTo(Utf8JsonWriter writer!!)
+        public void WriteTo(Utf8JsonWriter writer)
         {
-            writer.WritePropertyName(Name);
+            if (writer is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(nameof(writer));
+            }
+
+            if (_name is null)
+            {
+                Value.WritePropertyNameTo(writer);
+            }
+            else
+            {
+                writer.WritePropertyName(_name);
+            }
+
             Value.WriteTo(writer);
         }
 
@@ -130,6 +145,7 @@ namespace System.Text.Json
             return Value.GetPropertyRawText();
         }
 
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         private string DebuggerDisplay
             => Value.ValueKind == JsonValueKind.Undefined ? "<Undefined>" : $"\"{ToString()}\"";
     }

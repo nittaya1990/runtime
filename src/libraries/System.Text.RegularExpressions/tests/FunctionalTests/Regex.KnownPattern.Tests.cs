@@ -5,8 +5,12 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Text.RegularExpressions.Tests
@@ -14,10 +18,10 @@ namespace System.Text.RegularExpressions.Tests
     public class RegexKnownPatternTests
     {
         //
-        // These patterns come from the Regex documentation at docs.microsoft.com.
+        // These patterns come from the Regex documentation at https://learn.microsoft.com.
         //
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-example-scanning-for-hrefs
+        // https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-example-scanning-for-hrefs
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Examples_ScanningHrefs(RegexEngine engine)
@@ -55,7 +59,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(m.Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-example-changing-date-formats
+        // https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-example-changing-date-formats
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Examples_MDYtoDMY(RegexEngine engine)
@@ -66,7 +70,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("08-01-2020", r.Replace(dt, "${day}-${month}-${year}"));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/how-to-extract-a-protocol-and-port-number-from-a-url
+        // https://learn.microsoft.com/dotnet/standard/base-types/how-to-extract-a-protocol-and-port-number-from-a-url
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Examples_ExtractProtocolPort(RegexEngine engine)
@@ -104,7 +108,7 @@ namespace System.Text.RegularExpressions.Tests
             }
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/how-to-verify-that-strings-are-in-valid-email-format
+        // https://learn.microsoft.com/dotnet/standard/base-types/how-to-verify-that-strings-are-in-valid-email-format
         [Theory]
         [MemberData(nameof(Docs_Examples_ValidateEmail_TestData))]
         public async Task Docs_Examples_ValidateEmail(RegexEngine engine, string email, bool expectedIsValid)
@@ -118,10 +122,10 @@ namespace System.Text.RegularExpressions.Tests
                     return false;
                 }
 
+                Regex r = await RegexHelpers.GetRegexAsync(engine, @"(@)(.+)$", RegexOptions.None);
+
                 try
                 {
-                    Regex r = await RegexHelpers.GetRegexAsync(engine, @"(@)(.+)$", RegexOptions.None, TimeSpan.FromMilliseconds(200));
-
                     // Normalize the domain part of the email
                     email = r.Replace(email, match =>
                     {
@@ -134,34 +138,22 @@ namespace System.Text.RegularExpressions.Tests
                         return match.Groups[1].Value + domainName;
                     });
                 }
-                catch (RegexMatchTimeoutException)
-                {
-                    return false;
-                }
                 catch (ArgumentException)
                 {
-                    return false;
+                    return false; // for invalid IDN name with IdnMapping
                 }
 
-                try
-                {
-                    Regex r = await RegexHelpers.GetRegexAsync(
-                        engine,
-                        @"^(?("")("".+?(?<!\\)""@)|(([0-9a-z]((\.(?!\.))|[-!#\$%&'\*\+/=\?\^`\{\}\|~\w])*)(?<=[0-9a-z])@))" +
-                        @"(?(\[)(\[(\d{1,3}\.){3}\d{1,3}\])|(([0-9a-z][-0-9a-z]*[0-9a-z]*\.)+[a-z0-9][\-a-z0-9]{0,22}[a-z0-9]))$",
-                        RegexOptions.IgnoreCase,
-                        TimeSpan.FromMilliseconds(250));
+                r = await RegexHelpers.GetRegexAsync(
+                    engine,
+                    @"^(?("")("".+?(?<!\\)""@)|(([0-9a-z]((\.(?!\.))|[-!#\$%&'\*\+/=\?\^`\{\}\|~\w])*)(?<=[0-9a-z])@))" +
+                    @"(?(\[)(\[(\d{1,3}\.){3}\d{1,3}\])|(([0-9a-z][-0-9a-z]*[0-9a-z]*\.)+[a-z0-9][\-a-z0-9]{0,22}[a-z0-9]))$",
+                    RegexOptions.IgnoreCase);
 
-                    return r.IsMatch(email);
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    return false;
-                }
+                return r.IsMatch(email);
             }
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#matched_subexpression
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#matched_subexpression
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_MatchedSubexpression(RegexEngine engine)
@@ -193,7 +185,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(match.NextMatch().Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#named-matched-subexpressions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#named-matched-subexpressions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_NamedMatchedSubexpression1(RegexEngine engine)
@@ -225,7 +217,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(match.NextMatch().Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#named-matched-subexpressions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#named-matched-subexpressions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_NamedMatchedSubexpression2(RegexEngine engine)
@@ -237,7 +229,7 @@ namespace System.Text.RegularExpressions.Tests
             }
 
             const string Pattern = @"\D+(?<digit>\d+)\D+(?<digit>\d+)?";
-            string[] inputs = { "abc123def456", "abc123def" };
+            string[] inputs = ["abc123def456", "abc123def"];
 
             Regex r = await RegexHelpers.GetRegexAsync(engine, Pattern);
 
@@ -272,7 +264,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#balancing-group-definitions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#balancing-group-definitions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_BalancingGroups(RegexEngine engine)
@@ -339,7 +331,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#noncapturing-groups
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#noncapturing-groups
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_NoncapturingGroups(RegexEngine engine)
@@ -355,7 +347,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(1, match.Groups.Count);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#group-options
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#group-options
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_GroupOptions(RegexEngine engine)
@@ -378,7 +370,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(match.NextMatch().Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-positive-lookahead-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-positive-lookahead-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_ZeroWidthPositiveLookaheadAssertions(RegexEngine engine)
@@ -409,7 +401,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("Sunday", match.Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-negative-lookahead-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-negative-lookahead-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_ZeroWidthNegativeLookaheadAssertions(RegexEngine engine)
@@ -432,7 +424,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("ultimate", matches[3].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-positive-lookbehind-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-positive-lookbehind-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_ZeroWidthPositiveLookbehindAssertions(RegexEngine engine)
@@ -453,7 +445,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("09", matches[1].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-negative-lookbehind-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#zero-width-negative-lookbehind-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_ZeroWidthNegativeLookbehindAssertions(RegexEngine engine)
@@ -475,7 +467,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("February 8, 2010", r.Match("Monday, February 8, 2010").Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#nonbacktracking-subexpressions
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#nonbacktracking-subexpressions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_NonbacktrackingSubexpressions(RegexEngine engine)
@@ -511,7 +503,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("aaaa", back.Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#grouping-constructs-and-regular-expression-objects
+        // https://learn.microsoft.com/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#grouping-constructs-and-regular-expression-objects
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_GroupingConstructs_GroupCaptureRelationship(RegexEngine engine)
@@ -560,7 +552,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/api/system.text.regularexpressions.capture?view=netcore-3.1#examples
+        // https://learn.microsoft.com/dotnet/api/system.text.regularexpressions.capture?view=netcore-3.1#examples
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Capture_Sentences(RegexEngine engine)
@@ -618,7 +610,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/api/system.text.regularexpressions.capture.value?view=netcore-3.1
+        // https://learn.microsoft.com/dotnet/api/system.text.regularexpressions.capture.value?view=netcore-3.1
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Capture_ProductNumber(RegexEngine engine)
@@ -630,7 +622,7 @@ namespace System.Text.RegularExpressions.Tests
             }
 
             const string Pattern = @"^([a-z]+)(\d+)?\.([a-z]+(\d)*)$";
-            string[] values = { "AC10", "Za203.CYM", "XYZ.CoA", "ABC.x170" };
+            string[] values = ["AC10", "Za203.CYM", "XYZ.CoA", "ABC.x170"];
 
             Regex r = await RegexHelpers.GetRegexAsync(engine, Pattern, RegexOptions.IgnoreCase);
 
@@ -714,7 +706,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#linear-comparison-without-backtracking
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#linear-comparison-without-backtracking
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Backtracking_LinearComparisonWithoutBacktracking(RegexEngine engine)
@@ -730,7 +722,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(11, matches[0].Index);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#backtracking-with-optional-quantifiers-or-alternation-constructs
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#backtracking-with-optional-quantifiers-or-alternation-constructs
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Backtracking_WithOptionalQuantifiersOrAlternationConstructs(RegexEngine engine)
@@ -749,17 +741,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(m.NextMatch().Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#nonbacktracking-subexpression
-        [Theory]
-        [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/57891")] // takes too long due to backtracking
-        public async Task Docs_Backtracking_WithNestedOptionalQuantifiers_ExcessiveBacktracking(RegexEngine engine)
-        {
-            Regex r = await RegexHelpers.GetRegexAsync(engine, "^(([0-9a-fA-F]{1,4}:)*([0-9a-fA-F]{1,4}))*(::)$");
-            Assert.False(r.IsMatch("b51:4:1DB:9EE1:5:27d60:f44:D4:cd:E:5:0A5:4a:D24:41Ad:"));
-        }
-
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#nonbacktracking-subexpression
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#nonbacktracking-subexpression
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Backtracking_WithNestedOptionalQuantifiers_BacktrackingEliminated(RegexEngine engine)
@@ -773,7 +755,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(r.IsMatch(Input));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#lookbehind-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#lookbehind-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Backtracking_LookbehindAssertions(RegexEngine engine)
@@ -793,17 +775,17 @@ namespace System.Text.RegularExpressions.Tests
             Assert.True(rBehindPattern.IsMatch(Input));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#lookahead-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#lookahead-assertions
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Doesn't support NonBacktracking")]
         [Theory]
-        [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/57891")] // takes too long due to backtracking
+        [InlineData(RegexEngine.NonBacktracking)]
         public async Task Docs_Backtracking_LookaheadAssertions_ExcessiveBacktracking(RegexEngine engine)
         {
             Regex r = await RegexHelpers.GetRegexAsync(engine, @"^(([A-Z]\w*)+\.)*[A-Z]\w*$", RegexOptions.IgnoreCase);
             Assert.False(r.IsMatch("aaaaaaaaaaaaaaaaaaaaaa."));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions#lookahead-assertions
+        // https://learn.microsoft.com/dotnet/standard/base-types/backtracking-in-regular-expressions#lookahead-assertions
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Backtracking_LookaheadAssertions_BacktrackingEliminated(RegexEngine engine)
@@ -818,7 +800,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(r.IsMatch("aaaaaaaaaaaaaaaaaaaaaa."));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
+        // https://learn.microsoft.com/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_LazyQuantifiers(RegexEngine engine)
@@ -836,7 +818,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("107325", match.Groups[1].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
+        // https://learn.microsoft.com/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_PositiveLookahead(RegexEngine engine)
@@ -859,7 +841,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("comes", matches[2].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
+        // https://learn.microsoft.com/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_NegativeLookahead(RegexEngine engine)
@@ -883,7 +865,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("functional", matches[3].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/alternation-constructs-in-regular-expressions#conditional-matching-with-an-expression
+        // https://learn.microsoft.com/dotnet/standard/base-types/alternation-constructs-in-regular-expressions#conditional-matching-with-an-expression
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_ConditionalEvaluation(RegexEngine engine)
@@ -909,7 +891,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(22, matches[1].Index);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
+        // https://learn.microsoft.com/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_RightToLeftMatching(RegexEngine engine)
@@ -937,7 +919,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal("107325", match.Groups[1].Value);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
+        // https://learn.microsoft.com/dotnet/standard/base-types/details-of-regular-expression-behavior#net-framework-engine-capabilities
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EngineCapabilities_PositiveNegativeLookbehind(RegexEngine engine)
@@ -959,7 +941,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(r.IsMatch("me.myself!"));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#inline-options
+        // https://learn.microsoft.com/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#inline-options
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_InlineOptions(RegexEngine engine)
@@ -1006,7 +988,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.Equal(expected, actual.ToString());
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#inline-comment
+        // https://learn.microsoft.com/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#inline-comment
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_InlineComment(RegexEngine engine)
@@ -1031,7 +1013,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.False(match.NextMatch().Success);
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#end-of-line-comment
+        // https://learn.microsoft.com/dotnet/standard/base-types/miscellaneous-constructs-in-regular-expressions#end-of-line-comment
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_EndOfLineComment(RegexEngine engine)
@@ -1044,7 +1026,7 @@ namespace System.Text.RegularExpressions.Tests
             Assert.True(r.IsMatch(Input));
         }
 
-        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/anchors-in-regular-expressions#contiguous-matches-g
+        // https://learn.microsoft.com/dotnet/standard/base-types/anchors-in-regular-expressions#contiguous-matches-g
         [Theory]
         [MemberData(nameof(RegexHelpers.AvailableEngines_MemberData), MemberType = typeof(RegexHelpers))]
         public async Task Docs_Anchors_ContiguousMatches(RegexEngine engine)
@@ -1057,7 +1039,7 @@ namespace System.Text.RegularExpressions.Tests
 
             const string Input = "capybara,squirrel,chipmunk,porcupine";
             const string Pattern = @"\G(\w+\s?\w*),?";
-            string[] expected = new[] { "capybara", "squirrel", "chipmunk", "porcupine" };
+            string[] expected = ["capybara", "squirrel", "chipmunk", "porcupine"];
 
             Regex r = await RegexHelpers.GetRegexAsync(engine, Pattern);
 
@@ -1200,11 +1182,11 @@ namespace System.Text.RegularExpressions.Tests
                 yield return new object[] { engine, "IsValidCSharpName", true };
                 yield return new object[] { engine, "_IsValidCSharpName", true };
                 yield return new object[] { engine, "__", true };
-                yield return new object[] { engine, "a\u2169", true  }; // \u2169 is in {Nl}
-                yield return new object[] { engine, "\u2169b", true  }; // \u2169 is in {Nl}
-                yield return new object[] { engine, "a\u0600", true  }; // \u0600 is in {Cf}
+                yield return new object[] { engine, "a\u2169", true };  // \u2169 is in {Nl}
+                yield return new object[] { engine, "\u2169b", true };  // \u2169 is in {Nl}
+                yield return new object[] { engine, "a\u0600", true };  // \u0600 is in {Cf}
                 yield return new object[] { engine, "\u0600b", false }; // \u0600 is in {Cf}
-                yield return new object[] { engine, "a\u0300", true  }; // \u0300 is in {Mn}
+                yield return new object[] { engine, "a\u0300", true };  // \u0300 is in {Mn}
                 yield return new object[] { engine, "\u0300b", false }; // \u0300 is in {Mn}
                 yield return new object[] { engine, "https://foo.com:443/bar/17/groups/0ad1/providers/Network/public/4e-ip?version=16", false };
                 yield return new object[] { engine, "david.jones@proseware.com", false };
@@ -1391,6 +1373,126 @@ namespace System.Text.RegularExpressions.Tests
         }
 
         //
+        // Complicated regex patterns from https://github.com/kobi/RecreationalRegex
+        // MIT License
+        // Copyright (c) 2022 Kobi Leidershnider
+        //
+
+        public static IEnumerable<object[]> RecreationalRegex_Rectangle_MemberData()
+        {
+            foreach (RegexEngine engine in RegexHelpers.AvailableEngines)
+            {
+                if (RegexHelpers.IsNonBacktracking(engine))
+                {
+                    // NonBacktracking doesn't support lookarounds or balancing groups
+                    continue;
+                }
+
+                yield return new object[] { engine, "\r\n1\r\n1\r\n1\r\n\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n11\r\n11\r\n\r\n2\r\n2\r\n\r\n~~~\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n11\r\n11\r\n\r\n22\r\n\r\n~~~\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n11\r\n11\r\n\r\n2222\r\n\r\n33\r\n\r\n4\r\n\r\n5\r\n\r\n~~~~\r\n~~~~\r\n~~~~\r\n", true };
+                yield return new object[] { engine, "\r\n11\r\n11\r\n11\r\n\r\n~~~\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n111\r\n\r\n~\r\n~\r\n~\r\n", true };
+                yield return new object[] { engine, "\r\n111\r\n\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n111\r\n111\r\n\r\n~~~\r\n~~~\r\n", true };
+                yield return new object[] { engine, "\r\n1111\r\n\r\n222\r\n222\r\n\r\n333333\r\n\r\n444\r\n444\r\n\r\n5555\r\n\r\n666666\r\n\r\n7777\r\n7777\r\n7777\r\n\r\n6\r\n\r\n9\r\n\r\n88\r\n88\r\n\r\naaaa\r\naaaa\r\n\r\n~~~~~~~~~~\r\n~~~~~~~~~~\r\n~~~~~~~~~~\r\n~~~~~~~~~~\r\n~~~~~~~~~~\r\n", true };
+                yield return new object[] { engine, "\r\n1111\r\n\r\n2222\r\n\r\n3\r\n3\r\n3\r\n3\r\n\r\n4\r\n4\r\n4\r\n4\r\n\r\nxxx\r\nxxx\r\nxxx\r\n\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n", true };
+                yield return new object[] { engine, "\r\n1111\r\n\r\n2222\r\n\r\n3333\r\n\r\n4444\r\n\r\nxxx\r\nxxx\r\nxxx\r\n\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n~~~~~\r\n", true };
+                yield return new object[] { engine, "\r\n2\r\n2\r\n\r\n11\r\n11\r\n\r\n~~\r\n~~\r\n", true };
+
+                yield return new object[] { engine, "\r\n1\r\n\r\n~~\r\n", false };
+                yield return new object[] { engine, "\r\n11\r\n11\r\n\r\n2222\r\n\r\n33\r\n\r\n4\r\n\r\n5\r\n\r\n~~~~\r\n~~~~\r\n~~~~\r\n~~~~\r\n", false };
+                yield return new object[] { engine, "\r\n111\r\n\r\n~~\r\n", false };
+                yield return new object[] { engine, "\r\n111\r\n\r\n~~~\r\n~~~\r\n", false };
+                yield return new object[] { engine, "\r\n111\r\n\r\n222\r\n\r\n33\r\n\r\n~~~~\r\n", false };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(RecreationalRegex_Rectangle_MemberData))]
+        [OuterLoop("May take several seconds")]
+        public async Task RecreationalRegex_Rectangle(RegexEngine engine, string input, bool expectedMatch)
+        {
+            Regex r = await RegexHelpers.GetRegexAsync(engine, @"
+                \A
+                (?=(?<NextPos>[^~]*))       # \k<NextPos> always matches the position *before* the next free tilde.
+                (?:
+                    (?:
+                        (?<IndexLength>.)+?             # Match n characters. We will use rectangle number n in position <Index>.
+                                                        # 0 is not an option - we need some shape to be first, second, third, etc.
+                        (?<=\A(?=(?<Index>(?<-IndexLength>.)+)).*)    # Capture into <Index> the first n characters.
+                        (?<=\A(?<CurrentIndex>\k<Index>).*)           # Copy Index into CurrentIndex
+                        (?=.*\Z                                       # Ensure <Index> is unique. We cannot use the same rectangle twice
+                            (?<!(?=\A\k<Index>(?<=\A\k<CurrentIndex>))\A.*(?<-Index>.)+) 
+                        )
+                        (?(IndexLength)(?!)|)   # Not needed, just an assert.
+        
+                        #Copy the shape of rectangle <Index> to the target area.
+                        #Find rectangle number <Index>
+                        (?<=(?=.(?<IndexLength>.)*?(?<=\A\k<Index>))\A.*)    # Populate <IndexLength> again.
+                             # ^-- we are skipping over one character. We want to reach rectangle number <IndexLength>,
+                             #     so we're skiping over <IndexLength>-1 rectangles
+                        (?<=(?=\s*(?<-IndexLength>(?:\w+\r?\n)+\r?\n)*(?<=(?<RectangleStart>.*))\w)\A.*) # Capture starting position of this rectangle.
+                        (?(IndexLength)(?!))
+                        (?:
+                            (?<Rotate>)     # Capture 0 characters into <Rotate>. Indicates that we are not rotating this rectangle.
+                            |
+                            (?<Rotate>.)    # Capture 1 character into <Rotate>. Indicates that we are rotating this rectangle.
+                            (?<TempRotate>) # Also mark <TempRotate>. This is a flag that is cleared for each rectangle. Allows conditional matching.
+                        )
+                        (?<=(?=\k<NextPos>(?<=(?<X>~*)))\A.*)   # Init <X> with the number of tildes to the left of the starting position.
+                        # Basically `(?:\w+\n)+\n` to match the whole rectangle.
+                        (?<=(?=\k<RectangleStart>   # Go to the position before the first character in the current rectangle.
+                            (?<Rectangle>           # Capture this rectangle, just so we have it while printing the solution.
+                                (?=(?(TempRotate)(?<TempHeight>\w)|(?<TempWidth>\w))+\r?\n) 
+                                (?:  
+                                    (?<SolutionChar>\w)+
+                                    (?(TempRotate)(?<TempWidth>\r?\n)|(?<TempHeight>\r?\n))
+                                )+
+                            )
+                            \r?\n        # Match until we reach the end of this rectangle.
+                        )\A.*)
+                        (?<=(?=[^~]+(?<Width>(?<-TempWidth>~)+))\A.*)(?(TempWidth)(?!)) # Capture as many tildes as the current width.
+                        (?=(?<-TempHeight>\S*(?<Height>\r?\n))+)(?(TempHeight)(?!))     # Capture newlines into stack <Height>.
+                        (?(TempRotate)(?<-TempRotate>))                                 # Clear <TempRotate>.
+                        # Try to fit the rectangle into empty positions in the target rectangle.
+                        (?<=(?=\k<NextPos>
+                            (?:
+                                (?:                         # Match tildes
+                                    ~
+                                    (?<=(?<Filled>\A.*))               # Push the current position to <Filled>
+                                    (?<=(?<TempCurrentFilled>\A.*))    # Also push the current position to <TempCurrentFilled>
+                                    (?=.*\Z                            # Ensure <Filled> is unique. No overlap between rectangles.
+                                        (?<!(?=\A\k<Filled>(?<=\A\k<TempCurrentFilled>))\A.*(?<-Filled>.)+) 
+                                    )
+                                )+?
+                                (?<=^\k<X>\k<Width>)        # Match exactly <Width> tildes.
+                                ~*(?<-Height>\k<Height>\k<X>|\r?\n)     # Match until the same position on the net line (or just the last line).
+                            )+
+                            (?(Height)(?!))
+                        )\A.*)
+                        # Find the next free position - <NextPos>.
+                        (?<=(?=.*?                      
+                            (?<=(?<NextPos>\A.*))       # <NextPos> is the position before the next free tilde.
+                            ~
+                            (?<=(?<TempNextPos>\A.*))   # We compare it to <Filled>, which is the position including the tilde.
+                            (?=.*\Z
+                                (?<!(?=\A\k<Filled>(?<=\A\k<TempNextPos>))\A.*(?<-Filled>.)*) 
+                            )
+                            |
+                            .*\r?\n\Z (?<Done>)         # If we cannot find more an empty position it means we are done. Set the <Done> flag.
+                        )\A.*)
+        
+                    )
+                )+
+                (?(Done)|(?!))
+                ", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.IgnorePatternWhitespace);
+
+            Assert.Equal(expectedMatch, r.IsMatch(input));
+        }
+
+        //
         // dotnet/runtime-assets contains a set a regular expressions sourced from
         // permissively-licensed packages.  Validate Regex behavior with those expressions.
         //
@@ -1424,7 +1526,7 @@ namespace System.Text.RegularExpressions.Tests
                 (Options & ~RegexOptions.Compiled) == (other.Options & ~RegexOptions.Compiled); // Compiled doesn't affect semantics, so remove it from equality for our purposes
         }
 
-#if NETCOREAPP
+#if NET
         [OuterLoop("Takes many seconds")]
         [Fact]
         public async Task PatternsDataSet_ConstructRegexForAll_NonBacktracking()
@@ -1449,14 +1551,70 @@ namespace System.Text.RegularExpressions.Tests
         }
 
         [OuterLoop("Takes minutes to generate and compile thousands of expressions")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.Is64BitProcess))] // consumes a lot of memory
-        public void PatternsDataSet_ConstructRegexForAll_SourceGenerated()
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.Is64BitProcess), nameof(PlatformDetection.IsNotMobile), nameof(PlatformDetection.IsNotBrowser))] // consumes a lot of memory, doesn't work on mobile
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/80018", TestRuntimes.Mono)]
+        public async Task PatternsDataSet_ConstructRegexForAll_SourceGenerated()
         {
-            Parallel.ForEach(s_patternsDataSet.Value.Chunk(50), chunk =>
+            await Parallel.ForEachAsync(s_patternsDataSet.Value.Chunk(50), async (chunk, ct) =>
             {
-                RegexHelpers.GetRegexesAsync(RegexEngine.SourceGenerated,
-                    chunk.Select(r => (r.Pattern, (RegexOptions?)r.Options, (TimeSpan?)null)).ToArray()).GetAwaiter().GetResult();
+                await RegexHelpers.GetRegexesAsync(RegexEngine.SourceGenerated,
+                    chunk.Select(r => (r.Pattern, (CultureInfo?)null, (RegexOptions?)r.Options, (TimeSpan?)null)).ToArray());
             });
+        }
+
+        [ActiveIssue("Manual execution only for now until stability is improved")]
+        [OuterLoop("Super slow")]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.Is64BitProcess))] // consumes a lot of memory
+        public async Task PatternsDataSet_GenerateInputsWithNonBacktracking_MatchWithAllEngines()
+        {
+            MethodInfo? sampleMatchesMI = typeof(Regex).GetMethod("SampleMatches", BindingFlags.NonPublic | BindingFlags.Instance) ??
+                throw new SkipTestException("Could not find Regex.SampleMatches");
+            Func<Regex, int, int, IEnumerable<string>> sampleMatches = sampleMatchesMI.CreateDelegate<Func<Regex, int, int, IEnumerable<string>>>();
+
+            DataSetExpression[] entries = s_patternsDataSet.Value;
+            for (int i = 0; i < entries.Length; i++)
+            {
+                DataSetExpression entry = entries[i];
+
+                Regex generator;
+                try
+                {
+                    generator = new Regex(entry.Pattern, RegexHelpers.RegexOptionNonBacktracking | entry.Options);
+                }
+                catch (Exception e) when (e is NotSupportedException or ArgumentOutOfRangeException)
+                {
+                    continue;
+                }
+
+                const int NumInputs = 3;
+                const int Seed = 42;
+                IEnumerable<string> expectedMatchInputs = null;
+                try
+                {
+#pragma warning disable SYSLIB0046 // temporary until some use of SampleMatches no longer hangs
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    ControlledExecution.Run(() => expectedMatchInputs = sampleMatches(generator, NumInputs, Seed), cts.Token);
+#pragma warning restore SYSLIB0046
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.Error.WriteLine($"*** SampleMatches hung on entry {i} ***");
+                    continue;
+                }
+
+                foreach (RegexEngine engine in RegexHelpers.AvailableEngines)
+                {
+                    Regex r = engine == RegexEngine.NonBacktracking ?
+                        generator :
+                        await RegexHelpers.GetRegexAsync(engine, entry.Pattern, entry.Options);
+
+                    foreach (string input in expectedMatchInputs)
+                    {
+                        Console.WriteLine($"[{i}-{engine}] {r} <= {input}");
+                        Assert.True(r.IsMatch(input));
+                    }
+                }
+            }
         }
 #endif
     }

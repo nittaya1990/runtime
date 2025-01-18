@@ -13,29 +13,42 @@ namespace System.Linq
 
         public static bool Contains<TSource>(this IEnumerable<TSource> source, TSource value, IEqualityComparer<TSource>? comparer)
         {
-            if (source == null)
+            if (source is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.source);
             }
 
-            if (comparer == null)
+            if (source.TryGetSpan(out ReadOnlySpan<TSource> span))
             {
-                foreach (TSource element in source)
-                {
-                    if (EqualityComparer<TSource>.Default.Equals(element, value)) // benefits from devirtualization and likely inlining
-                    {
-                        return true;
-                    }
-                }
+                return span.Contains(value, comparer);
             }
-            else
+
+            if (comparer is null)
             {
-                foreach (TSource element in source)
+                // While it's tempting, this must not delegate to ICollection<TSource>.Contains, as the historical semantics
+                // of a null comparer with this method are to use EqualityComparer<TSource>.Default, and that might differ
+                // from the semantics encoded in ICollection<TSource>.Contains.
+
+                if (typeof(TSource).IsValueType)
                 {
-                    if (comparer.Equals(element, value))
+                    foreach (TSource element in source)
                     {
-                        return true;
+                        if (EqualityComparer<TSource>.Default.Equals(element, value))
+                        {
+                            return true;
+                        }
                     }
+
+                    return false;
+                }
+
+                comparer = EqualityComparer<TSource>.Default;
+            }
+            foreach (TSource element in source)
+            {
+                if (comparer.Equals(element, value))
+                {
+                    return true;
                 }
             }
 

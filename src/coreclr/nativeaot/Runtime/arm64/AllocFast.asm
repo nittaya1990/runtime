@@ -30,7 +30,7 @@
         ;; Determine whether the end of the object would lie outside of the current allocation context. If so,
         ;; we abandon the attempt to allocate the object directly and fall back to the slow helper.
         add         x2, x2, x12
-        ldr         x13, [x1, #OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        ldr         x13, [x1, #OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         cmp         x2, x13
         bhi         RhpNewFast_RarePath
 
@@ -47,8 +47,6 @@ RhpNewFast_RarePath
         mov         x1, #0
         b           RhpNewObject
     LEAF_END RhpNewFast
-
-    INLINE_GETTHREAD_CONSTANT_POOL
 
 ;; Allocate non-array object with finalizer.
 ;;  x0 == MethodTable
@@ -120,7 +118,7 @@ NewOutOfMemory
         ;; Determine whether the end of the object would lie outside of the current allocation context. If so,
         ;; we abandon the attempt to allocate the object directly and fall back to the slow helper.
         add         x2, x2, x12
-        ldr         x12, [x3, #OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        ldr         x12, [x3, #OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         cmp         x2, x12
         bhi         RhpNewArrayRare
 
@@ -148,9 +146,6 @@ StringSizeOverflow
         mov         x1, #1                  ; Indicate that we should throw OverflowException
         b           RhExceptionHandling_FailedAllocation
     LEAF_END    RhNewString
-
-    INLINE_GETTHREAD_CONSTANT_POOL
-
 
 ;; Allocate one dimensional, zero based array (SZARRAY).
 ;;  x0 == MethodTable
@@ -184,7 +179,7 @@ StringSizeOverflow
         ;; Determine whether the end of the object would lie outside of the current allocation context. If so,
         ;; we abandon the attempt to allocate the object directly and fall back to the slow helper.
         add         x2, x2, x12
-        ldr         x12, [x3, #OFFSETOF__Thread__m_alloc_context__alloc_limit]
+        ldr         x12, [x3, #OFFSETOF__Thread__m_eeAllocContext__combined_limit]
         cmp         x2, x12
         bhi         RhpNewArrayRare
 
@@ -212,8 +207,6 @@ ArraySizeOverflow
         mov         x1, #1                  ; Indicate that we should throw OverflowException
         b           RhExceptionHandling_FailedAllocation
     LEAF_END    RhpNewArray
-
-    INLINE_GETTHREAD_CONSTANT_POOL
 
 ;; Allocate one dimensional, zero based array (SZARRAY) using the slow path that calls a runtime helper.
 ;;  x0 == MethodTable

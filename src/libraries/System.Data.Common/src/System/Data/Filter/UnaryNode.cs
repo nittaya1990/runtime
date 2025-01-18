@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Data.Common;
 using System.Data.SqlTypes;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace System.Data
@@ -139,7 +139,7 @@ namespace System.Data
                     }
                     else
                     {
-                        if (DataExpression.ToBoolean(vl) != false)
+                        if (DataExpression.ToBoolean(vl))
                             return false;
                         return true;
                     }

@@ -17,6 +17,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Xunit;
+using System.Runtime.Serialization.Tests;
 
 public static partial class DataContractJsonSerializerTests
 {
@@ -140,7 +141,9 @@ public static partial class DataContractJsonSerializerTests
     public static void DCJS_DoubleAsRoot()
     {
         Assert.StrictEqual(-1.2, SerializeAndDeserialize<double>(-1.2, "-1.2"));
-        Assert.StrictEqual(0, SerializeAndDeserialize<double>(0, "0"));
+        Assert.StrictEqual(0.0, SerializeAndDeserialize<double>(0.0, "0"));
+        Assert.StrictEqual(0.0, SerializeAndDeserialize<double>(-0.0, "-0"));
+        Assert.Equal("-0", SerializeAndDeserialize<double>(-0.0, "-0").ToString());
         Assert.StrictEqual(2.3, SerializeAndDeserialize<double>(2.3, "2.3"));
         Assert.StrictEqual(double.MinValue, SerializeAndDeserialize<double>(double.MinValue, "-1.7976931348623157E+308"));
         Assert.StrictEqual(double.MaxValue, SerializeAndDeserialize<double>(double.MaxValue, "1.7976931348623157E+308"));
@@ -150,7 +153,9 @@ public static partial class DataContractJsonSerializerTests
     public static void DCJS_FloatAsRoot()
     {
         Assert.StrictEqual((float)-1.2, SerializeAndDeserialize<float>((float)-1.2, "-1.2"));
-        Assert.StrictEqual((float)0, SerializeAndDeserialize<float>((float)0, "0"));
+        Assert.StrictEqual((float)0.0, SerializeAndDeserialize<float>((float)0.0, "0"));
+        Assert.StrictEqual((float)0.0, SerializeAndDeserialize<float>((float)-0.0, "-0"));
+        Assert.Equal("-0", SerializeAndDeserialize<float>((float)-0.0, "-0").ToString());
         Assert.StrictEqual((float)2.3, SerializeAndDeserialize<float>((float)2.3, "2.3"));
     }
 
@@ -1664,18 +1669,18 @@ public static partial class DataContractJsonSerializerTests
     }
 
     [Fact]
-    public static void DCJS_ClassImplementingIXmlSerialiable()
+    public static void DCJS_ClassImplementingIXmlSerializable()
     {
-        ClassImplementingIXmlSerialiable value = new ClassImplementingIXmlSerialiable() { StringValue = "Foo" };
-        var deserializedValue = SerializeAndDeserialize<ClassImplementingIXmlSerialiable>(value, @"""<ClassImplementingIXmlSerialiable StringValue=\""Foo\"" BoolValue=\""True\"" xmlns=\""http:\/\/schemas.datacontract.org\/2004\/07\/SerializationTypes\""\/>""");
+        ClassImplementingIXmlSerializable value = new ClassImplementingIXmlSerializable() { StringValue = "Foo" };
+        var deserializedValue = SerializeAndDeserialize<ClassImplementingIXmlSerializable>(value, @"""<ClassImplementingIXmlSerializable StringValue=\""Foo\"" BoolValue=\""True\"" xmlns=\""http:\/\/schemas.datacontract.org\/2004\/07\/SerializationTypes\""\/>""");
         Assert.Equal(value.StringValue, deserializedValue.StringValue);
     }
 
     [Fact]
-    public static void DCJS_TypeWithNestedGenericClassImplementingIXmlSerialiable()
+    public static void DCJS_TypeWithNestedGenericClassImplementingIXmlSerializable()
     {
-        TypeWithNestedGenericClassImplementingIXmlSerialiable.NestedGenericClassImplementingIXmlSerialiable<bool> value = new TypeWithNestedGenericClassImplementingIXmlSerialiable.NestedGenericClassImplementingIXmlSerialiable<bool>() { StringValue = "Foo" };
-        var deserializedValue = SerializeAndDeserialize<TypeWithNestedGenericClassImplementingIXmlSerialiable.NestedGenericClassImplementingIXmlSerialiable<bool>>(value, @"""<TypeWithNestedGenericClassImplementingIXmlSerialiable.NestedGenericClassImplementingIXmlSerialiableOfbooleanRvdAXEcW StringValue=\""Foo\"" xmlns=\""http:\/\/schemas.datacontract.org\/2004\/07\/SerializationTypes\""\/>""");
+        TypeWithNestedGenericClassImplementingIXmlSerializable.NestedGenericClassImplementingIXmlSerializable<bool> value = new TypeWithNestedGenericClassImplementingIXmlSerializable.NestedGenericClassImplementingIXmlSerializable<bool>() { StringValue = "Foo" };
+        var deserializedValue = SerializeAndDeserialize<TypeWithNestedGenericClassImplementingIXmlSerializable.NestedGenericClassImplementingIXmlSerializable<bool>>(value, @"""<TypeWithNestedGenericClassImplementingIXmlSerializable.NestedGenericClassImplementingIXmlSerializableOfbooleanRvdAXEcW StringValue=\""Foo\"" xmlns=\""http:\/\/schemas.datacontract.org\/2004\/07\/SerializationTypes\""\/>""");
         Assert.Equal(value.StringValue, deserializedValue.StringValue);
     }
 
@@ -2354,7 +2359,7 @@ public static partial class DataContractJsonSerializerTests
         }
         catch (Exception e)
         {
-            Assert.True(false, $"Error occurred when comparing results: {Environment.NewLine}{e.Message}{Environment.NewLine}Expected: {baseline1}{Environment.NewLine}Actual: {actualOutput1}");
+            Assert.Fail($"Error occurred when comparing results: {Environment.NewLine}{e.Message}{Environment.NewLine}Expected: {baseline1}{Environment.NewLine}Actual: {actualOutput1}");
         }
 
 
@@ -2383,7 +2388,7 @@ public static partial class DataContractJsonSerializerTests
         }
         catch (Exception e)
         {
-            Assert.True(false, $"Error occurred when comparing results: {Environment.NewLine}{e.Message}{Environment.NewLine}Expected: {baseline2}{Environment.NewLine}Actual: {actualOutput2}");
+            Assert.Fail($"Error occurred when comparing results: {Environment.NewLine}{e.Message}{Environment.NewLine}Expected: {baseline2}{Environment.NewLine}Actual: {actualOutput2}");
         }
     }
 
@@ -2660,7 +2665,7 @@ public static partial class DataContractJsonSerializerTests
     {
         var jsonTypes = new JsonTypes();
         var dateTime = new DateTime(DateTime.Now.Year, 12, 1);
-        var expectedString = "\"" + dateTime.ToString("MMMM") + "\"";
+        var expectedString = $"\"{dateTime:MMMM}\"";
         var dcjsSettings = new DataContractJsonSerializerSettings()
         {
             DateTimeFormat = jsonTypes.DTF_MMMM,
@@ -2973,7 +2978,7 @@ public static partial class DataContractJsonSerializerTests
             try
             {
                 jsonReader.Dispose();
-                Assert.False(true);
+                Assert.Fail();
             }
             catch (Exception ex)
             {

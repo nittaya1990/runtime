@@ -9,12 +9,13 @@ using System.Reflection;
 using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
+using System.Runtime.InteropServices.ObjectiveC;
 using System.Runtime.Loader;
 using System.Text;
 using System.Threading;
 
-using Internal.Runtime;
-using Internal.Runtime.Augments;
+using Internal.Reflection.Augments;
 
 namespace Internal.Runtime.CompilerHelpers
 {
@@ -31,30 +32,6 @@ namespace Internal.Runtime.CompilerHelpers
         public static unsafe string AnsiStringToString(byte* buffer)
         {
             return PInvokeMarshal.AnsiStringToString(buffer);
-        }
-
-        internal static unsafe byte* StringToUTF8String(string str)
-        {
-            if (str == null)
-                return null;
-
-            fixed (char* charsPtr = str)
-            {
-                int length = Encoding.UTF8.GetByteCount(str);
-                byte* bytesPtr = (byte*)Marshal.AllocCoTaskMem(checked(length + 1));
-                int bytes = Encoding.UTF8.GetBytes(charsPtr, str.Length, bytesPtr, length);
-                Debug.Assert(bytes == length);
-                bytesPtr[length] = 0;
-                return bytesPtr;
-            }
-        }
-
-        public static unsafe string UTF8StringToString(byte* buffer)
-        {
-            if (buffer == null)
-                return null;
-
-            return Encoding.UTF8.GetString(buffer, string.strlen(buffer));
         }
 
         internal static unsafe void StringToByValAnsiString(string str, byte* pNative, int charCount, bool bestFit, bool throwOnUnmappableChar)
@@ -79,8 +56,8 @@ namespace Internal.Runtime.CompilerHelpers
 
         public static unsafe string ByValAnsiStringToString(byte* buffer, int length)
         {
-            int end = SpanHelpers.IndexOf(ref *(byte*)buffer, 0, length);
-            if (end != -1)
+            int end = new ReadOnlySpan<byte>(buffer, length).IndexOf((byte)0);
+            if (end >= 0)
             {
                 length = end;
             }
@@ -101,8 +78,8 @@ namespace Internal.Runtime.CompilerHelpers
 
         internal static unsafe string UnicodeToStringFixedArray(ushort* buffer, int length)
         {
-            int end = SpanHelpers.IndexOf(ref *(char*)buffer, '\0', length);
-            if (end != -1)
+            int end = new ReadOnlySpan<char>(buffer, length).IndexOf('\0');
+            if (end >= 0)
             {
                 length = end;
             }
@@ -121,7 +98,7 @@ namespace Internal.Runtime.CompilerHelpers
             {
                 return null;
             }
-            return (byte *)CoTaskMemAllocAndZeroMemory(checked((sb.Capacity + 2) * Marshal.SystemMaxDBCSCharSize));
+            return (byte*)CoTaskMemAllocAndZeroMemory(checked((sb.Capacity + 2) * Marshal.SystemMaxDBCSCharSize));
         }
 
         public static unsafe char* AllocMemoryForUnicodeStringBuilder(StringBuilder sb)
@@ -130,7 +107,7 @@ namespace Internal.Runtime.CompilerHelpers
             {
                 return null;
             }
-            return (char *)CoTaskMemAllocAndZeroMemory(checked((sb.Capacity + 2) * 2));
+            return (char*)CoTaskMemAllocAndZeroMemory(checked((sb.Capacity + 2) * 2));
         }
 
         public static unsafe byte* AllocMemoryForAnsiCharArray(char[] chArray)
@@ -322,7 +299,7 @@ namespace Internal.Runtime.CompilerHelpers
                 dllImportSearchPath = pCell->DllImportSearchPathAndCookie & ~InteropDataConstants.HasDllImportSearchPath;
             }
 
-            Assembly callingAssembly = RuntimeAugments.Callbacks.GetAssemblyForHandle(new RuntimeTypeHandle(pCell->CallingAssemblyType));
+            Assembly callingAssembly = ReflectionAugments.GetAssemblyForHandle(new RuntimeTypeHandle(pCell->CallingAssemblyType));
 
             // First check if there's a NativeLibrary callback and call it to attempt the resolution
             IntPtr hModule = NativeLibrary.LoadLibraryCallbackStub(moduleName, callingAssembly, hasDllImportSearchPath, dllImportSearchPath);
@@ -333,15 +310,15 @@ namespace Internal.Runtime.CompilerHelpers
 
                 hModule = NativeLibrary.LoadBySearch(
                     callingAssembly,
-                    searchAssemblyDirectory: false,
-                    dllImportSearchPathFlags: 0,
+                    searchAssemblyDirectory: (dllImportSearchPath & (uint)DllImportSearchPath.AssemblyDirectory) != 0,
+                    dllImportSearchPathFlags: (int)(dllImportSearchPath & ~(uint)DllImportSearchPath.AssemblyDirectory),
                     ref loadLibErrorTracker,
                     moduleName);
 
                 if (hModule == IntPtr.Zero)
                 {
                     // Built-in rules didn't resolve the library. Use AssemblyLoadContext as a last chance attempt.
-                    AssemblyLoadContext? loadContext = AssemblyLoadContext.GetLoadContext(callingAssembly);
+                    AssemblyLoadContext loadContext = AssemblyLoadContext.GetLoadContext(callingAssembly)!;
                     hModule = loadContext.GetResolvedUnmanagedDll(callingAssembly, moduleName);
                 }
 
@@ -366,29 +343,39 @@ namespace Internal.Runtime.CompilerHelpers
             byte* methodName = (byte*)pCell->MethodName;
             IntPtr pTarget;
 
+#if FEATURE_OBJCMARSHAL
+#pragma warning disable CA1416
+            if (pCell->IsObjectiveCMessageSend && ObjectiveCMarshal.TryGetGlobalMessageSendCallback(pCell->ObjectiveCMessageSendFunction, out pTarget))
+            {
+                Debug.Assert(pTarget != IntPtr.Zero);
+                pCell->Target = pTarget;
+                return;
+            }
+#pragma warning restore CA1416
+#endif
+
 #if TARGET_WINDOWS
             CharSet charSetMangling = pCell->CharSetMangling;
             if (charSetMangling == 0)
             {
                 // Look for the user-provided entry point name only
-                pTarget = Interop.Kernel32.GetProcAddress(hModule, methodName);
+                pTarget = GetProcAddressWithMangling(hModule, methodName, pCell);
             }
-            else
-            if (charSetMangling == CharSet.Ansi)
+            else if (charSetMangling == CharSet.Ansi)
             {
                 // For ANSI, look for the user-provided entry point name first.
                 // If that does not exist, try the charset suffix.
-                pTarget = Interop.Kernel32.GetProcAddress(hModule, methodName);
+                pTarget = GetProcAddressWithMangling(hModule, methodName, pCell);
                 if (pTarget == IntPtr.Zero)
-                    pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'A');
+                    pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'A', pCell);
             }
             else
             {
                 // For Unicode, look for the entry point name with the charset suffix first.
                 // The 'W' API takes precedence over the undecorated one.
-                pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'W');
+                pTarget = GetProcAddressWithSuffix(hModule, methodName, (byte)'W', pCell);
                 if (pTarget == IntPtr.Zero)
-                    pTarget = Interop.Kernel32.GetProcAddress(hModule, methodName);
+                    pTarget = GetProcAddressWithMangling(hModule, methodName, pCell);
             }
 #else
             pTarget = Interop.Sys.GetProcAddress(hModule, methodName);
@@ -403,23 +390,43 @@ namespace Internal.Runtime.CompilerHelpers
         }
 
 #if TARGET_WINDOWS
-        private static unsafe IntPtr GetProcAddressWithSuffix(IntPtr hModule, byte* methodName, byte suffix)
+        private static unsafe IntPtr GetProcAddressWithMangling(IntPtr hModule, byte* methodName, MethodFixupCell* pCell)
+        {
+            IntPtr pMethod = Interop.Kernel32.GetProcAddress(hModule, methodName);
+#if TARGET_X86
+            if (pMethod == IntPtr.Zero && pCell->IsStdcall)
+            {
+                int nameLength = string.strlen(methodName);
+                // We need to add an extra bytes for the prefix, null terminator and stack size suffix:
+                // - 1 byte for '_' prefix
+                // - 1 byte for '@' suffix
+                // - up to 10 bytes for digits (maximum positive number representable by uint)
+                // - 1 byte for NULL termination character
+                byte* probedMethodName = stackalloc byte[nameLength + 13];
+                probedMethodName[0] = (byte)'_';
+                Unsafe.CopyBlock(probedMethodName + 1, methodName, (uint)nameLength);
+                probedMethodName[nameLength + 1] = (byte)'@';
+                pCell->SignatureBytes.TryFormat(new Span<byte>(probedMethodName + 2 + nameLength, 10), out int bytesWritten);
+                probedMethodName[nameLength + 2 + bytesWritten] = 0;
+                pMethod = Interop.Kernel32.GetProcAddress(hModule, probedMethodName);
+            }
+#else
+            _ = pCell;
+#endif
+            return pMethod;
+        }
+
+        private static unsafe IntPtr GetProcAddressWithSuffix(IntPtr hModule, byte* methodName, byte suffix, MethodFixupCell* pCell)
         {
             int nameLength = string.strlen(methodName);
 
             // We need to add an extra byte for the suffix, and an extra byte for the null terminator
             byte* probedMethodName = stackalloc byte[nameLength + 2];
-
-            for (int i = 0; i < nameLength; i++)
-            {
-                probedMethodName[i] = methodName[i];
-            }
-
+            Unsafe.CopyBlock(probedMethodName, methodName, (uint)nameLength);
+            probedMethodName[nameLength] = suffix;
             probedMethodName[nameLength + 1] = 0;
 
-            probedMethodName[nameLength] = suffix;
-
-            return Interop.Kernel32.GetProcAddress(hModule, probedMethodName);
+            return GetProcAddressWithMangling(hModule, probedMethodName, pCell);
         }
 #endif
 
@@ -430,13 +437,8 @@ namespace Internal.Runtime.CompilerHelpers
             // Marshal.AllocCoTaskMem will throw OOMException if out of memory
             Debug.Assert(ptr != null);
 
-            Buffer.ZeroMemory(ptr, (uint)size);
+            NativeMemory.Clear(ptr, (uint)size);
             return ptr;
-        }
-
-        internal static unsafe void CoTaskMemFree(void* p)
-        {
-            Marshal.FreeCoTaskMem((IntPtr)p);
         }
 
         /// <summary>
@@ -505,10 +507,10 @@ namespace Internal.Runtime.CompilerHelpers
 
         [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
             Justification = "This API will be called from compiler generated code only.")]
-        internal static int AsAnyGetNativeSize(object o)
+        internal static unsafe int AsAnyGetNativeSize(object o)
         {
             // Array, string and StringBuilder are not implemented.
-            if (o.EETypePtr.IsArray ||
+            if (o.GetMethodTable()->IsArray ||
                 o is string ||
                 o is StringBuilder)
             {
@@ -521,10 +523,10 @@ namespace Internal.Runtime.CompilerHelpers
 
         [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
             Justification = "This API will be called from compiler generated code only.")]
-        internal static void AsAnyMarshalManagedToNative(object o, IntPtr address)
+        internal static unsafe void AsAnyMarshalManagedToNative(object o, IntPtr address)
         {
             // Array, string and StringBuilder are not implemented.
-            if (o.EETypePtr.IsArray ||
+            if (o.GetMethodTable()->IsArray ||
                 o is string ||
                 o is StringBuilder)
             {
@@ -534,10 +536,10 @@ namespace Internal.Runtime.CompilerHelpers
             Marshal.StructureToPtr(o, address, fDeleteOld: false);
         }
 
-        internal static void AsAnyMarshalNativeToManaged(IntPtr address, object o)
+        internal static unsafe void AsAnyMarshalNativeToManaged(IntPtr address, object o)
         {
             // Array, string and StringBuilder are not implemented.
-            if (o.EETypePtr.IsArray ||
+            if (o.GetMethodTable()->IsArray ||
                 o is string ||
                 o is StringBuilder)
             {
@@ -549,10 +551,10 @@ namespace Internal.Runtime.CompilerHelpers
 
         [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
             Justification = "This API will be called from compiler generated code only.")]
-        internal static void AsAnyCleanupNative(IntPtr address, object o)
+        internal static unsafe void AsAnyCleanupNative(IntPtr address, object o)
         {
             // Array, string and StringBuilder are not implemented.
-            if (o.EETypePtr.IsArray ||
+            if (o.GetMethodTable()->IsArray ||
                 o is string ||
                 o is StringBuilder)
             {
@@ -593,8 +595,8 @@ namespace Internal.Runtime.CompilerHelpers
         {
 #if TARGET_WINDOWS
 #pragma warning disable CA1416
-            Variant* data = (Variant*)pDstNativeVariant;
-            data->Clear();
+            ComVariant* data = (ComVariant*)pDstNativeVariant;
+            data->Dispose();
 #pragma warning restore CA1416
 #else
             throw new PlatformNotSupportedException(SR.PlatformNotSupported_ComInterop);
@@ -608,7 +610,7 @@ namespace Internal.Runtime.CompilerHelpers
                 throw new ApplicationException();
             }
 
-            if (!RuntimeImports.AreTypesAssignable(pMarshallerType.ToEETypePtr(), EETypePtr.EETypePtrOf<ICustomMarshaler>()))
+            if (!RuntimeImports.AreTypesAssignable(pMarshallerType.ToMethodTable(), MethodTable.Of<ICustomMarshaler>()))
             {
                 throw new ApplicationException();
             }
@@ -619,7 +621,7 @@ namespace Internal.Runtime.CompilerHelpers
                 throw new ApplicationException();
             }
 
-            if (!RuntimeImports.AreTypesAssignable(marshaller.EETypePtr, EETypePtr.EETypePtrOf<ICustomMarshaler>()))
+            if (!RuntimeImports.AreTypesAssignable(marshaller.GetMethodTable(), MethodTable.Of<ICustomMarshaler>()))
             {
                 throw new ApplicationException();
             }
@@ -632,7 +634,7 @@ namespace Internal.Runtime.CompilerHelpers
         {
             public IntPtr Handle;
             public IntPtr ModuleName;
-            public EETypePtr CallingAssemblyType;
+            public MethodTable* CallingAssemblyType;
             public uint DllImportSearchPathAndCookie;
         }
 
@@ -642,7 +644,16 @@ namespace Internal.Runtime.CompilerHelpers
             public IntPtr Target;
             public IntPtr MethodName;
             public ModuleFixupCell* Module;
-            public CharSet CharSetMangling;
+            private uint Flags;
+
+            public CharSet CharSetMangling => (CharSet)(Flags & MethodFixupCellFlagsConstants.CharSetMask);
+#if FEATURE_OBJCMARSHAL
+            public bool IsObjectiveCMessageSend => (Flags & MethodFixupCellFlagsConstants.IsObjectiveCMessageSendMask) != 0;
+            public int ObjectiveCMessageSendFunction => (int)((Flags & MethodFixupCellFlagsConstants.ObjectiveCMessageSendFunctionMask) >> MethodFixupCellFlagsConstants.ObjectiveCMessageSendFunctionShift);
+#elif TARGET_WINDOWS && TARGET_X86
+            public bool IsStdcall => (Flags & MethodFixupCellFlagsConstants.IsStdcall) != 0;
+            public ushort SignatureBytes => (ushort)(Flags >> 16);
+#endif
         }
 
         internal unsafe struct CustomMarshallerKey : IEquatable<CustomMarshallerKey>
@@ -684,9 +695,9 @@ namespace Internal.Runtime.CompilerHelpers
 
         internal sealed class CustomMarshallerTable : ConcurrentUnifier<CustomMarshallerKey, object>
         {
-            internal static CustomMarshallerTable s_customMarshallersTable = new CustomMarshallerTable();
+            internal static readonly CustomMarshallerTable s_customMarshallersTable = new CustomMarshallerTable();
 
-            protected unsafe override object Factory(CustomMarshallerKey key)
+            protected override unsafe object Factory(CustomMarshallerKey key)
             {
                 return key.GetInstanceMethod(key.Cookie);
             }

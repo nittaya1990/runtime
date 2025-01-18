@@ -39,21 +39,21 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
 
         public override void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
-            sb.Append("DelayLoadHelperImport(");
+            sb.Append("DelayLoadHelperImport("u8);
             if (_useVirtualCall)
             {
-                sb.Append("[VSD] ");
+                sb.Append("[VSD] "u8);
             }
             if (_useJumpableStub)
             {
-                sb.Append("[JMP] ");
+                sb.Append("[JMP] "u8);
             }
             sb.Append(_helper.ToString());
-            sb.Append(") -> ");
+            sb.Append(") -> "u8);
             ImportSignature.AppendMangledName(nameMangler, sb);
             if (CallingMethod != null)
             {
-                sb.Append(" @ ");
+                sb.Append(" @ "u8);
                 sb.Append(nameMangler.GetMangledMethodName(CallingMethod));
             }
         }
@@ -64,14 +64,8 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         {
             // This needs to be an empty target pointer since it will be filled in with Module*
             // when loaded by CoreCLR
-            int codeDelta = 0;
-            if (factory.Target.Architecture == TargetArchitecture.ARM)
-            {
-                // THUMB_CODE
-                codeDelta = 1;
-            }
             dataBuilder.EmitReloc(_delayLoadHelper,
-                factory.Target.PointerSize == 4 ? RelocType.IMAGE_REL_BASED_HIGHLOW : RelocType.IMAGE_REL_BASED_DIR64, codeDelta);
+                factory.Target.PointerSize == 4 ? RelocType.IMAGE_REL_BASED_HIGHLOW : RelocType.IMAGE_REL_BASED_DIR64, factory.Target.CodeDelta);
         }
 
         public override IEnumerable<DependencyListEntry> GetStaticDependencies(NodeFactory factory)

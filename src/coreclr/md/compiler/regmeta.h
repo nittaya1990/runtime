@@ -17,10 +17,7 @@
 #include <metamodelrw.h>
 #include "../inc/mdlog.h"
 #include "utsem.h"
-
 #include "rwutil.h"
-#include "mdperf.h"
-
 #include "sigparser.h"
 
 class FilterManager;
@@ -43,7 +40,7 @@ struct CORDBG_SYMBOL_URL
 
     ULONG Size() const
     {
-        return (ULONG)(sizeof(GUID) + ((wcslen(rcName) + 1) * 2));
+        return (ULONG)(sizeof(GUID) + ((u16_strlen(rcName) + 1) * 2));
     }
 
 #ifdef _PREFAST_
@@ -95,23 +92,15 @@ struct CCustAttrHashKey
     int         ca;                     // flag indicating what the ca is.
 };
 
-class CCustAttrHash : public CClosedHashEx<CCustAttrHashKey, CCustAttrHash>
+class CustAttrHashTraits : public NoRemoveSHashTraits<DefaultSHashTraits<CCustAttrHashKey>>
 {
-    typedef CCustAttrHashKey T;
-
-    using CClosedHashEx<CCustAttrHashKey, CCustAttrHash>::Hash;
-    using CClosedHashEx<CCustAttrHashKey, CCustAttrHash>::Compare;
-    using CClosedHashEx<CCustAttrHashKey, CCustAttrHash>::Status;
-    using CClosedHashEx<CCustAttrHashKey, CCustAttrHash>::SetStatus;
-    using CClosedHashEx<CCustAttrHashKey, CCustAttrHash>::GetKey;
-
 public:
-    CCustAttrHash(int iBuckets=37) : CClosedHashEx<CCustAttrHashKey,CCustAttrHash>(iBuckets) {}
-    unsigned int Hash(const T *pData);
-    unsigned int Compare(const T *p1, T *p2);
-    ELEMENTSTATUS Status(T *pEntry);
-    void SetStatus(T *pEntry, ELEMENTSTATUS s);
-    void* GetKey(T *pEntry);
+    using key_t = mdToken;
+    static const key_t GetKey(_In_ const element_t& e) { return e.tkType; }
+    static count_t Hash(_In_ key_t key) { return static_cast<count_t>(key); }
+    static bool Equals(_In_ key_t lhs, _In_ key_t rhs) { return lhs == rhs; }
+    static bool IsNull(_In_ const element_t& e) { return e.tkType == mdTokenNil; }
+    static const element_t Null() { return CCustAttrHashKey{ mdTokenNil, 0 }; }
 };
 
 class MDInternalRW;
@@ -152,6 +141,7 @@ class RegMeta :
     , public IMetaDataEmit2
 #else
     , public IMetaDataEmit3
+    , public IILAsmPortablePdbWriter
 #endif
     , public IMetaDataAssemblyEmit
 #endif
@@ -324,28 +314,28 @@ public:
     STDMETHODIMP FindMember(
         mdTypeDef   td,                     // [IN] given typedef
         LPCWSTR     szName,                 // [IN] member name
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdToken     *pmb);                  // [OUT] matching memberdef
 
     STDMETHODIMP FindMethod(
         mdTypeDef   td,                     // [IN] given typedef
         LPCWSTR     szName,                 // [IN] member name
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdMethodDef *pmb);                  // [OUT] matching memberdef
 
     STDMETHODIMP FindField(
         mdTypeDef   td,                     // [IN] given typedef
         LPCWSTR     szName,                 // [IN] member name
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdFieldDef  *pmb);                  // [OUT] matching memberdef
 
     STDMETHODIMP FindMemberRef(
         mdTypeRef   td,                     // [IN] given typeRef
         LPCWSTR     szName,                 // [IN] member name
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdMemberRef *pmr);                  // [OUT] matching memberref
 
@@ -764,7 +754,7 @@ public:
         mdTypeDef   td,                     // Parent TypeDef
         LPCWSTR     szName,                 // Name of member
         DWORD       dwMethodFlags,          // Member attributes
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         ULONG       ulCodeRVA,
         DWORD       dwImplFlags,
@@ -789,7 +779,7 @@ public:
         mdTypeRef   *ptr);                  // [OUT] Put TypeRef token here.
 
     STDMETHODIMP DefineImportType(          // S_OK or error.
-        IMetaDataAssemblyImport *pAssemImport,  // [IN] Assemby containing the TypeDef.
+        IMetaDataAssemblyImport *pAssemImport,  // [IN] Assembly containing the TypeDef.
         const void  *pbHashValue,           // [IN] Hash Blob for Assembly.
         ULONG       cbHashValue,            // [IN] Count of bytes.
         IMetaDataImport *pImport,           // [IN] Scope containing the TypeDef.
@@ -800,12 +790,12 @@ public:
     STDMETHODIMP DefineMemberRef(           // S_OK or error
         mdToken     tkImport,               // [IN] ClassRef or ClassDef importing a member.
         LPCWSTR     szName,                 // [IN] member's name
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdMemberRef *pmr);                  // [OUT] memberref token
 
     STDMETHODIMP DefineImportMember(        // S_OK or error.
-        IMetaDataAssemblyImport *pAssemImport,  // [IN] Assemby containing the Member.
+        IMetaDataAssemblyImport *pAssemImport,  // [IN] Assembly containing the Member.
         const void  *pbHashValue,           // [IN] Hash Blob for Assembly.
         ULONG       cbHashValue,            // [IN] Count of bytes.
         IMetaDataImport *pImport,           // [IN] Import scope, with member.
@@ -950,7 +940,7 @@ public:
         mdTypeDef   td,                     // Parent TypeDef
         LPCWSTR     szName,                 // Name of member
         DWORD       dwFieldFlags,           // Member attributes
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         DWORD       dwCPlusTypeFlag,        // [IN] flag for value type. selected ELEMENT_TYPE_*
         void const  *pValue,                // [IN] constant value
@@ -1056,7 +1046,7 @@ public:
 
     STDMETHODIMP DefineMethodSpec(          // S_OK or error
         mdToken     tkImport,               // [IN] MethodDef or MemberRef
-        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of COM+ signature
+        PCCOR_SIGNATURE pvSigBlob,          // [IN] point to a blob value of signature
         ULONG       cbSigBlob,              // [IN] count of bytes in the signature blob
         mdMethodSpec *pmi);                 // [OUT] method instantiation token
 
@@ -1143,6 +1133,16 @@ public:
         USHORT      index,                  // [IN] Variable index (slot).
         char        *name,                  // [IN] Variable name.
         mdLocalVariable *locVarToken);      // [OUT] Token of the defined variable.
+
+//*****************************************************************************
+// IILAsmPortablePdbWriter methods
+//*****************************************************************************
+    STDMETHODIMP ComputeSha256PdbStreamChecksum(                                        // S_OK or error.
+        HRESULT (*computeSha256)(BYTE* pSrc, DWORD srcSize, BYTE* pDst, DWORD dstSize), // [IN]
+        BYTE (&checksum)[32]);                                                          // [OUT] 256-bit Pdb checksum
+
+    STDMETHODIMP ChangePdbStreamGuid(       // S_OK or error.
+        REFGUID newGuid);                   // [IN] GUID to use as the PDB GUID
 #endif // FEATURE_METADATA_EMIT_PORTABLE_PDB
 
 //*****************************************************************************
@@ -1824,6 +1824,7 @@ protected:
         PCCOR_SIGNATURE pvNativeType,       // [IN] native type specification
         ULONG       cbNativeType);          // [IN] count of bytes of pvNativeType
 
+#if !defined(FEATURE_METADATA_EMIT_IN_DEBUGGER)
     HRESULT _IsKnownCustomAttribute(        // S_OK, S_FALSE, or error.
         mdToken     tkType,                 // [IN] Token of custom attribute's type.
         int         *pca);                  // [OUT] Put value from KnownCustAttr enum here.
@@ -1844,6 +1845,7 @@ protected:
         CaArg       *pArgs,                 // Pointer to args.
         CaNamedArg  *pNamedArgs,            // Pointer to named args.
         CQuickArray<BYTE> &qNativeType);    // Native type is built here.
+#endif // !FEATURE_METADATA_EMIT_IN_DEBUGGER
 
     // Find a given param of a Method.
     HRESULT _FindParamOfMethod(             // S_OK or error.
@@ -1875,7 +1877,7 @@ protected:
         IMetaDataEmit *emit,                // [IN] emit interface.
         BOOL        fCreateTrIfNotFound,    // [IN] create typeref if not found or fail out?
         LPCSTR      *ppOneArgSig,           // [IN|OUT] class file format signature. On exit, it will be next arg starting point
-        CQuickBytes *pqbNewSig,             // [OUT] place holder for COM+ signature
+        CQuickBytes *pqbNewSig,             // [OUT] place holder for signature
         ULONG       cbStart,                // [IN] bytes that are already in pqbNewSig
         ULONG       *pcbCount);             // [OUT] count of bytes put into the QuickBytes buffer
 
@@ -2037,10 +2039,6 @@ private:
     LONG        m_cRef;                     // Ref count.
     IUnknown    *m_pFreeThreadedMarshaler;   // FreeThreadedMarshaler
 
-#ifdef FEATURE_METADATA_PERF_STATS
-    MDCompilerPerf m_MDCompilerPerf;        // Compiler perf object to store all stats.
-#endif
-
     // If true, cached in list of global scopes. This is very dangerous because it may allow
     // unpredictable state sharing between seemingly unrelated dispensers.
     bool        m_bCached;
@@ -2055,11 +2053,12 @@ private:
     SetAPICallerType m_SetAPICaller;
 
     CorValidatorModuleType      m_ModuleType;
-    CCustAttrHash               m_caHash;   // Hashed list of custom attribute types seen.
+
+#if !defined(FEATURE_METADATA_EMIT_IN_DEBUGGER)
+    SHash<CustAttrHashTraits>   m_caHash;   // Hashed list of custom attribute types seen.
+#endif
 
     bool        m_bKeepKnownCa;             // Should all known CA's be kept?
-
-    CorProfileData  *m_pCorProfileData;
 
     MetaDataReorderingOptions m_ReorderingOptions;
 

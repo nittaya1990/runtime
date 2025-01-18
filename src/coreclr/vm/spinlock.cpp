@@ -23,7 +23,7 @@ enum
 
 	// profile information
 ULONG	SpinLockProfiler::s_ulBackOffs = 0;
-ULONG	SpinLockProfiler::s_ulCollisons [LOCK_TYPE_DEFAULT + 1] = { 0 };
+ULONG	SpinLockProfiler::s_ulCollisions [LOCK_TYPE_DEFAULT + 1] = { 0 };
 ULONG	SpinLockProfiler::s_ulSpins [LOCK_TYPE_DEFAULT + 1] = { 0 };
 
 #endif
@@ -33,7 +33,11 @@ SpinLock::SpinLock()
     STATIC_CONTRACT_NOTHROW;
     STATIC_CONTRACT_GC_NOTRIGGER;
 
+    m_lock = 0;
+
+#ifdef _DEBUG
     m_Initialized = UnInitialized;
+#endif
 }
 
 void SpinLock::Init(LOCK_TYPE type, bool RequireCoopGC)
@@ -45,6 +49,7 @@ void SpinLock::Init(LOCK_TYPE type, bool RequireCoopGC)
     }
     CONTRACTL_END;
 
+#ifdef _DEBUG
     if (m_Initialized == Initialized)
     {
         _ASSERTE (type == m_LockType);
@@ -56,7 +61,7 @@ void SpinLock::Init(LOCK_TYPE type, bool RequireCoopGC)
 
     while (TRUE)
     {
-        LONG curValue = FastInterlockCompareExchange((LONG*)&m_Initialized, BeingInitialized, UnInitialized);
+        LONG curValue = InterlockedCompareExchange((LONG*)&m_Initialized, BeingInitialized, UnInitialized);
         if (curValue == Initialized)
         {
             return;
@@ -72,19 +77,15 @@ void SpinLock::Init(LOCK_TYPE type, bool RequireCoopGC)
         }
     }
 
-    {
-        m_lock = 0;
-    }
-
-#ifdef _DEBUG
     m_LockType = type;
     m_requireCoopGCMode = RequireCoopGC;
-#endif
 
     _ASSERTE (m_Initialized == BeingInitialized);
     m_Initialized = Initialized;
+#endif
 }
 
+#ifndef DACCESS_COMPILE
 #ifdef _DEBUG
 BOOL SpinLock::OwnedByCurrentThread()
 {
@@ -163,7 +164,7 @@ BOOL SpinLock::GetLockNoWait()
     CONTRACTL_END;
 
     {
-        if (VolatileLoad(&m_lock) == 0 && FastInterlockExchange (&m_lock, 1) == 0)
+        if (VolatileLoad(&m_lock) == 0 && InterlockedExchange (&m_lock, 1) == 0)
         {
             EE_LOCK_TAKEN(this);
             return 1;
@@ -340,7 +341,7 @@ void SpinLockProfiler::InitStatics ()
     CONTRACTL_END;
 
     s_ulBackOffs = 0;
-    memset (s_ulCollisons, 0, sizeof (s_ulCollisons));
+    memset (s_ulCollisions, 0, sizeof (s_ulCollisions));
     memset (s_ulSpins, 0, sizeof (s_ulSpins));
 }
 
@@ -368,7 +369,7 @@ void SpinLockProfiler::IncrementCollisions (LOCK_TYPE type)
     }
     CONTRACTL_END;
 
-    ++s_ulCollisons [type];
+    ++s_ulCollisions [type];
 }
 
 void SpinLockProfiler::IncrementBackoffs (ULONG value)
@@ -398,5 +399,6 @@ void SpinLockProfiler::DumpStatics()
 }
 
 #endif  // _DEBUG
+#endif // !DACCESS_COMPILE
 
 // End of file: spinlock.cpp

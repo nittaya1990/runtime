@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using Microsoft.DotNet.RemoteExecutor;
 using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
+using static System.Text.Tests.StringBuilderTests;
 
 #pragma warning disable xUnit2009 // these are the tests for String and so should be using the explicit methods on String
 
@@ -313,6 +314,7 @@ namespace System.Tests
             }
 
             Validate(string.Concat(values));
+            Validate(string.Concat((ReadOnlySpan<string?>)values));
             Validate(string.Concat((IEnumerable<string>)values));
             Validate(string.Concat<string>((IEnumerable<string>)values)); // Call the generic IEnumerable<T>-based overload
         }
@@ -417,6 +419,7 @@ namespace System.Tests
                 Assert.Equal(expected, string.Concat(values[0], values[1], values[2], values[3]));
             }
             Assert.Equal(expected, string.Concat(values));
+            Assert.Equal(expected, string.Concat((ReadOnlySpan<object?>)values));
             Assert.Equal(expected, string.Concat((IEnumerable<object>)values));
         }
 
@@ -1031,24 +1034,29 @@ namespace System.Tests
                     var secondSpan = new ReadOnlySpan<char>(second);
                     Assert.True(0 > firstSpan.CompareTo(secondSpan, StringComparison.Ordinal));
 
-                    // Due to differences in the implementation, the exact result of CompareTo will not necessarily match with string.Compare.
-                    // However, the sign will match, which is what defines correctness.
-                    Assert.Equal(
-                        Math.Sign(string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.OrdinalIgnoreCase)),
-                        Math.Sign(firstSpan.CompareTo(secondSpan, StringComparison.OrdinalIgnoreCase)));
+                    // On Apple platforms, string comparison is handled by native Apple functions, which apply normalization techniques
+                    // like `precomposedStringWithCanonicalMapping`. This can lead to differences in behavior compared to other platforms.
+                    if (PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
+                    {
+                        // Due to differences in the implementation, the exact result of CompareTo will not necessarily match with string.Compare.
+                        // However, the sign will match, which is what defines correctness.
+                        Assert.Equal(
+                            Math.Sign(string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.OrdinalIgnoreCase)),
+                            Math.Sign(firstSpan.CompareTo(secondSpan, StringComparison.OrdinalIgnoreCase)));
 
-                    Assert.Equal(
-                        string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.CurrentCulture),
-                        firstSpan.CompareTo(secondSpan, StringComparison.CurrentCulture));
-                    Assert.Equal(
-                        string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.CurrentCultureIgnoreCase),
-                        firstSpan.CompareTo(secondSpan, StringComparison.CurrentCultureIgnoreCase));
-                    Assert.Equal(
-                        string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.InvariantCulture),
-                        firstSpan.CompareTo(secondSpan, StringComparison.InvariantCulture));
-                    Assert.Equal(
-                        string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.InvariantCultureIgnoreCase),
-                        firstSpan.CompareTo(secondSpan, StringComparison.InvariantCultureIgnoreCase));
+                        Assert.Equal(
+                            string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.CurrentCulture),
+                            firstSpan.CompareTo(secondSpan, StringComparison.CurrentCulture));
+                        Assert.Equal(
+                            string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.CurrentCultureIgnoreCase),
+                            firstSpan.CompareTo(secondSpan, StringComparison.CurrentCultureIgnoreCase));
+                        Assert.Equal(
+                            string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.InvariantCulture),
+                            firstSpan.CompareTo(secondSpan, StringComparison.InvariantCulture));
+                        Assert.Equal(
+                            string.Compare(firstSpan.ToString(), secondSpan.ToString(), StringComparison.InvariantCultureIgnoreCase),
+                            firstSpan.CompareTo(secondSpan, StringComparison.InvariantCultureIgnoreCase));
+                    }
                 }
             }
         }
@@ -1307,19 +1315,24 @@ namespace System.Tests
 
                     Assert.False(firstSpan.Contains(secondSpan, StringComparison.OrdinalIgnoreCase));
 
-                    // Different behavior depending on OS
-                    Assert.Equal(
-                        firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.CurrentCulture),
-                        firstSpan.Contains(secondSpan, StringComparison.CurrentCulture));
-                    Assert.Equal(
-                        firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.CurrentCultureIgnoreCase),
-                        firstSpan.Contains(secondSpan, StringComparison.CurrentCultureIgnoreCase));
-                    Assert.Equal(
-                        firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.InvariantCulture),
-                        firstSpan.Contains(secondSpan, StringComparison.InvariantCulture));
-                    Assert.Equal(
-                        firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.InvariantCultureIgnoreCase),
-                        firstSpan.Contains(secondSpan, StringComparison.InvariantCultureIgnoreCase));
+                    // On Apple platforms, string comparison is handled by native Apple functions, which apply normalization techniques
+                    // like `precomposedStringWithCanonicalMapping`. This can lead to differences in behavior compared to other platforms.
+                    if (PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
+                    {
+                        // Different behavior depending on OS
+                        Assert.Equal(
+                            firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.CurrentCulture),
+                            firstSpan.Contains(secondSpan, StringComparison.CurrentCulture));
+                        Assert.Equal(
+                            firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.CurrentCultureIgnoreCase),
+                            firstSpan.Contains(secondSpan, StringComparison.CurrentCultureIgnoreCase));
+                        Assert.Equal(
+                            firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.InvariantCulture),
+                            firstSpan.Contains(secondSpan, StringComparison.InvariantCulture));
+                        Assert.Equal(
+                            firstSpan.ToString().StartsWith(secondSpan.ToString(), StringComparison.InvariantCultureIgnoreCase),
+                            firstSpan.Contains(secondSpan, StringComparison.InvariantCultureIgnoreCase));
+                    }
                 }
             }
         }
@@ -1659,7 +1672,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.CurrentCulture, true };
             yield return new object[] { "", "a", StringComparison.CurrentCulture, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", "llo" + SoftHyphen, StringComparison.CurrentCulture, true };
 
             // CurrentCultureIgnoreCase
@@ -1671,7 +1684,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.CurrentCultureIgnoreCase, true };
             yield return new object[] { "", "a", StringComparison.CurrentCultureIgnoreCase, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", "llo" + SoftHyphen, StringComparison.CurrentCultureIgnoreCase, true };
 
             // InvariantCulture
@@ -1684,7 +1697,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.InvariantCulture, true };
             yield return new object[] { "", "a", StringComparison.InvariantCulture, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", "llo" + SoftHyphen, StringComparison.InvariantCulture, true };
 
             // InvariantCultureIgnoreCase
@@ -1696,7 +1709,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.InvariantCultureIgnoreCase, true };
             yield return new object[] { "", "a", StringComparison.InvariantCultureIgnoreCase, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", "llo" + SoftHyphen, StringComparison.InvariantCultureIgnoreCase, true };
 
             // Ordinal
@@ -2623,19 +2636,144 @@ namespace System.Tests
             AssertExtensions.Throws<ArgumentException>("comparisonType", () => "a".Equals("b", comparisonType));
         }
 
-        [Fact]
-        public static void Format()
+        public static IEnumerable<object[]> Format_Valid_TestData()
         {
-            string s = string.Format(null, "0 = {0} 1 = {1} 2 = {2} 3 = {3} 4 = {4}", "zero", "one", "two", "three", "four");
-            Assert.Equal("0 = zero 1 = one 2 = two 3 = three 4 = four", s);
+            yield return new object[] { null, "", new object[0], "" };
+            yield return new object[] { null, ", ", new object[0], ", " };
 
-            var testFormatter = new TestFormatter();
-            s = string.Format(testFormatter, "0 = {0} 1 = {1} 2 = {2} 3 = {3} 4 = {4}", "zero", "one", "two", "three", "four");
-            Assert.Equal("0 = Test: : zero 1 = Test: : one 2 = Test: : two 3 = Test: : three 4 = Test: : four", s);
+            yield return new object[] { null, ", Foo {0  }", new object[] { "Bar" }, ", Foo Bar" }; // Ignores whitespace
+
+            yield return new object[] { null, "Foo {0}", new object[] { "Bar" }, "Foo Bar" };
+            yield return new object[] { null, "Foo {0} Baz {1}", new object[] { "Bar", "Foo" }, "Foo Bar Baz Foo" };
+            yield return new object[] { null, "Foo {0} Baz {1} Bar {2}", new object[] { "Bar", "Foo", "Baz" }, "Foo Bar Baz Foo Bar Baz" };
+            yield return new object[] { null, "Foo {0} Baz {1} Bar {2} Foo {3}", new object[] { "Bar", "Foo", "Baz", "Bar" }, "Foo Bar Baz Foo Bar Baz Foo Bar" };
+
+            // Length is positive
+            yield return new object[] { null, "Foo {0,2}", new object[] { "Bar" }, "Foo Bar" }; // MiValue's length > minimum length (so don't prepend whitespace)
+            yield return new object[] { null, "Foo {0,3}", new object[] { "B" }, "Foo   B" }; // Value's length < minimum length (so prepend whitespace)
+            yield return new object[] { null, "Foo {0,     3}", new object[] { "B" }, "Foo   B" }; // Same as above, but verify AppendFormat ignores whitespace
+            yield return new object[] { null, "Foo {0,0}", new object[] { "Bar" }, "Foo Bar" }; // Minimum length is 0
+            yield return new object[] { null, "Foo {0,  2 }", new object[] { "Bar" }, "Foo Bar" }; // whitespace before and after length
+
+            // Length is negative
+            yield return new object[] { null, "Foo {0,-2}", new object[] { "Bar" }, "Foo Bar" }; // Value's length > |minimum length| (so don't prepend whitespace)
+            yield return new object[] { null, "Foo {0,-3}", new object[] { "B" }, "Foo B  " }; // Value's length < |minimum length| (so append whitespace)
+            yield return new object[] { null, "Foo {0,     -3}", new object[] { "B" }, "Foo B  " }; // Same as above, but verify AppendFormat ignores whitespace
+            yield return new object[] { null, "Foo {0,0}", new object[] { "Bar" }, "Foo Bar" }; // Minimum length is 0
+            yield return new object[] { null, "Foo {0, -2  }", new object[] { "Bar" }, "Foo Bar" }; // whitespace before and after length
+
+            yield return new object[] { null, "Foo {0:D6}", new object[] { 1 }, "Foo 000001" }; // Custom format
+            yield return new object[] { null, "Foo {0     :D6}", new object[] { 1 }, "Foo 000001" }; // Custom format with ignored whitespace
+            yield return new object[] { null, "Foo {0:}", new object[] { 1 }, "Foo 1" }; // Missing custom format
+
+            yield return new object[] { null, "Foo {0,9:D6}", new object[] { 1 }, "Foo    000001" }; // Positive minimum length and custom format
+            yield return new object[] { null, "Foo {0,-9:D6}", new object[] { 1 }, "Foo 000001   " }; // Negative length and custom format
+
+            yield return new object[] { null, "Foo {{{0}", new object[] { 1 }, "Foo {1" }; // Escaped open curly braces
+            yield return new object[] { null, "Foo }}{0}", new object[] { 1 }, "Foo }1" }; // Escaped closed curly braces
+            yield return new object[] { null, "Foo {0} {{0}}", new object[] { 1 }, "Foo 1 {0}" }; // Escaped placeholder
+
+            yield return new object[] { null, "Foo {0}", new object[] { null }, "Foo " }; // Values has null only
+            yield return new object[] { null, "Foo {0} {1} {2}", new object[] { "Bar", null, "Baz" }, "Foo Bar  Baz" }; // Values has null
+
+            yield return new object[] { CultureInfo.InvariantCulture, "Foo {0,9:D6}", new object[] { 1 }, "Foo    000001" }; // Positive minimum length, custom format and custom format provider
+
+            yield return new object[] { new CustomFormatter(), "{0}", new object[] { 1.2 }, "abc" }; // Custom format provider
+            yield return new object[] { new CustomFormatter(), "{0:0}", new object[] { 1.2 }, "abc" }; // Custom format provider
+
+            // More arguments than needed
+            yield return new object[] { null, "{0}", new object[] { 1, 2 }, "1" };
+            yield return new object[] { null, "{0}", new object[] { 1, 2, 3 }, "1" };
+            yield return new object[] { null, "{0}", new object[] { 1, 2, 3, 4 }, "1" };
+            yield return new object[] { null, "{0}{1}", new object[] { 1, 2, 3 }, "12" };
+            yield return new object[] { null, "{0}{1}", new object[] { 1, 2, 3, 4 }, "12" };
+            yield return new object[] { null, "{0}{1}", new object[] { 1, 2, 3, 4, 5 }, "12" };
+            yield return new object[] { null, "{0}{1}{2}", new object[] { 1, 2, 3, 4 }, "123" };
+            yield return new object[] { null, "{0}{1}{2}", new object[] { 1, 2, 3, 4, 5 }, "123" };
+            yield return new object[] { null, "{0}{1}{2}", new object[] { 1, 2, 3, 4, 5, 6 }, "123" };
+            yield return new object[] { null, "{0}{1}{2}{3}", new object[] { 1, 2, 3, 4, 5 }, "1234" };
+            yield return new object[] { null, "{0}{1}{2}{3}", new object[] { 1, 2, 3, 4, 5, 6 }, "1234" };
+            yield return new object[] { null, "{0}{1}{2}{3}", new object[] { 1, 2, 3, 4, 5, 6, 7 }, "1234" };
+            yield return new object[] { null, "{0}{1}{2}{3}{4}", new object[] { 1, 2, 3, 4, 5, 6 }, "12345" };
+            yield return new object[] { null, "{0}{1}{2}{3}{4}", new object[] { 1, 2, 3, 4, 5, 6, 7 }, "12345" };
+            yield return new object[] { null, "{0}{1}{2}{3}{4}", new object[] { 1, 2, 3, 4, 5, 6, 7, 8 }, "12345" };
+
+            // Out of order
+            yield return new object[] { null, "{1}{0}", new object[] { 1, 2 }, "21" };
+            yield return new object[] { null, "{2}{1}{0}", new object[] { 1, 2, 3 }, "321" };
+            yield return new object[] { null, "{3}{2}{1}{0}", new object[] { 1, 2, 3, 4 }, "4321" };
+            yield return new object[] { null, "{4}{3}{2}{1}{0}", new object[] { 1, 2, 3, 4, 5 }, "54321" };
+
+            // Longer inputs
+            yield return new object[] { null, "0 = {0} 1 = {1} 2 = {2} 3 = {3} 4 = {4}", new object[] { "zero", "one", "two", "three", "four" }, "0 = zero 1 = one 2 = two 3 = three 4 = four" };
+            yield return new object[] { new TestFormatter(), "0 = {0} 1 = {1} 2 = {2} 3 = {3} 4 = {4}", new object[] { "zero", "one", "two", "three", "four" }, "0 = Test: : zero 1 = Test: : one 2 = Test: : two 3 = Test: : three 4 = Test: : four" };
+
+            // ISpanFormattable inputs: simple validation of known types that implement the interface
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (byte)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { 'A' }, "A" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0:r}", new object[] { DateTime.ParseExact("2021-03-15T14:52:51.5058563Z", "o", null, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) }, "Mon, 15 Mar 2021 14:52:51 GMT" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0:r}", new object[] { DateTimeOffset.ParseExact("2021-03-15T14:52:51.5058563Z", "o", null, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) }, "Mon, 15 Mar 2021 14:52:51 GMT" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (decimal)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (double)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { Guid.Parse("68d9cfaf-feab-4d5b-96d8-a3fd889ae89f") }, "68d9cfaf-feab-4d5b-96d8-a3fd889ae89f" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (Half)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (short)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (int)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (long)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (IntPtr)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { new Rune('A') }, "A" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (sbyte)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (float)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { TimeSpan.FromSeconds(42) }, "00:00:42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (ushort)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (uint)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (ulong)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { (UIntPtr)42 }, "42" };
+            yield return new object[] { CultureInfo.InvariantCulture, "{0}", new object[] { new Version(1, 2, 3, 4) }, "1.2.3.4" };
+        }
+
+        [Theory]
+        [MemberData(nameof(Format_Valid_TestData))]
+        public static void Format_Valid(IFormatProvider provider, string format, object[] values, string expected)
+        {
+            Assert.Equal(expected, string.Format(provider, format, values));
+            Assert.Equal(expected, string.Format(provider, format, (ReadOnlySpan<object?>)values));
+            if (provider is null)
+            {
+                Assert.Equal(expected, string.Format(format, values));
+                Assert.Equal(expected, string.Format(format, (ReadOnlySpan<object?>)values));
+            }
+
+            switch (values.Length)
+            {
+                case 1:
+                    Assert.Equal(expected, string.Format(provider, format, values[0]));
+                    if (provider is null)
+                    {
+                        Assert.Equal(expected, string.Format(format, values[0]));
+                    }
+                    break;
+
+                case 2:
+                    Assert.Equal(expected, string.Format(provider, format, values[0], values[1]));
+                    if (provider is null)
+                    {
+                        Assert.Equal(expected, string.Format(format, values[0], values[1]));
+                    }
+                    break;
+
+                case 3:
+                    Assert.Equal(expected, string.Format(provider, format, values[0], values[1], values[2]));
+                    if (provider is null)
+                    {
+                        Assert.Equal(expected, string.Format(format, values[0], values[1], values[2]));
+                    }
+                    break;
+            }
         }
 
         [Fact]
-        public static void Format_Invalid()
+        public static void Format_Invalid_ArgumentException()
         {
             var formatter = new TestFormatter();
             var obj1 = new object();
@@ -2649,9 +2787,9 @@ namespace System.Tests
             AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(null, obj1, obj2, obj3));
             AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(null, obj1, obj2, obj3, obj4));
 
-            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, null, obj1));
-            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, null, obj1, obj2));
-            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, null, obj1, obj2, obj3));
+            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, (string)null, obj1));
+            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, (string)null, obj1, obj2));
+            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, (string)null, obj1, obj2, obj3));
 
             // Args is null
             AssertExtensions.Throws<ArgumentNullException>("args", () => string.Format("", null));
@@ -2659,28 +2797,97 @@ namespace System.Tests
 
             // Args and format are null
             AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(null, (object[])null));
-            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, null, null));
+            AssertExtensions.Throws<ArgumentNullException>("format", () => string.Format(formatter, (string)null, null));
+        }
 
-            // Format has value < 0
-            Assert.Throws<FormatException>(() => string.Format("{-1}", obj1));
-            Assert.Throws<FormatException>(() => string.Format("{-1}", obj1, obj2));
-            Assert.Throws<FormatException>(() => string.Format("{-1}", obj1, obj2, obj3));
-            Assert.Throws<FormatException>(() => string.Format("{-1}", obj1, obj2, obj3, obj4));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{-1}", obj1));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{-1}", obj1, obj2));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{-1}", obj1, obj2, obj3));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{-1}", obj1, obj2, obj3, obj4));
-#pragma warning disable IDE0043 // Format string contains invalid placeholder - the purpose of this is to test the functions
-            // Format has out of range value
-            Assert.Throws<FormatException>(() => string.Format("{1}", obj1));
-            Assert.Throws<FormatException>(() => string.Format("{2}", obj1, obj2));
-            Assert.Throws<FormatException>(() => string.Format("{3}", obj1, obj2, obj3));
-            Assert.Throws<FormatException>(() => string.Format("{4}", obj1, obj2, obj3, obj4));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{1}", obj1));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{2}", obj1, obj2));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{3}", obj1, obj2, obj3));
-            Assert.Throws<FormatException>(() => string.Format(formatter, "{4}", obj1, obj2, obj3, obj4));
-#pragma warning restore IDE0043 // Format string contains invalid placeholder
+        public static IEnumerable<object[]> Format_Invalid_FormatExceptionFromFormat_MemberData()
+        {
+            var obj1 = new object();
+            var obj2 = new object();
+            var obj3 = new object();
+            var obj4 = new object();
+
+            foreach (IFormatProvider provider in new[] { null, new TestFormatter() })
+            {
+                yield return new object[] { provider, "{-1}", new object[] { obj1 } }; // Format has value < 0
+                yield return new object[] { provider, "{-1}", new object[] { obj1, obj2 } }; // Format has value < 0
+                yield return new object[] { provider, "{-1}", new object[] { obj1, obj2, obj3 } }; // Format has value < 0
+                yield return new object[] { provider, "{-1}", new object[] { obj1, obj2, obj3, obj4 } }; // Format has value < 0
+                yield return new object[] { provider, "{", new object[] { "" } }; // Format has unescaped {
+                yield return new object[] { provider, "{a", new object[] { "" } }; // Format has unescaped {
+                yield return new object[] { provider, "}", new object[] { "" } }; // Format has unescaped }
+                yield return new object[] { provider, "}a", new object[] { "" } }; // Format has unescaped }
+                yield return new object[] { provider, "{0:}}", new object[] { "" } }; // Format has unescaped }
+                yield return new object[] { provider, "{\0", new object[] { "" } }; // Format has invalid character after {
+                yield return new object[] { provider, "{a", new object[] { "" } }; // Format has invalid character after {
+                yield return new object[] { provider, "{0     ", new object[] { "" } }; // Format with index and spaces is not closed
+                yield return new object[] { provider, "{1000000", new object[10] }; // Format has missing closing brace
+                yield return new object[] { provider, "{0,", new object[] { "" } }; // Format with comma is not closed
+                yield return new object[] { provider, "{0,   ", new object[] { "" } }; // Format with comma and spaces is not closed
+                yield return new object[] { provider, "{0,-", new object[] { "" } }; // Format with comma and minus sign is not closed
+                yield return new object[] { provider, "{0,-\0", new object[] { "" } }; // Format has invalid character after minus sign
+                yield return new object[] { provider, "{0,-a", new object[] { "" } }; // Format has invalid character after minus sign
+                yield return new object[] { provider, "{0,1000000", new string[10] }; // Format length is too long
+                yield return new object[] { provider, "{0:", new string[10] }; // Format with colon is not closed
+                yield return new object[] { provider, "{0:    ", new string[10] }; // Format with colon and spaces is not closed
+                yield return new object[] { provider, "{0:{", new string[10] }; // Format with custom format contains unescaped {
+                yield return new object[] { provider, "{0:{}", new string[10] }; // Format with custom format contains unescaped {
+            }
+        }
+
+        public static IEnumerable<object[]> Format_Invalid_FormatExceptionFromArgs_MemberData()
+        {
+            var obj1 = new object();
+            var obj2 = new object();
+            var obj3 = new object();
+            var obj4 = new object();
+
+            foreach (IFormatProvider provider in new[] { null, new TestFormatter() })
+            {
+                yield return new object[] { provider, "{1}", new object[] { obj1 } }; // Format has value >= 1
+                yield return new object[] { provider, "{2}", new object[] { obj1, obj2 } }; // Format has value >= 2
+                yield return new object[] { provider, "{3}", new object[] { obj1, obj2, obj3 } }; // Format has value >= 3
+                yield return new object[] { provider, "{4}", new object[] { obj1, obj2, obj3, obj4 } }; // Format has value >= 4
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Format_Invalid_FormatExceptionFromFormat_MemberData))]
+        [MemberData(nameof(Format_Invalid_FormatExceptionFromArgs_MemberData))]
+        [InlineData(null, "{10000000}", new object[] { null })]
+        [InlineData(null, "{0,10000000}", new string[] { null })]
+        public static void Format_Invalid_FormatExceptionFromFormatOrArgs(IFormatProvider provider, string format, object[] args)
+        {
+            if (provider is null)
+            {
+                Assert.Throws<FormatException>(() => string.Format(format, args));
+                switch (args.Length)
+                {
+                    case 1:
+                        Assert.Throws<FormatException>(() => string.Format(format, args[0]));
+                        break;
+                    case 2:
+                        Assert.Throws<FormatException>(() => string.Format(format, args[0], args[1]));
+                        break;
+                    case 3:
+                        Assert.Throws<FormatException>(() => string.Format(format, args[0], args[1], args[2]));
+                        break;
+                }
+            }
+
+            Assert.Throws<FormatException>(() => string.Format(provider, format, args));
+            switch (args.Length)
+            {
+                case 1:
+                    Assert.Throws<FormatException>(() => string.Format(provider, format, args[0]));
+                    break;
+                case 2:
+                    Assert.Throws<FormatException>(() => string.Format(provider, format, args[0], args[1]));
+                    break;
+                case 3:
+                    Assert.Throws<FormatException>(() => string.Format(provider, format, args[0], args[1], args[2]));
+                    break;
+            }
         }
 
         [ConditionalTheory]
@@ -2918,7 +3125,7 @@ namespace System.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android | TestPlatforms.LinuxBionic)]
         public static void IndexOf_TurkishI_TurkishCulture()
         {
             using (new ThreadCultureChange("tr-TR"))
@@ -3001,8 +3208,8 @@ namespace System.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android)]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization), nameof(PlatformDetection.IsNotHybridGlobalizationOnApplePlatform))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android | TestPlatforms.LinuxBionic)]
         public static void IndexOf_HungarianDoubleCompression_HungarianCulture()
         {
             using (new ThreadCultureChange("hu-HU"))
@@ -3646,12 +3853,7 @@ namespace System.Tests
             Random rand = new Random(42);
             for (int length = 0; length < 32; length++)
             {
-                char[] a = new char[length];
-                for (int i = 0; i < length; i++)
-                {
-                    a[i] = s_whiteSpaceCharacters[rand.Next(0, s_whiteSpaceCharacters.Length - 1)];
-                }
-
+                char[] a = rand.GetItems<char>(s_whiteSpaceCharacters, length);
                 string s1 = new string(a);
                 bool result = string.IsNullOrWhiteSpace(s1);
                 Assert.True(result);
@@ -3680,11 +3882,7 @@ namespace System.Tests
             Random rand = new Random(42);
             for (int length = 0; length < 32; length++)
             {
-                char[] a = new char[length];
-                for (int i = 0; i < length; i++)
-                {
-                    a[i] = s_whiteSpaceCharacters[rand.Next(0, s_whiteSpaceCharacters.Length)];
-                }
+                char[] a = rand.GetItems<char>(s_whiteSpaceCharacters, length);
 
                 string s1 = new string(a);
                 bool result = string.IsNullOrWhiteSpace(s1);
@@ -3702,11 +3900,7 @@ namespace System.Tests
             Random rand = new Random(42);
             for (int length = 1; length < 32; length++)
             {
-                char[] a = new char[length];
-                for (int i = 0; i < length; i++)
-                {
-                    a[i] = s_whiteSpaceCharacters[rand.Next(0, s_whiteSpaceCharacters.Length)];
-                }
+                char[] a = rand.GetItems<char>(s_whiteSpaceCharacters, length);
                 var span = new Span<char>(a);
 
                 // first character is not a white-space character
@@ -3780,6 +3974,7 @@ namespace System.Tests
             if (startIndex + count == values.Length && count != 0)
             {
                 Assert.Equal(expected, string.Join(separator, values));
+                Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<string>)values));
 
                 var iEnumerableStringOptimized = new List<string>(values);
                 Assert.Equal(expected, string.Join(separator, iEnumerableStringOptimized));
@@ -3797,6 +3992,44 @@ namespace System.Tests
                 {
                     var arrayOfObjects = (object[])values;
                     Assert.Equal(expected, string.Join(separator, arrayOfObjects));
+                    Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<object>)arrayOfObjects));
+                }
+            }
+            Assert.Equal(expected, string.Join(separator, values, startIndex, count));
+        }
+
+        [Theory]
+        [InlineData('$', new string[] { }, 0, 0, "")]
+        [InlineData('$', new string[] { null }, 0, 1, "")]
+        [InlineData('$', new string[] { null, "Bar", null }, 0, 3, "$Bar$")]
+        [InlineData('$', new string[] { "", "", "" }, 0, 3, "$$")]
+        [InlineData('$', new string[] { "Foo", "Bar", "Baz" }, 0, 3, "Foo$Bar$Baz")]
+        [InlineData('$', new string[] { "Foo", "Bar", "Baz" }, 3, 0, "")]
+        [InlineData('$', new string[] { "Foo", "Bar", "Baz" }, 1, 1, "Bar")]
+        public static void Join_CharSeparator_StringArray(char separator, string[] values, int startIndex, int count, string expected)
+        {
+            if (startIndex + count == values.Length && count != 0)
+            {
+                Assert.Equal(expected, string.Join(separator, values));
+                Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<string>)values));
+
+                var iEnumerableStringOptimized = new List<string>(values);
+                Assert.Equal(expected, string.Join(separator, iEnumerableStringOptimized));
+                Assert.Equal(expected, string.Join<string>(separator, iEnumerableStringOptimized)); // Call the generic IEnumerable<T>-based overload
+
+                var iEnumerableStringNotOptimized = new Queue<string>(values);
+                Assert.Equal(expected, string.Join(separator, iEnumerableStringNotOptimized));
+                Assert.Equal(expected, string.Join<string>(separator, iEnumerableStringNotOptimized));
+
+                var iEnumerableObject = new List<object>(values);
+                Assert.Equal(expected, string.Join(separator, iEnumerableObject));
+
+                // Bug/Documented behavior: Join(string, object[]) returns "" when the first item in the array is null
+                if (values.Length == 0 || values[0] != null)
+                {
+                    var arrayOfObjects = (object[])values;
+                    Assert.Equal(expected, string.Join(separator, arrayOfObjects));
+                    Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<object>)arrayOfObjects));
                 }
             }
             Assert.Equal(expected, string.Join(separator, values, startIndex, count));
@@ -3851,6 +4084,31 @@ namespace System.Tests
         {
             Assert.Equal(expected, string.Join(separator, values));
             Assert.Equal(expected, string.Join(separator, (IEnumerable<object>)values));
+            Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<object>)values));
+        }
+
+        public static IEnumerable<object[]> Join_CharSeparator_ObjectArray_TestData()
+        {
+            yield return new object[] { '$', new object[] { }, "" };
+            yield return new object[] { '$', new object[] { new ObjectWithNullToString() }, "" };
+            yield return new object[] { '$', new object[] { "Foo" }, "Foo" };
+            yield return new object[] { '$', new object[] { "Foo", "Bar", "Baz" }, "Foo$Bar$Baz" };
+            yield return new object[] { '$', new object[] { "Foo", null, "Baz" }, "Foo$$Baz" };
+
+            // Test join when first value is null
+            yield return new object[] { '$', new object[] { null, "Bar", "Baz" }, "$Bar$Baz" };
+
+            // Join should ignore objects that have a null ToString() value
+            yield return new object[] { "|", new object[] { new ObjectWithNullToString(), "Foo", new ObjectWithNullToString(), "Bar", new ObjectWithNullToString() }, "|Foo||Bar|" };
+        }
+
+        [Theory]
+        [MemberData(nameof(Join_CharSeparator_ObjectArray_TestData))]
+        public static void Join_CharSeparator_ObjectArray(char separator, object[] values, string expected)
+        {
+            Assert.Equal(expected, string.Join(separator, values));
+            Assert.Equal(expected, string.Join(separator, (IEnumerable<object>)values));
+            Assert.Equal(expected, string.Join(separator, (ReadOnlySpan<object>)values));
         }
 
         [Fact]
@@ -4567,14 +4825,22 @@ namespace System.Tests
         [InlineData("Aaaaaaaa", 'A', 'a', "aaaaaaaa")] // Single iteration of vectorised path; no remainders through non-vectorised path
         // Three leading 'a's before a match (copyLength > 0), Single iteration of vectorised path; no remainders through non-vectorised path
         [InlineData("aaaAaaaaaaa", 'A', 'a', "aaaaaaaaaaa")]
-        // Single iteration of vectorised path; 3 remainders through non-vectorised path
+        // Single iteration of vectorised path; 3 remainders handled by vectorized path
         [InlineData("AaaaaaaaaAa", 'A', 'a', "aaaaaaaaaaa")]
+        // Single iteration of vectorized path; 0 remainders handled by vectorized path
+        [InlineData("aaaaaaaaaAa", 'A', 'a', "aaaaaaaaaaa")]
+        // Eight chars before a match (copyLength > 0), single iteration of vectorized path for the remainder
+        [InlineData("12345678AAAAAAA", 'A', 'a', "12345678aaaaaaa")]
         // ------------------------- For Vector<ushort>.Count == 16 (AVX2) -------------------------
         [InlineData("AaaaaaaaAaaaaaaa", 'A', 'a', "aaaaaaaaaaaaaaaa")] // Single iteration of vectorised path; no remainders through non-vectorised path
         // Three leading 'a's before a match (copyLength > 0), Single iteration of vectorised path; no remainders through non-vectorised path
         [InlineData("aaaAaaaaaaaAaaaaaaa", 'A', 'a', "aaaaaaaaaaaaaaaaaaa")]
-        // Single iteration of vectorised path; 3 remainders through non-vectorised path
+        // Single iteration of vectorised path; 3 remainders handled by vectorized path
         [InlineData("AaaaaaaaAaaaaaaaaAa", 'A', 'a', "aaaaaaaaaaaaaaaaaaa")]
+        // Single iteration of vectorized path; 0 remainders handled by vectorized path
+        [InlineData("aaaaaaaaaaaaaaaaaAa", 'A', 'a', "aaaaaaaaaaaaaaaaaaa")]
+        // Sixteen chars before a match (copyLength > 0), single iteration of vectorized path for the remainder
+        [InlineData("1234567890123456AAAAAAAAAAAAAAA", 'A', 'a', "1234567890123456aaaaaaaaaaaaaaa")]
         // ----------------------------------- General test data -----------------------------------
         [InlineData("Hello", 'l', '!', "He!!o")] // 2 match, non-vectorised path
         [InlineData("Hello", 'e', 'e', "Hello")] // oldChar and newChar are same; nothing to replace
@@ -4661,8 +4927,10 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.CurrentCulture, true };
             yield return new object[] { "", "hello", StringComparison.CurrentCulture, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
+            {
                 yield return new object[] { "Hello", SoftHyphen + "Hel", StringComparison.CurrentCulture, true };
+            }
 
             // CurrentCultureIgnoreCase
             yield return new object[] { "Hello", "Hel", StringComparison.CurrentCultureIgnoreCase, true };
@@ -4673,7 +4941,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.CurrentCultureIgnoreCase, true };
             yield return new object[] { "", "hello", StringComparison.CurrentCultureIgnoreCase, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", SoftHyphen + "Hel", StringComparison.CurrentCultureIgnoreCase, true };
 
             // InvariantCulture
@@ -4685,7 +4953,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.InvariantCulture, true };
             yield return new object[] { "", "hello", StringComparison.InvariantCulture, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", SoftHyphen + "Hel", StringComparison.InvariantCulture, true };
 
             // InvariantCultureIgnoreCase
@@ -4697,7 +4965,7 @@ namespace System.Tests
             yield return new object[] { "", "", StringComparison.InvariantCultureIgnoreCase, true };
             yield return new object[] { "", "hello", StringComparison.InvariantCultureIgnoreCase, false };
 
-            if (PlatformDetection.IsNotInvariantGlobalization)
+            if (PlatformDetection.IsNotInvariantGlobalization && PlatformDetection.IsNotHybridGlobalizationOnApplePlatform)
                 yield return new object[] { "Hello", SoftHyphen + "Hel", StringComparison.InvariantCultureIgnoreCase, true };
 
             // Ordinal
@@ -5129,7 +5397,7 @@ namespace System.Tests
 
             // Android has different results w/ tr-TR
             // See https://github.com/dotnet/runtime/issues/60568
-            if (!PlatformDetection.IsAndroid)
+            if (!PlatformDetection.IsAndroid && !PlatformDetection.IsLinuxBionic)
             {
                 tuples.Add(Tuple.Create('\u0049', '\u0131', new CultureInfo("tr-TR")));
                 tuples.Add(Tuple.Create('\u0130', '\u0069', new CultureInfo("tr-TR")));
@@ -5154,6 +5422,7 @@ namespace System.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/95338", typeof(PlatformDetection), nameof(PlatformDetection.IsHybridGlobalizationOnApplePlatform))]
         public static void Test_ToLower_Culture()
         {
             foreach (object[] testdata in ToLower_Culture_TestData())
@@ -5174,12 +5443,46 @@ namespace System.Tests
             }
         }
 
+        public static IEnumerable<object[]> ToLower_Invariant_TestData()
+        {
+            yield return new object[] { "", "" };
+            yield return new object[] { "Ab", "ab" };
+            yield return new object[] { "H-/", "h-/" };
+            yield return new object[] { "Hello", "hello" };
+            yield return new object[] { "hElLo", "hello" };
+            yield return new object[] { "AbcdAbc", "abcdabc" };
+            yield return new object[] { "AbcdAbcd", "abcdabcd" };
+            yield return new object[] { "AbcdAbcd/", "abcdabcd/" };
+            yield return new object[] { "AbcdAbcd/-", "abcdabcd/-" };
+            yield return new object[] { "AbcdAbcd/-_", "abcdabcd/-_" };
+            yield return new object[] { "AbcdAbcd-bcdAbc", "abcdabcd-bcdabc" };
+            yield return new object[] { "AbcdAbcd-bcdAbcd", "abcdabcd-bcdabcd" };
+            yield return new object[] { "AbcdAbcd-bcdAbcdA", "abcdabcd-bcdabcda" };
+            yield return new object[] { "AbcdAbcd-bcdAbcdA/", "abcdabcd-bcdabcda/" };
+            // Non-ASCII char:
+            yield return new object[] { "\u0436", "\u0436" };
+            yield return new object[] { "H\u0436/", "h\u0436/" };
+            yield return new object[] { "Hell\u0436", "hell\u0436" };
+            yield return new object[] { "hEl\u0436o", "hel\u0436o" };
+            yield return new object[] { "AbcdAb\u0436", "abcdab\u0436" };
+            yield return new object[] { "Abcd\u0436bcd", "abcd\u0436bcd" };
+            yield return new object[] { "AbcdAbc\u0436/", "abcdabc\u0436/" };
+            yield return new object[] { "AbcdAbcd/\u0436", "abcdabcd/\u0436" };
+            yield return new object[] { "AbcdAbcd/-\u0436", "abcdabcd/-\u0436" };
+            yield return new object[] { "AbcdAbc\u0436d-bcdAbc", "abcdabc\u0436d-bcdabc" };
+            yield return new object[] { "AbcdAbcd-b\u0436dAbcd", "abcdabcd-b\u0436dabcd" };
+            yield return new object[] { "AbcdAbcd-bcd\u0436bcdA", "abcdabcd-bcd\u0436bcda" };
+            yield return new object[] { "AbcdAbcd-bcdAbc\u0436A/", "abcdabcd-bcdabc\u0436a/" };
+
+            yield return new object[]
+            {
+                "\u0410\u0411\u0412\u0413\u0414\u0415\u0401\u0416\u0417\u0418\u0419\u041A\u041B\u041C\u041D\u041E\u041F\u0420\u0421\u0422\u0423\u0424\u0425\u0426\u0427\u0428\u0429\u042C\u042B\u042A\u042D\u042E\u042F",
+                "\u0430\u0431\u0432\u0433\u0434\u0435\u0451\u0436\u0437\u0438\u0439\u043A\u043B\u043C\u043D\u043E\u043F\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044C\u044B\u044A\u044D\u044E\u044F"
+            };
+        }
+
         [Theory]
-        [InlineData("hello", "hello")]
-        [InlineData("HELLO", "hello")]
-        [InlineData("hElLo", "hello")]
-        [InlineData("HeLlO", "hello")]
-        [InlineData("", "")]
+        [MemberData(nameof(ToLower_Invariant_TestData))]
         public static void ToLowerInvariant(string s, string expected)
         {
             Assert.Equal(expected, s.ToLowerInvariant());
@@ -5618,7 +5921,7 @@ namespace System.Tests
         {
             // Android has different results w/ tr-TR
             // See https://github.com/dotnet/runtime/issues/60568
-            if (!PlatformDetection.IsAndroid)
+            if (!PlatformDetection.IsAndroid && !PlatformDetection.IsLinuxBionic)
             {
                 yield return new object[] { "h\u0069 world", "H\u0130 WORLD", new CultureInfo("tr-TR") };
                 yield return new object[] { "h\u0130 world", "H\u0130 WORLD", new CultureInfo("tr-TR") };
@@ -5635,6 +5938,7 @@ namespace System.Tests
         }
 
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/95338", typeof(PlatformDetection), nameof(PlatformDetection.IsHybridGlobalizationOnApplePlatform))]
         [MemberData(nameof(ToUpper_Culture_TestData))]
         public static void Test_ToUpper_Culture(string actual, string expected, CultureInfo culture)
         {
@@ -5694,7 +5998,7 @@ namespace System.Tests
 
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
         [MemberData(nameof(ToUpper_TurkishI_TurkishCulture_MemberData))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/60568", TestPlatforms.Android | TestPlatforms.LinuxBionic)]
         public static void ToUpper_TurkishI_TurkishCulture(string s, string expected)
         {
             using (new ThreadCultureChange("tr-TR"))
@@ -5733,13 +6037,13 @@ namespace System.Tests
                 new KeyValuePair<char, char>('\u0130', '\u0130'),
                 new KeyValuePair<char, char>('\u0131', '\u0131'));
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization), nameof(PlatformDetection.IsNotHybridGlobalizationOnApplePlatform))]
         [MemberData(nameof(ToUpper_TurkishI_InvariantCulture_MemberData))]
         public static void ToUpper_TurkishI_InvariantCulture(string s, string expected)
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))
             {
-                Assert.True(s.ToUpper().Equals(expected, StringComparison.Ordinal));
+                Assert.Equal(s.ToUpper(), expected);
 
                 Span<char> destination = new char[s.Length];
                 Assert.Equal(s.Length, s.AsSpan().ToUpper(destination, CultureInfo.CurrentCulture));
@@ -5747,12 +6051,46 @@ namespace System.Tests
             }
         }
 
+        public static IEnumerable<object[]> ToUpper_Invariant_TestData()
+        {
+            yield return new object[] { "", "" };
+            yield return new object[] { "Ab", "AB" };
+            yield return new object[] { "H-/", "H-/" };
+            yield return new object[] { "Hello", "HELLO" };
+            yield return new object[] { "hElLo", "HELLO" };
+            yield return new object[] { "AbcdAbc", "ABCDABC" };
+            yield return new object[] { "AbcdAbcd", "ABCDABCD" };
+            yield return new object[] { "AbcdAbcd/", "ABCDABCD/" };
+            yield return new object[] { "AbcdAbcd/-", "ABCDABCD/-" };
+            yield return new object[] { "AbcdAbcd/-_", "ABCDABCD/-_" };
+            yield return new object[] { "AbcdAbcd-bcdAbc", "ABCDABCD-BCDABC" };
+            yield return new object[] { "AbcdAbcd-bcdAbcd", "ABCDABCD-BCDABCD" };
+            yield return new object[] { "AbcdAbcd-bcdAbcdA", "ABCDABCD-BCDABCDA" };
+            yield return new object[] { "AbcdAbcd-bcdAbcdA/", "ABCDABCD-BCDABCDA/" };
+            // Non-ASCII char:
+            yield return new object[] { "\u0436", "\u0416" };
+            yield return new object[] { "H\u0436/", "H\u0416/" };
+            yield return new object[] { "Hell\u0436", "HELL\u0416" };
+            yield return new object[] { "hEl\u0436o", "HEL\u0416O" };
+            yield return new object[] { "AbcdAb\u0436", "ABCDAB\u0416" };
+            yield return new object[] { "Abcd\u0436bcd", "ABCD\u0416BCD" };
+            yield return new object[] { "AbcdAbc\u0436/", "ABCDABC\u0416/" };
+            yield return new object[] { "AbcdAbcd/\u0436", "ABCDABCD/\u0416" };
+            yield return new object[] { "AbcdAbcd/-\u0436", "ABCDABCD/-\u0416" };
+            yield return new object[] { "AbcdAbc\u0436d-bcdAbc", "ABCDABC\u0416D-BCDABC" };
+            yield return new object[] { "AbcdAbcd-b\u0436dAbcd", "ABCDABCD-B\u0416DABCD" };
+            yield return new object[] { "AbcdAbcd-bcd\u0436bcdA", "ABCDABCD-BCD\u0416BCDA" };
+            yield return new object[] { "AbcdAbcd-bcdAbc\u0436A/", "ABCDABCD-BCDABC\u0416A/" };
+
+            yield return new object[]
+            {
+                "\u0430\u0431\u0432\u0433\u0434\u0435\u0451\u0436\u0437\u0438\u0439\u043A\u043B\u043C\u043D\u043E\u043F\u0440\u0441\u0442\u0443\u0444\u0445\u0446\u0447\u0448\u0449\u044C\u044B\u044A\u044D\u044E\u044F",
+                "\u0410\u0411\u0412\u0413\u0414\u0415\u0401\u0416\u0417\u0418\u0419\u041A\u041B\u041C\u041D\u041E\u041F\u0420\u0421\u0422\u0423\u0424\u0425\u0426\u0427\u0428\u0429\u042C\u042B\u042A\u042D\u042E\u042F"
+            };
+        }
+
         [Theory]
-        [InlineData("hello", "HELLO")]
-        [InlineData("HELLO", "HELLO")]
-        [InlineData("hElLo", "HELLO")]
-        [InlineData("HeLlO", "HELLO")]
-        [InlineData("", "")]
+        [MemberData(nameof(ToUpper_Invariant_TestData))]
         public static void ToUpperInvariant(string s, string expected)
         {
             Assert.Equal(expected, s.ToUpperInvariant());
@@ -6335,13 +6673,12 @@ namespace System.Tests
             }
 
             string s2 = "ccedafffffbdaa";
-            char[] trimCharsString = "abcde".ToCharArray();
-            Assert.True(s2.Substring(5, 5).SequenceEqual(s2.Trim(trimCharsString)));
-            Assert.True(s2.Substring(5).SequenceEqual(s2.TrimStart(trimCharsString)));
-            Assert.True(s2.Substring(0, 10).SequenceEqual(s2.TrimEnd(trimCharsString)));
+            Assert.True(s2.Substring(5, 5).SequenceEqual(s2.Trim(chars)));
+            Assert.True(s2.Substring(5).SequenceEqual(s2.TrimStart(chars)));
+            Assert.True(s2.Substring(0, 10).SequenceEqual(s2.TrimEnd(chars)));
 
             ReadOnlySpan<char> stringSpan = s2.AsSpan();
-            ReadOnlySpan<char> trimChars = trimCharsString.AsSpan();
+            ReadOnlySpan<char> trimChars = chars.AsSpan();
             Assert.True(stringSpan.Slice(5, 5).SequenceEqual(stringSpan.Trim(trimChars)));
             Assert.True(stringSpan.Slice(5).SequenceEqual(stringSpan.TrimStart(trimChars)));
             Assert.True(stringSpan.Slice(0, 10).SequenceEqual(stringSpan.TrimEnd(trimChars)));
@@ -6372,13 +6709,12 @@ namespace System.Tests
             }
 
             string s2 = "fabbacddeeddef";
-            char[] trimCharsString = "abcde".ToCharArray();
-            Assert.True(s2.SequenceEqual(s2.Trim(trimCharsString)));
-            Assert.True(s2.SequenceEqual(s2.TrimStart(trimCharsString)));
-            Assert.True(s2.SequenceEqual(s2.TrimEnd(trimCharsString)));
+            Assert.True(s2.SequenceEqual(s2.Trim(chars)));
+            Assert.True(s2.SequenceEqual(s2.TrimStart(chars)));
+            Assert.True(s2.SequenceEqual(s2.TrimEnd(chars)));
 
             ReadOnlySpan<char> stringSpan = s2.AsSpan();
-            ReadOnlySpan<char> trimChars = trimCharsString.AsSpan();
+            ReadOnlySpan<char> trimChars = chars.AsSpan();
             Assert.True(stringSpan.SequenceEqual(stringSpan.Trim(trimChars)));
             Assert.True(stringSpan.SequenceEqual(stringSpan.TrimStart(trimChars)));
             Assert.True(stringSpan.SequenceEqual(stringSpan.TrimEnd(trimChars)));
@@ -6426,21 +6762,25 @@ namespace System.Tests
             }
 
             string s2 = "ccedafffffbdaa";
-            char[] trimCharsString = "abcde".ToCharArray();
-            string trimStringResultString = s2.Trim(trimCharsString);
-            string trimStartStringResultString = s2.TrimStart(trimCharsString);
-            string trimEndStringResultString = s2.TrimEnd(trimCharsString);
+            string trimStringResultString = s2.Trim(chars);
+            string trimStartStringResultString = s2.TrimStart(chars);
+            string trimEndStringResultString = s2.TrimEnd(chars);
             Assert.True(s2.Substring(5, 5).SequenceEqual(trimStringResultString));
             Assert.True(s2.Substring(5).SequenceEqual(trimStartStringResultString));
             Assert.True(s2.Substring(0, 10).SequenceEqual(trimEndStringResultString));
 
             // 2nd attempt should do nothing
-            Assert.True(trimStringResultString.SequenceEqual(trimStringResultString.Trim(trimCharsString)));
-            Assert.True(trimStartStringResultString.SequenceEqual(trimStartStringResultString.TrimStart(trimCharsString)));
-            Assert.True(trimEndStringResultString.SequenceEqual(trimEndStringResultString.TrimEnd(trimCharsString)));
+            Assert.True(trimStringResultString.SequenceEqual(trimStringResultString.Trim(chars)));
+            Assert.True(trimStartStringResultString.SequenceEqual(trimStartStringResultString.TrimStart(chars)));
+            Assert.True(trimEndStringResultString.SequenceEqual(trimEndStringResultString.TrimEnd(chars)));
+
+            s2 = "ccedafffffbdaa";
+            Assert.True(s2.Substring(5, 5).SequenceEqual(trimStringResultString));
+            Assert.True(s2.Substring(5).SequenceEqual(trimStartStringResultString));
+            Assert.True(s2.Substring(0, 10).SequenceEqual(trimEndStringResultString));
 
             ReadOnlySpan<char> stringSpan = s2.AsSpan();
-            ReadOnlySpan<char> trimChars = trimCharsString.AsSpan();
+            ReadOnlySpan<char> trimChars = chars.AsSpan();
 
             ReadOnlySpan<char> trimStringResult = stringSpan.Trim(trimChars);
             ReadOnlySpan<char> trimStartStringResult = stringSpan.TrimStart(trimChars);
@@ -6466,27 +6806,26 @@ namespace System.Tests
                 first[length - 1] = 'f';
                 string s1 = new string(first, 1, length - 2);
                 Assert.Equal(s1.ToArray().Length, s1.Trim(chars).ToArray().Length);
-                Assert.True(s1.SequenceEqual(s1.Trim(chars)), "A : " + s1.Length);
-                Assert.True(s1.SequenceEqual(s1.TrimStart(chars)), "B :" + s1.Length);
-                Assert.True(s1.SequenceEqual(s1.TrimEnd(chars)));
+                Assert.True(s1.SequenceEqual(s1.Trim(chars)), "A: " + s1.Length);
+                Assert.True(s1.SequenceEqual(s1.TrimStart(chars)), "B: " + s1.Length);
+                Assert.True(s1.SequenceEqual(s1.TrimEnd(chars)), "C: " + s1.Length);
 
                 ReadOnlySpan<char> span = s1.AsSpan();
                 Assert.Equal(span.ToArray().Length, span.Trim(chars).ToArray().Length);
-                Assert.True(span.SequenceEqual(span.Trim(chars)), "A : " + span.Length);
-                Assert.True(span.SequenceEqual(span.TrimStart(chars)), "B :" + span.Length);
-                Assert.True(span.SequenceEqual(span.TrimEnd(chars)));
+                Assert.True(span.SequenceEqual(span.Trim(chars)), "A: " + span.Length);
+                Assert.True(span.SequenceEqual(span.TrimStart(chars)), "B: " + span.Length);
+                Assert.True(span.SequenceEqual(span.TrimEnd(chars)), "C: " + s1.Length);
             }
 
             string testString = "afghijklmnopqrstfe";
 
             string s2 = testString.Substring(1, testString.Length - 2);
-            char[] trimCharsString = "abcde".ToCharArray();
-            Assert.True(s2.SequenceEqual(s2.Trim(trimCharsString)));
-            Assert.True(s2.SequenceEqual(s2.TrimStart(trimCharsString)));
-            Assert.True(s2.SequenceEqual(s2.TrimEnd(trimCharsString)));
+            Assert.True(s2.SequenceEqual(s2.Trim(chars)));
+            Assert.True(s2.SequenceEqual(s2.TrimStart(chars)));
+            Assert.True(s2.SequenceEqual(s2.TrimEnd(chars)));
 
             ReadOnlySpan<char> stringSpan = s2.AsSpan();
-            ReadOnlySpan<char> trimChars = trimCharsString.AsSpan();
+            ReadOnlySpan<char> trimChars = chars.AsSpan();
             Assert.True(stringSpan.SequenceEqual(stringSpan.Trim(trimChars)));
             Assert.True(stringSpan.SequenceEqual(stringSpan.TrimStart(trimChars)));
             Assert.True(stringSpan.SequenceEqual(stringSpan.TrimEnd(trimChars)));
@@ -6788,7 +7127,7 @@ namespace System.Tests
 
             // Android has different results w/ tr-TR
             // See https://github.com/dotnet/runtime/issues/60568
-            if (PlatformDetection.IsNotInvariantGlobalization && !PlatformDetection.IsAndroid)
+            if (PlatformDetection.IsNotInvariantGlobalization && !PlatformDetection.IsAndroid && !PlatformDetection.IsLinuxBionic)
             {
                 yield return new object[] { "latin i",         "Latin I",     "tr-TR",    false,        1  };
                 yield return new object[] { "latin i",         "Latin I",     "tr-TR",    true,         1  };
@@ -6810,7 +7149,7 @@ namespace System.Tests
             {
                 // Android has different results w/ tr-TR
                 // See https://github.com/dotnet/runtime/issues/60568
-                if (!PlatformDetection.IsAndroid)
+                if (!PlatformDetection.IsAndroid && !PlatformDetection.IsLinuxBionic)
                 {
                     yield return new object[] { "turky \u0131",     "TURKY I",      "tr-TR" };
                     yield return new object[] { "turky i",          "TURKY \u0130", "tr-TR" };
@@ -6831,7 +7170,7 @@ namespace System.Tests
 
             // Android has different results w/ tr-TR
             // See https://github.com/dotnet/runtime/issues/60568
-            if (PlatformDetection.IsNotInvariantGlobalization && !PlatformDetection.IsAndroid)
+            if (PlatformDetection.IsNotInvariantGlobalization && !PlatformDetection.IsAndroid && !PlatformDetection.IsLinuxBionic)
             {
                 yield return new object[] { "i latin i",             "I Latin", "I",    "tr-TR",    false,       false  };
                 yield return new object[] { "i latin i",             "I Latin", "I",    "tr-TR",    true,        false  };
@@ -7288,8 +7627,7 @@ namespace System.Tests
         [Fact]
         public static void CreateStringFromEncoding_0Length_EmptyStringReturned() // basic test for code coverage; more tests in encodings tests
         {
-            byte[] bytes = Encoding.ASCII.GetBytes("hello");
-            Assert.Same(string.Empty, new AsciiEncodingWithZeroReturningGetCharCount().GetString(bytes, 0, 0));
+            Assert.Same(string.Empty, new AsciiEncodingWithZeroReturningGetCharCount().GetString("hello"u8.ToArray(), 0, 0));
         }
 
         private sealed class AsciiEncodingWithZeroReturningGetCharCount : ASCIIEncoding
@@ -7320,7 +7658,7 @@ namespace System.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtimelab/issues/155", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/69919", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
         public static unsafe void InternTest()
         {
             AssertExtensions.Throws<ArgumentNullException>("str", () => string.Intern(null));
@@ -7339,7 +7677,7 @@ namespace System.Tests
         }
 
         [Fact]
-        public static void InternalTestAotSubset()
+        public static void InternTestAotSubset()
         {
 #pragma warning disable 0618 // suppress obsolete warning for String.Copy
             string emptyFromField = string.Empty;
@@ -7354,6 +7692,17 @@ namespace System.Tests
             string sNew = string.Copy(sInterned1);
             Assert.NotSame(sInterned1, sNew);
 #pragma warning restore 0618 // restore warning when accessing obsolete members
+        }
+
+        [Fact]
+        public static void InternTestCanReturnNull()
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                if (string.IsInterned(Guid.NewGuid().ToString()) == null)
+                    return;
+            }
+            Assert.Fail("string.IsInterned never returns null");
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotInvariantGlobalization))]

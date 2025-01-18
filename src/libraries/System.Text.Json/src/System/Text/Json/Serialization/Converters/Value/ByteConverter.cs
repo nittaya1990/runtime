@@ -1,9 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
+
 namespace System.Text.Json.Serialization.Converters
 {
-    internal sealed class ByteConverter : JsonConverter<byte>
+    internal sealed class ByteConverter : JsonPrimitiveConverter<byte>
     {
         public ByteConverter()
         {
@@ -22,6 +26,7 @@ namespace System.Text.Json.Serialization.Converters
 
         internal override byte ReadAsPropertyNameCore(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
+            Debug.Assert(reader.TokenType == JsonTokenType.PropertyName);
             return reader.GetByteWithQuotes();
         }
 
@@ -51,5 +56,8 @@ namespace System.Text.Json.Serialization.Converters
                 writer.WriteNumberValue(value);
             }
         }
+
+        internal override JsonSchema? GetSchema(JsonNumberHandling numberHandling) =>
+            GetSchemaForNumericType(JsonSchemaType.Integer, numberHandling);
     }
 }

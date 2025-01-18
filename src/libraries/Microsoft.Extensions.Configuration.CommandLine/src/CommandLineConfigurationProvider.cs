@@ -7,7 +7,7 @@ using System.Collections.Generic;
 namespace Microsoft.Extensions.Configuration.CommandLine
 {
     /// <summary>
-    /// A command line based <see cref="ConfigurationProvider"/>.
+    /// Provides configuration key-value pairs that are obtained from the command line.
     /// </summary>
     public class CommandLineConfigurationProvider : ConfigurationProvider
     {
@@ -18,8 +18,10 @@ namespace Microsoft.Extensions.Configuration.CommandLine
         /// </summary>
         /// <param name="args">The command line args.</param>
         /// <param name="switchMappings">The switch mappings.</param>
-        public CommandLineConfigurationProvider(IEnumerable<string> args!!, IDictionary<string, string>? switchMappings = null)
+        public CommandLineConfigurationProvider(IEnumerable<string> args, IDictionary<string, string>? switchMappings = null)
         {
+            ThrowHelper.ThrowIfNull(args);
+
             Args = args;
 
             if (switchMappings != null)
@@ -29,12 +31,12 @@ namespace Microsoft.Extensions.Configuration.CommandLine
         }
 
         /// <summary>
-        /// The command line arguments.
+        /// Gets the command-line arguments.
         /// </summary>
-        protected IEnumerable<string> Args { get; private set; }
+        protected IEnumerable<string> Args { get; }
 
         /// <summary>
-        /// Loads the configuration data from the command line args.
+        /// Loads the configuration data from the command-line arguments.
         /// </summary>
         public override void Load()
         {
@@ -91,7 +93,6 @@ namespace Microsoft.Extensions.Configuration.CommandLine
                             key = currentArg.Substring(keyStartIndex);
                         }
 
-                        string previousKey = enumerator.Current;
                         if (!enumerator.MoveNext())
                         {
                             // ignore missing values
@@ -131,7 +132,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
             Data = data;
         }
 
-        private Dictionary<string, string> GetValidatedSwitchMappingsCopy(IDictionary<string, string> switchMappings)
+        private static Dictionary<string, string> GetValidatedSwitchMappingsCopy(IDictionary<string, string> switchMappings)
         {
             // The dictionary passed in might be constructed with a case-sensitive comparer
             // However, the keys in configuration providers are all case-insensitive

@@ -4,6 +4,8 @@
 [[SetCommands]]
 [[SetCommandsEcho]]
 
+export PATH="$HOME/.jsvu/bin:$PATH"
+
 EXECUTION_DIR=$(dirname $0)
 if [[ -n "$3" ]]; then
 	SCENARIO=$3
@@ -24,7 +26,9 @@ else
 fi
 
 if [[ -z "$XHARNESS_COMMAND" ]]; then
-	if [[ "$SCENARIO" == "WasmTestOnBrowser" || "$SCENARIO" == "wasmtestonbrowser" ]]; then
+	if [[ "$SCENARIO" == "WasmTestOnFirefox" || "$SCENARIO" == "wasmtestonfirefox" ]]; then
+		XHARNESS_COMMAND="test-browser"
+	elif [[ "$SCENARIO" == "WasmTestOnChrome" || "$SCENARIO" == "wasmtestonchrome" ]]; then
 		XHARNESS_COMMAND="test-browser"
 	else
 		XHARNESS_COMMAND="test"
@@ -32,20 +36,29 @@ if [[ -z "$XHARNESS_COMMAND" ]]; then
 fi
 
 if [[ "$XHARNESS_COMMAND" == "test" ]]; then
-	if [[ -z "$JS_ENGINE" ]]; then
-		if [[ "$SCENARIO" == "WasmTestOnNodeJs" || "$SCENARIO" == "wasmtestonnodejs" ]]; then
-			JS_ENGINE="--engine=NodeJS"
-		else
-			JS_ENGINE="--engine=V8"
-		fi
-	fi
-
 	if [[ -z "$MAIN_JS" ]]; then
 		MAIN_JS="--js-file=test-main.js"
 	fi
 
 	if [[ -z "$JS_ENGINE_ARGS" ]]; then
-		JS_ENGINE_ARGS="--engine-arg=--stack-trace-limit=1000"
+		JS_ENGINE_ARGS="--engine-arg=--stack-trace-limit=1000 --engine-arg=--module"
+	fi
+
+	if [[ -z "$JS_ENGINE" ]]; then
+		JS_ENGINE="--engine=V8"
+	fi
+else
+	if [[ "$SCENARIO" == "WasmTestOnChrome" || "$SCENARIO" == "wasmtestonchrome" ]]; then
+		if [[ -z "$JS_ENGINE_ARGS" ]]; then
+			JS_ENGINE_ARGS="--browser-arg=--js-flags=--stack-trace-limit=1000"
+		fi
+	elif [[ "$SCENARIO" == "WasmTestOnFirefox" || "$SCENARIO" == "wasmtestonfirefox" ]]; then
+		if [[ -z "$JS_ENGINE" ]]; then
+			JS_ENGINE="--browser=Firefox"
+		fi
+		if [[ -z "$JS_ENGINE_ARGS" ]]; then
+			JS_ENGINE_ARGS="--browser-arg=-private-window"
+		fi
 	fi
 fi
 
@@ -53,10 +66,15 @@ if [[ -z "$XHARNESS_ARGS" ]]; then
 	XHARNESS_ARGS="$JS_ENGINE $JS_ENGINE_ARGS $MAIN_JS"
 fi
 
+if [[ -n "$PREPEND_PATH" ]]; then
+    export PATH=$PREPEND_PATH:$PATH
+fi
+
 if [[ -n "$XUNIT_RANDOM_ORDER_SEED" ]]; then
     WasmXHarnessMonoArgs="${WasmXHarnessMonoArgs} --setenv=XUNIT_RANDOM_ORDER_SEED=${XUNIT_RANDOM_ORDER_SEED}"
 fi
 
+echo PATH=$PATH
 echo EXECUTION_DIR=$EXECUTION_DIR
 echo SCENARIO=$SCENARIO
 echo XHARNESS_OUT=$XHARNESS_OUT
@@ -67,6 +85,38 @@ echo MAIN_JS=$MAIN_JS
 echo JS_ENGINE=$JS_ENGINE
 echo JS_ENGINE_ARGS=$JS_ENGINE_ARGS
 echo XHARNESS_ARGS=$XHARNESS_ARGS
+
+function _buildAOTFunc()
+{
+	local projectFile=$1
+	local binLog=$2
+	shift 2
+
+	time dotnet msbuild $projectFile /bl:$binLog $*
+	local buildExitCode=$?
+
+	echo "\n** Performance summary for the build **\n"
+	dotnet msbuild $binLog -clp:PerformanceSummary -v:q -nologo
+	if [[ "$(uname -s)" == "Linux" && $buildExitCode -ne 0 ]]; then
+		echo "\nLast few messages from dmesg:\n"
+		local lastLines=`dmesg | tail -n 20`
+		echo $lastLines
+
+		if [[ "$lastLines" =~ "oom-kill" ]]; then
+			return 9200 # OOM
+		fi
+	fi
+
+	echo
+	echo
+
+    if [[ $buildExitCode -ne 0 ]]; then
+        return 9100 # aot build failure
+    fi
+
+	return 0
+}
+
 
 pushd $EXECUTION_DIR
 

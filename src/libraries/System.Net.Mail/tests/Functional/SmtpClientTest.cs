@@ -9,12 +9,17 @@
 // (C) 2006 John Luke
 //
 
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.RemoteExecutor;
 using Systen.Net.Mail.Tests;
+using System.Net.Test.Common;
 using Xunit;
 
 namespace System.Net.Mail.Tests
@@ -24,11 +29,13 @@ namespace System.Net.Mail.Tests
     {
         private SmtpClient _smtp;
 
+        public static bool IsNtlmInstalled => Capability.IsNtlmInstalled();
+
         private SmtpClient Smtp
         {
             get
             {
-                return _smtp ?? (_smtp = new SmtpClient());
+                return _smtp ??= new SmtpClient();
             }
         }
 
@@ -310,8 +317,6 @@ namespace System.Net.Mail.Tests
         }
 
         [Fact]
-        // [ActiveIssue("https://github.com/dotnet/runtime/issues/31719")]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, ".NET Framework has a bug and may not time out for low values")]
         [SkipOnPlatform(TestPlatforms.OSX, "on OSX, not all synchronous operations (e.g. connect) can be aborted by closing the socket.")]
         public void TestZeroTimeout()
         {
@@ -336,7 +341,6 @@ namespace System.Net.Mail.Tests
             }
         }
 
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, ".NET Framework has a bug and could hang in case of null or empty body")]
         [Theory]
         [InlineData("howdydoo")]
         [InlineData("")]
@@ -470,16 +474,16 @@ namespace System.Net.Mail.Tests
 
             var message = new MailMessage("foo@internet.com", "bar@internet.com", "Foo", "Bar");
 
-            Task sendTask = client.SendMailAsync(message, cts.Token);
+            Task sendTask = Task.Run(() => client.SendMailAsync(message, cts.Token));
 
             cts.Cancel();
             await Task.Delay(500);
             serverMre.Set();
 
-            await Assert.ThrowsAsync<TaskCanceledException>(async () => await sendTask);
+            await Assert.ThrowsAsync<TaskCanceledException>(async () => await sendTask).WaitAsync(TestHelper.PassingTestTimeout);
 
             // We should still be able to send mail on the SmtpClient instance
-            await client.SendMailAsync(message);
+            await Task.Run(() => client.SendMailAsync(message)).WaitAsync(TestHelper.PassingTestTimeout);
 
             Assert.Equal("<foo@internet.com>", server.MailFrom);
             Assert.Equal("<bar@internet.com>", server.MailTo);
@@ -522,6 +526,92 @@ namespace System.Net.Mail.Tests
             // There is a latency between send/receive.
             quitReceived.Wait(TimeSpan.FromSeconds(30));
             Assert.True(quitMessageReceived, "QUIT message not received");
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task TestMultipleMailDelivery(bool asyncSend)
+        {
+            using var server = new LoopbackSmtpServer();
+            using SmtpClient client = server.CreateClient();
+            client.Timeout = 10000;
+            client.Credentials = new NetworkCredential("foo", "bar");
+            MailMessage msg = new MailMessage("foo@example.com", "bar@example.com", "hello", "howdydoo");
+
+            for (var i = 0; i < 5; i++)
+            {
+                if (asyncSend)
+                {
+                    using var cts = new CancellationTokenSource(10000);
+                    await client.SendMailAsync(msg, cts.Token);
+                }
+                else
+                {
+                    client.Send(msg);
+                }
+
+                Assert.Equal("<foo@example.com>", server.MailFrom);
+                Assert.Equal("<bar@example.com>", server.MailTo);
+                Assert.Equal("hello", server.Message.Subject);
+                Assert.Equal("howdydoo", server.Message.Body);
+                Assert.Equal(GetClientDomain(), server.ClientDomain);
+                Assert.Equal("foo", server.Username);
+                Assert.Equal("bar", server.Password);
+                Assert.Equal("LOGIN", server.AuthMethodUsed, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        [ConditionalFact(nameof(IsNtlmInstalled))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/65678", TestPlatforms.OSX | TestPlatforms.iOS | TestPlatforms.MacCatalyst)]
+        public void TestGssapiAuthentication()
+        {
+            using var server = new LoopbackSmtpServer();
+            server.AdvertiseGssapiAuthSupport = true;
+            server.ExpectedGssapiCredential = new NetworkCredential("foo", "bar");
+            using SmtpClient client = server.CreateClient();
+            client.Credentials = server.ExpectedGssapiCredential;
+            MailMessage msg = new MailMessage("foo@example.com", "bar@example.com", "hello", "howdydoo");
+
+            client.Send(msg);
+
+            Assert.Equal("GSSAPI", server.AuthMethodUsed, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Theory]
+        [MemberData(nameof(SendMail_MultiLineDomainLiterals_Data))]
+        public async Task SendMail_MultiLineDomainLiterals_Disabled_Throws(string from, string to, bool asyncSend)
+        {
+            using var server = new LoopbackSmtpServer();
+
+            using SmtpClient client = server.CreateClient();
+            client.Credentials = new NetworkCredential("Foo", "Bar");
+
+            using var msg = new MailMessage(@from, @to, "subject", "body");
+
+            await Assert.ThrowsAsync<SmtpException>(async () =>
+            {
+                if (asyncSend)
+                {
+                    await client.SendMailAsync(msg).WaitAsync(TimeSpan.FromSeconds(30));
+                }
+                else
+                {
+                    client.Send(msg);
+                }
+            });
+        }
+
+        public static IEnumerable<object[]> SendMail_MultiLineDomainLiterals_Data()
+        {
+            foreach (bool async in new[] { true, false })
+            {
+                foreach (string address in new[] { "foo@[\r\n bar]", "foo@[bar\r\n ]", "foo@[bar\r\n baz]" })
+                {
+                    yield return new object[] { address, "foo@example.com", async };
+                    yield return new object[] { "foo@example.com", address, async };
+                }
+            }
         }
     }
 }

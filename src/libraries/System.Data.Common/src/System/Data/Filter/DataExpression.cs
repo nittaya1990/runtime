@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
+using System.Data.Common;
+using System.Data.SqlTypes;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Collections.Generic;
-using System.Data.SqlTypes;
-using System.Data.Common;
 
 namespace System.Data
 {
@@ -62,7 +62,7 @@ namespace System.Data
         {
             get
             {
-                return (_originalExpression != null ? _originalExpression : ""); // CONSIDER: return optimized expression here (if bound)
+                return _originalExpression ?? ""; // CONSIDER: return optimized expression here (if bound)
             }
         }
 
@@ -147,7 +147,7 @@ namespace System.Data
                     catch (Exception e) when (ADP.IsCatchableExceptionType(e))
                     {
                         ExceptionBuilder.TraceExceptionForCapture(e);
-                        throw ExprException.DatavalueConvertion(result, _dataType!, e);
+                        throw ExprException.DatavalueConversion(result, _dataType!);
                     }
                 }
             }
@@ -210,7 +210,7 @@ namespace System.Data
             }
             catch (EvaluateException)
             {
-                throw ExprException.FilterConvertion(Expression);
+                throw ExprException.FilterConversion(Expression);
             }
             return result;
         }
@@ -270,11 +270,11 @@ namespace System.Data
                 catch (Exception e) when (ADP.IsCatchableExceptionType(e))
                 {
                     ExceptionBuilder.TraceExceptionForCapture(e);
-                    throw ExprException.DatavalueConvertion(value, typeof(bool), e);
+                    throw ExprException.DatavalueConversion(value, typeof(bool));
                 }
             }
 
-            throw ExprException.DatavalueConvertion(value, typeof(bool), null);
+            throw ExprException.DatavalueConversion(value, typeof(bool));
         }
     }
 }

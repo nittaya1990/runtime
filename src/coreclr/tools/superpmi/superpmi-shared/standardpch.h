@@ -9,6 +9,12 @@
 // itself are probably inappropriate, because if you change them, the entire
 // project will require a recompile. Generally just put SDK style stuff here...
 
+#ifdef _MSC_VER
+#define DEBUG_BREAK __debugbreak()
+#else
+#define DEBUG_BREAK DebugBreak()
+#endif
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif // WIN32_LEAN_AND_MEAN
@@ -23,12 +29,10 @@
 //#define USE_COREDISTOOLS
 #endif // INTERNAL_BUILD
 
-#ifdef _MSC_VER
-// On Windows, we build against PAL macros that convert to Windows SEH. But we don't want all the
-// Contract stuff that normally gets pulled it. Defining JIT_BUILD prevents this, just as it does
-// when building the JIT using parts of utilcode.
+// JIT_BUILD disables certain PAL_TRY debugging and Contracts features. Set this just as the JIT sets it.
 #define JIT_BUILD
 
+#ifdef _MSC_VER
 // Defining this prevents:
 //   error C2338 : / RTCc rejects conformant code, so it isn't supported by the C++ Standard Library.
 //   Either remove this compiler option, or define _ALLOW_RTCc_IN_STL to acknowledge that you have received this
@@ -52,29 +56,19 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include <malloc.h>
 #include <assert.h>
 #include <wchar.h>
-#include <tchar.h>
 #include <specstrings.h>
 #include <math.h>
 #include <limits.h>
 #include <ctype.h>
 #include <stdarg.h>
 
-// Getting STL to work with PAL is difficult, so reimplement STL functionality to not require it.
-#ifdef TARGET_UNIX
-#include "clr_std/string"
-#include "clr_std/algorithm"
-#include "clr_std/vector"
-#else // !TARGET_UNIX
-#ifndef USE_STL
-#define USE_STL
-#endif // USE_STL
+#include <utility>
 #include <string>
 #include <algorithm>
 #include <vector>
-#endif // !TARGET_UNIX
+
 
 #ifdef USE_MSVCDIS
 #define DISLIB
@@ -82,13 +76,6 @@
 #include "..\external\msvcdis\inc\disx86.h"
 #include "..\external\msvcdis\inc\disarm64.h"
 #endif // USE_MSVCDIS
-
-#ifndef DIRECTORY_SEPARATOR_CHAR_A
-#define DIRECTORY_SEPARATOR_CHAR_A '\\'
-#endif
-#ifndef DIRECTORY_SEPARATOR_STR_A
-#define DIRECTORY_SEPARATOR_STR_A "\\"
-#endif
 
 #ifndef W
 #ifdef TARGET_UNIX
@@ -98,9 +85,27 @@
 #endif // TARGET_UNIX
 #endif // !W
 
+#ifdef TARGET_UNIX
+#ifndef DIRECTORY_SEPARATOR_CHAR_A
+#define DIRECTORY_SEPARATOR_CHAR_A '/'
+#endif
+#ifndef DIRECTORY_SEPARATOR_STR_A
+#define DIRECTORY_SEPARATOR_STR_A "/"
+#endif
+#ifndef DIRECTORY_SEPARATOR_STR_W
+#define DIRECTORY_SEPARATOR_STR_W W("/")
+#endif
+#else // TARGET_UNIX
+#ifndef DIRECTORY_SEPARATOR_CHAR_A
+#define DIRECTORY_SEPARATOR_CHAR_A '\\'
+#endif
+#ifndef DIRECTORY_SEPARATOR_STR_A
+#define DIRECTORY_SEPARATOR_STR_A "\\"
+#endif
 #ifndef DIRECTORY_SEPARATOR_STR_W
 #define DIRECTORY_SEPARATOR_STR_W W("\\")
 #endif
+#endif // TARGET_UNIX
 
 #ifdef TARGET_UNIX
 #define PLATFORM_SHARED_LIB_SUFFIX_A PAL_SHLIB_SUFFIX
@@ -111,11 +116,9 @@
 #define DEFAULT_REAL_JIT_NAME_A MAKEDLLNAME_A("clrjit2")
 #define DEFAULT_REAL_JIT_NAME_W MAKEDLLNAME_W("clrjit2")
 
-#if !defined(_MSC_VER) && !defined(__llvm__)
-static inline void __debugbreak()
-{
-  DebugBreak();
-}
-#endif
+using std::min;
+using std::max;
+
+#include <minipal/utils.h>
 
 #endif // STANDARDPCH_H

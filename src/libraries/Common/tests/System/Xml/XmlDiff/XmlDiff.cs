@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Text;
-using System.IO;
 using System.Diagnostics;
+using System.IO;
+using System.Text;
 
 namespace System.Xml.XmlDiff
 {
@@ -354,7 +354,7 @@ namespace System.Xml.XmlDiff
                 else
                 {
                     //Both SourceRead and TargetRead is NULL
-                    Debug.Assert(false, "Impossible Situation for comparison");
+                    Debug.Fail("Impossible Situation for comparison");
                 }
             }
             return flag;

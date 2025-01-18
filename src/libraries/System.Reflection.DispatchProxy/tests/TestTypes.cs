@@ -63,10 +63,22 @@ public interface TestType_IOneWay
     void OneWay();
 }
 
+// Demonstrates proxies can be made for static virtual methods.
+public interface TestType_IStaticVirtualMethodService
+{
+    static virtual void TestMethod() { }
+}
+
 // Demonstrates proxies can be made for properties.
 public interface TestType_IPropertyService
 {
     string ReadWrite { get; set; }
+}
+
+// Demonstrates proxies can be made for static virtual properties.
+public interface TestType_IStaticVirtualPropertyService
+{
+    static virtual string TestProperty { get; set; }
 }
 
 // Demonstrates proxies can be made for events.
@@ -117,6 +129,8 @@ public class TestType_ConcreteClass
 {
     public string Echo(string s) { return null; }
 }
+
+class TestType_DipatchProxyGenericConstraint<T> where T : DispatchProxy { }
 
 // Negative -- demonstrates base type that is sealed and should generate exception
 public sealed class Sealed_TestDispatchProxy : DispatchProxy
@@ -188,6 +202,8 @@ public abstract class Abstract_TestDispatchProxy : DispatchProxy
         throw new InvalidOperationException();
     }
 }
+
+abstract class Abstract_GenericDispatchProxy<T> : DispatchProxy { }
 
 // Negative -- demonstrates base type that has no public default ctor
 public class NoDefaultCtor_TestDispatchProxy : DispatchProxy

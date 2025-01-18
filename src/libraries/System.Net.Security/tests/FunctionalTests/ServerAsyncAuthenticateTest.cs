@@ -47,8 +47,7 @@ namespace System.Net.Security.Tests
         [MemberData(nameof(ProtocolMismatchData))]
         public async Task ServerAsyncAuthenticate_MismatchProtocols_Fails(
             SslProtocols clientProtocol,
-            SslProtocols serverProtocol,
-            Type expectedException)
+            SslProtocols serverProtocol)
         {
             Exception e = await Record.ExceptionAsync(
                 () =>
@@ -60,7 +59,16 @@ namespace System.Net.Security.Tests
                 });
 
             Assert.NotNull(e);
-            Assert.IsAssignableFrom(expectedException, e);
+
+            if (OperatingSystem.IsAndroid())
+            {
+                // On Android running on x64 or x86 the server side sometimes throws IOException instead of AuthenticationException
+                Assert.True(e is IOException || e is AuthenticationException, $"Unexpected exception type: {e.GetType()}");
+            }
+            else
+            {
+                Assert.IsType<AuthenticationException>(e);
+            }
         }
 
         [Theory]
@@ -336,7 +344,7 @@ namespace System.Net.Security.Tests
 
                     if (clientProtocol != serverProtocol)
                     {
-                        yield return new object[] { clientProtocol, serverProtocol, typeof(AuthenticationException) };
+                        yield return new object[] { clientProtocol, serverProtocol };
                     }
                 }
             }
@@ -421,6 +429,7 @@ namespace System.Net.Security.Tests
                 await serverAuthentication.WaitAsync(TestConfiguration.PassingTestTimeout);
                 _logVerbose.WriteLine("ServerAsyncAuthenticateTest.serverAuthentication complete.");
 
+#pragma warning disable SYSLIB0058 // Use NegotiatedCipherSuite.
                 _log.WriteLine(
                     "Server({0}) authenticated with encryption cipher: {1} {2}-bit strength",
                     serverStream.Socket.LocalEndPoint,
@@ -432,6 +441,7 @@ namespace System.Net.Security.Tests
                     "Cipher algorithm should not be NULL");
 
                 Assert.True(sslServerStream.CipherStrength > 0, "Cipher strength should be greater than 0");
+#pragma warning restore SYSLIB0058 // Use NegotiatedCipherSuite.
             }
         }
 

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +17,7 @@ namespace System.Net.Sockets.Tests
 
         private const int DiscardPort = 9;
 
-        private ManualResetEvent _waitHandle = new ManualResetEvent(false);
+        private ManualResetEventSlim _waitHandle = new ManualResetEventSlim(false);
 
         [Theory]
         [InlineData(AddressFamily.InterNetwork)]
@@ -59,7 +60,7 @@ namespace System.Net.Sockets.Tests
             AssertExtensions.Throws<ArgumentNullException>("localEP", () => new UdpClient(null));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_CanSend()
         {
             using (var udpClient = new DerivedUdpClient())
@@ -70,6 +71,16 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        public async Task Ctor_CanSendAsync()
+        {
+            using (var udpClient = new DerivedUdpClient())
+            {
+                Assert.Equal(1, await udpClient.SendAsync(new byte[1], 1, new IPEndPoint(IPAddress.Loopback, UnusedPort)));
+                Assert.False(udpClient.Active);
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_Int_CanSend()
         {
             try
@@ -86,7 +97,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_IntAddressFamily_IPv4_CanSend()
         {
             try
@@ -103,7 +114,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_IntAddressFamily_IPv6_CanSend()
         {
             try
@@ -120,7 +131,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_IPEndPoint_CanSend()
         {
             try
@@ -137,7 +148,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Ctor_StringInt_CanSend()
         {
             using (var udpClient = new DerivedUdpClient("localhost", UnusedPort))
@@ -147,7 +158,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void DisposeClose_OperationsThrow(bool close)
@@ -264,9 +275,9 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD, "BSD like doesn't have an equivalent of DontFragment")]
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/51392", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Not supported on Wasi.")]
         public void DontFragment_Roundtrips()
         {
             using (var udpClient = new UdpClient())
@@ -279,10 +290,13 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
-        public void MulticastLoopback_Roundtrips()
+        [Theory]
+        [InlineData(AddressFamily.InterNetwork)]
+        [InlineData(AddressFamily.InterNetworkV6)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Not supported on Wasi.")]
+        public void MulticastLoopback_Roundtrips(AddressFamily addressFamily)
         {
-            using (var udpClient = new UdpClient())
+            using (var udpClient = new UdpClient(addressFamily))
             {
                 Assert.True(udpClient.MulticastLoopback);
                 udpClient.MulticastLoopback = false;
@@ -293,6 +307,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Not supported on Wasi.")]
         public void EnableBroadcast_Roundtrips()
         {
             using (var udpClient = new UdpClient())
@@ -319,7 +334,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void InvalidArguments_Throw()
         {
             using (var udpClient = new UdpClient("localhost", UnusedPort))
@@ -330,7 +345,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void BeginSend_NegativeBytes_Throws()
         {
             using (UdpClient udpClient = new UdpClient(AddressFamily.InterNetwork))
@@ -345,7 +360,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void BeginSend_BytesMoreThanArrayLength_Throws()
         {
             using (UdpClient udpClient = new UdpClient(AddressFamily.InterNetwork))
@@ -360,7 +375,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void BeginSend_AsyncOperationCompletes_Success()
         {
             using (UdpClient udpClient = new UdpClient())
@@ -370,11 +385,11 @@ namespace System.Net.Sockets.Tests
                 _waitHandle.Reset();
                 udpClient.BeginSend(sendBytes, sendBytes.Length, remoteServer, new AsyncCallback(AsyncCompleted), udpClient);
 
-                Assert.True(_waitHandle.WaitOne(TestSettings.PassingTestTimeout), "Timed out while waiting for connection");
+                Assert.True(_waitHandle.Wait(TestSettings.PassingTestTimeout), "Timed out while waiting for connection");
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Send_InvalidArguments_Throws()
         {
             using (var udpClient = new DerivedUdpClient())
@@ -387,8 +402,6 @@ namespace System.Net.Sockets.Tests
                 udpClient.Active = true;
                 Assert.Throws<InvalidOperationException>(() => udpClient.Send(new byte[1], 1, new IPEndPoint(IPAddress.Loopback, 0)));
                 Assert.Throws<InvalidOperationException>(() => udpClient.Send(new ReadOnlySpan<byte>(new byte[1]), new IPEndPoint(IPAddress.Loopback, 0)));
-                Assert.Throws<InvalidOperationException>(() => {udpClient.SendAsync(new byte[1], 1, new IPEndPoint(IPAddress.Loopback, 0));});
-                Assert.Throws<InvalidOperationException>(() => udpClient.SendAsync(new ReadOnlyMemory<byte>(new byte[1]), new IPEndPoint(IPAddress.Loopback, 0)));
             }
         }
 
@@ -421,7 +434,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Connect_InvalidArguments_Throws()
         {
             using (var udpClient = new UdpClient())
@@ -456,7 +469,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Connect_StringHost_Success()
         {
             using (var c = new UdpClient())
@@ -465,7 +478,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         public void Connect_IPAddressHost_Success()
         {
             using (var c = new UdpClient())
@@ -506,7 +519,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void Send_Receive_Success(bool ipv4)
@@ -516,11 +529,12 @@ namespace System.Net.Sockets.Tests
             using (var receiver = new UdpClient(new IPEndPoint(address, 0)))
             using (var sender = new UdpClient(new IPEndPoint(address, 0)))
             {
-                sender.Send(new byte[1], 1, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
-                AssertReceive(receiver);
+                byte[] data = [1, 2, 3];
+                sender.Send(data, 2, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
+                AssertReceive(receiver, [1, 2]);
 
-                sender.Send(new ReadOnlySpan<byte>(new byte[1]), new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
-                AssertReceive(receiver);
+                sender.Send(new ReadOnlySpan<byte>(data), new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
+                AssertReceive(receiver, data);
             }
         }
 
@@ -535,11 +549,12 @@ namespace System.Net.Sockets.Tests
             using (var receiver = new UdpClient(new IPEndPoint(address, 0)))
             using (var sender = new UdpClient(new IPEndPoint(address, 0)))
             {
-                sender.Send(new byte[1], 1, "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
-                AssertReceive(receiver);
+                byte[] data = [1, 2, 3];
+                sender.Send(data, 2, "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
+                AssertReceive(receiver, [1, 2]);
 
-                sender.Send(new ReadOnlySpan<byte>(new byte[1]), "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
-                AssertReceive(receiver);
+                sender.Send(new ReadOnlySpan<byte>(data), "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
+                AssertReceive(receiver, data);
             }
         }
 
@@ -550,23 +565,25 @@ namespace System.Net.Sockets.Tests
             using (var receiver = new UdpClient("localhost", 0))
             using (var sender = new UdpClient("localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port))
             {
-                sender.Send(new byte[1], 1);
-                AssertReceive(receiver);
+                byte[] data = [1, 2, 3];
 
-                sender.Send(new ReadOnlySpan<byte>(new byte[1]));
-                AssertReceive(receiver);
+                sender.Send(data, 2);
+                AssertReceive(receiver, [1, 2]);
+
+                sender.Send(new ReadOnlySpan<byte>(data));
+                AssertReceive(receiver, data);
             }
         }
 
-        private static void AssertReceive(UdpClient receiver)
+        private static void AssertReceive(UdpClient receiver, byte[] sentData)
         {
             IPEndPoint remoteEP = null;
             byte[] data = receiver.Receive(ref remoteEP);
             Assert.NotNull(remoteEP);
-            Assert.InRange(data.Length, 1, int.MaxValue);
+            Assert.True(Enumerable.SequenceEqual(sentData, data));
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void Send_Available_Success(bool ipv4)
@@ -582,22 +599,23 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void BeginEndSend_BeginEndReceive_Success(bool ipv4)
         {
             IPAddress address = ipv4 ? IPAddress.Loopback : IPAddress.IPv6Loopback;
+            byte[] data = [1, 2, 3];
 
             using (var receiver = new UdpClient(new IPEndPoint(address, 0)))
             using (var sender = new UdpClient(new IPEndPoint(address, 0)))
             {
-                sender.EndSend(sender.BeginSend(new byte[1], 1, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port), null, null));
+                sender.EndSend(sender.BeginSend(data, 2, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port), null, null));
 
                 IPEndPoint remoteEP = null;
-                byte[] data = receiver.EndReceive(receiver.BeginReceive(null, null), ref remoteEP);
+                byte[] receivedData = receiver.EndReceive(receiver.BeginReceive(null, null), ref remoteEP);
                 Assert.NotNull(remoteEP);
-                Assert.InRange(data.Length, 1, int.MaxValue);
+                Assert.True(Enumerable.SequenceEqual(receivedData, new byte[] {1, 2}));
             }
         }
 
@@ -605,15 +623,17 @@ namespace System.Net.Sockets.Tests
         [PlatformSpecific(TestPlatforms.Windows)] // "localhost" resolves to IPv4 & IPV6 on Windows, but may resolve to only one of those on Unix
         public void BeginEndSend_BeginEndReceive_Connected_Success()
         {
+            byte[] data = [1, 2, 3];
+
             using (var receiver = new UdpClient("localhost", 0))
             using (var sender = new UdpClient("localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port))
             {
-                sender.EndSend(sender.BeginSend(new byte[1], 1, null, null));
+                sender.EndSend(sender.BeginSend(data, 2, null, null));
 
                 IPEndPoint remoteEP = null;
-                byte[] data = receiver.EndReceive(receiver.BeginReceive(null, null), ref remoteEP);
+                byte[] receivedData = receiver.EndReceive(receiver.BeginReceive(null, null), ref remoteEP);
                 Assert.NotNull(remoteEP);
-                Assert.InRange(data.Length, 1, int.MaxValue);
+                Assert.True(Enumerable.SequenceEqual(receivedData, new byte[] {1, 2}));
             }
         }
 
@@ -623,15 +643,16 @@ namespace System.Net.Sockets.Tests
         public async Task SendAsync_ReceiveAsync_Success(bool ipv4)
         {
             IPAddress address = ipv4 ? IPAddress.Loopback : IPAddress.IPv6Loopback;
+            byte[] data = [1, 2, 3];
 
             using (var receiver = new UdpClient(new IPEndPoint(address, 0)))
             using (var sender = new UdpClient(new IPEndPoint(address, 0)))
             {
-                await sender.SendAsync(new byte[1], 1, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
-				await AssertReceiveAsync(receiver);
-				
-				await sender.SendAsync(new ReadOnlyMemory<byte>(new byte[1]), new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
-				await AssertReceiveAsync(receiver);
+                await sender.SendAsync(data, 2, new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
+                await AssertReceiveAsync(receiver, [1, 2]);
+
+                await sender.SendAsync(new ReadOnlyMemory<byte>(data), new IPEndPoint(address, ((IPEndPoint)receiver.Client.LocalEndPoint).Port));
+                await AssertReceiveAsync(receiver, data);
             }
         }
 
@@ -642,15 +663,16 @@ namespace System.Net.Sockets.Tests
         public async Task SendAsync_ReceiveAsync_With_HostName_Success(bool ipv4)
         {
             IPAddress address = ipv4 ? IPAddress.Loopback : IPAddress.IPv6Loopback;
+            byte[] data = [1, 2, 3];
 
             using (var receiver = new UdpClient(new IPEndPoint(address, 0)))
             using (var sender = new UdpClient(new IPEndPoint(address, 0)))
             {
-                await sender.SendAsync(new byte[1], "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(data, "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
+                await AssertReceiveAsync(receiver, data);
 
-                await sender.SendAsync(new ReadOnlyMemory<byte>(new byte[1]), "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(new ReadOnlyMemory<byte>(data), "localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port);
+                await AssertReceiveAsync(receiver, data);
             }
         }
 
@@ -674,29 +696,30 @@ namespace System.Net.Sockets.Tests
         [PlatformSpecific(TestPlatforms.Windows)] // "localhost" resolves to IPv4 & IPV6 on Windows, but may resolve to only one of those on Unix
         public async Task SendAsync_ReceiveAsync_Connected_Success()
         {
+            byte[] data = [1, 2, 3];
+
             using (var receiver = new UdpClient("localhost", 0))
             using (var sender = new UdpClient("localhost", ((IPEndPoint)receiver.Client.LocalEndPoint).Port))
             {
-                await sender.SendAsync(new byte[1], 1);
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(data, 2);
+                await AssertReceiveAsync(receiver, [1, 2]);
 
-                await sender.SendAsync(new ReadOnlyMemory<byte>(new byte[1]));
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(new ReadOnlyMemory<byte>(data));
+                await AssertReceiveAsync(receiver, data);
 
-                await sender.SendAsync(new ReadOnlyMemory<byte>(new byte[1]), null);
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(new ReadOnlyMemory<byte>(data), null);
+                await AssertReceiveAsync(receiver, data);
 
-                await sender.SendAsync(new ReadOnlyMemory<byte>(new byte[1]), null, 0);
-                await AssertReceiveAsync(receiver);
+                await sender.SendAsync(new ReadOnlyMemory<byte>(data), null, 0);
+                await AssertReceiveAsync(receiver, data);
             }
         }
 
-        private static async Task AssertReceiveAsync(UdpClient receiver)
+        private static async Task AssertReceiveAsync(UdpClient receiver, byte[] sentData)
         {
             UdpReceiveResult result = await receiver.ReceiveAsync();
             Assert.NotNull(result.RemoteEndPoint);
-            Assert.NotNull(result.Buffer);
-            Assert.InRange(result.Buffer.Length, 1, int.MaxValue);
+            Assert.True(Enumerable.SequenceEqual(sentData, result.Buffer));
         }
 
         [Fact]
@@ -740,6 +763,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Not supported on Wasi.")]
         public void JoinDropMulticastGroup_InvalidArguments_Throws()
         {
             using (var udpClient = new UdpClient(AddressFamily.InterNetwork))
@@ -747,13 +771,13 @@ namespace System.Net.Sockets.Tests
                 AssertExtensions.Throws<ArgumentNullException>("multicastAddr", () => udpClient.JoinMulticastGroup(null));
                 AssertExtensions.Throws<ArgumentNullException>("multicastAddr", () => udpClient.JoinMulticastGroup(0, null));
                 AssertExtensions.Throws<ArgumentNullException>("multicastAddr", () => udpClient.JoinMulticastGroup(null, 0));
-                AssertExtensions.Throws<ArgumentException>("ifindex", () => udpClient.JoinMulticastGroup(-1, IPAddress.Any));
+                AssertExtensions.Throws<ArgumentOutOfRangeException>("ifindex", () => udpClient.JoinMulticastGroup(-1, IPAddress.Any));
                 AssertExtensions.Throws<ArgumentOutOfRangeException>("timeToLive", () => udpClient.JoinMulticastGroup(IPAddress.Loopback, -1));
 
                 AssertExtensions.Throws<ArgumentNullException>("multicastAddr", () => udpClient.DropMulticastGroup(null));
                 AssertExtensions.Throws<ArgumentNullException>("multicastAddr", () => udpClient.DropMulticastGroup(null, 0));
                 AssertExtensions.Throws<ArgumentException>("multicastAddr", () => udpClient.DropMulticastGroup(IPAddress.IPv6Loopback));
-                AssertExtensions.Throws<ArgumentException>("ifindex", () => udpClient.DropMulticastGroup(IPAddress.Loopback, -1));
+                AssertExtensions.Throws<ArgumentOutOfRangeException>("ifindex", () => udpClient.DropMulticastGroup(IPAddress.Loopback, -1));
             }
         }
 
@@ -788,6 +812,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Not supported on Wasi.")]
         public void BeginSend_IPv6Socket_IPv4Dns_Success()
         {
             using (var receiver = new UdpClient("127.0.0.1", DiscardPort))

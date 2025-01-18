@@ -2,15 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
 using System.Collections;
-using System.Text;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Xml.Schema;
 using System.Xml.XPath;
 using MS.Internal.Xml.XPath;
-using System.Globalization;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Xml
 {
@@ -270,8 +270,7 @@ namespace System.Xml
             if (!CanInsertBefore(newChild, refChild))
                 throw new InvalidOperationException(SR.Xdom_Node_Insert_Location);
 
-            if (newChild.ParentNode != null)
-                newChild.ParentNode.RemoveChild(newChild);
+            newChild.ParentNode?.RemoveChild(newChild);
 
             // special case for doc-fragment.
             if (newChild.NodeType == XmlNodeType.DocumentFragment)
@@ -385,8 +384,7 @@ namespace System.Xml
             if (!CanInsertAfter(newChild, refChild))
                 throw new InvalidOperationException(SR.Xdom_Node_Insert_Location);
 
-            if (newChild.ParentNode != null)
-                newChild.ParentNode.RemoveChild(newChild);
+            newChild.ParentNode?.RemoveChild(newChild);
 
             // special case for doc-fragment.
             if (newChild.NodeType == XmlNodeType.DocumentFragment)
@@ -581,19 +579,14 @@ namespace System.Xml
         // Adds the specified node to the end of the list of children of this node.
         public virtual XmlNode? AppendChild(XmlNode newChild)
         {
-            XmlDocument? thisDoc = OwnerDocument;
-            if (thisDoc == null)
-            {
-                thisDoc = this as XmlDocument;
-            }
+            XmlDocument? thisDoc = OwnerDocument ?? this as XmlDocument;
             if (!IsContainer)
                 throw new InvalidOperationException(SR.Xdom_Node_Insert_Contain);
 
             if (this == newChild || AncestorNode(newChild))
                 throw new ArgumentException(SR.Xdom_Node_Insert_Child);
 
-            if (newChild.ParentNode != null)
-                newChild.ParentNode.RemoveChild(newChild);
+            newChild.ParentNode?.RemoveChild(newChild);
 
             XmlDocument? childDoc = newChild.OwnerDocument;
             if (childDoc != null && childDoc != thisDoc && childDoc != this)
@@ -778,7 +771,7 @@ namespace System.Xml
                                 firstChildTextLikeNode = null;
                             }
 
-                            sb.Remove(0, sb.Length);
+                            sb.Clear();
                             break;
                         }
                 }
@@ -790,7 +783,7 @@ namespace System.Xml
             StringBuilderCache.Release(sb);
         }
 
-        private XmlNode? NormalizeWinner(XmlNode? firstNode, XmlNode secondNode)
+        private static XmlNode? NormalizeWinner(XmlNode? firstNode, XmlNode secondNode)
         {
             //first node has the priority
             if (firstNode == null)
@@ -835,6 +828,7 @@ namespace System.Xml
         }
 
         // Gets or sets the namespace prefix of this node.
+        [AllowNull]
         public virtual string Prefix
         {
             get { return string.Empty; }
@@ -1166,8 +1160,7 @@ namespace System.Xml
         // the prefix defined in that declaration.
         public virtual string GetPrefixOfNamespace(string namespaceURI)
         {
-            string? prefix = GetPrefixOfNamespaceStrict(namespaceURI);
-            return prefix != null ? prefix : string.Empty;
+            return GetPrefixOfNamespaceStrict(namespaceURI) ?? string.Empty;
         }
 
         internal string? GetPrefixOfNamespaceStrict(string namespaceURI)
@@ -1357,7 +1350,7 @@ namespace System.Xml
                     elem = node as XmlElement;
                     if (elem != null && elem.HasAttribute("xml:space"))
                     {
-                        switch (XmlConvert.TrimString(elem.GetAttribute("xml:space")))
+                        switch (elem.GetAttribute("xml:space").AsSpan().Trim(XmlConvert.WhitespaceChars))
                         {
                             case "default":
                                 return XmlSpace.Default;

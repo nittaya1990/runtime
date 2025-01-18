@@ -13,14 +13,6 @@ namespace System.Security.Cryptography.Tests
     {
         public static bool SupportsKeyGeneration => DSAFactory.SupportsKeyGeneration;
 
-        [Fact]
-        public void BaseVirtualsNotImplementedException()
-        {
-            var dsa = new EmptyDSA();
-            Assert.Throws<NotImplementedException>(() => dsa.HashData(null, HashAlgorithmName.SHA1));
-            Assert.Throws<NotImplementedException>(() => dsa.HashData(null, 0, 0, HashAlgorithmName.SHA1));
-        }
-
         [ConditionalFact(nameof(SupportsKeyGeneration))]
         public void TryCreateSignature_UsesCreateSignature()
         {
@@ -167,14 +159,19 @@ namespace System.Security.Cryptography.Tests
             private readonly DSA _dsa;
 
             public OverrideAbstractDSA(DSA dsa) => _dsa = dsa;
-            protected override void Dispose(bool disposing) => _dsa.Dispose();
+
+            protected override void Dispose(bool disposing)
+            {
+                _dsa.Dispose();
+                base.Dispose(disposing);
+            }
 
             public override byte[] CreateSignature(byte[] rgbHash) => _dsa.CreateSignature(rgbHash);
             public override DSAParameters ExportParameters(bool includePrivateParameters) => _dsa.ExportParameters(includePrivateParameters);
             public override void ImportParameters(DSAParameters parameters) => _dsa.ImportParameters(parameters);
             public override bool VerifySignature(byte[] rgbHash, byte[] rgbSignature) => _dsa.VerifySignature(rgbHash, rgbSignature);
             protected override byte[] HashData(Stream data, HashAlgorithmName hashAlgorithm) =>
-                (byte[])_dsa.GetType().GetMethod(
+                (byte[])typeof(DSA).GetMethod(
                     nameof(HashData),
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
                     null,
@@ -182,7 +179,7 @@ namespace System.Security.Cryptography.Tests
                     null)
                 .Invoke(_dsa, new object[] { data, hashAlgorithm });
             protected override byte[] HashData(byte[] data, int offset, int count, HashAlgorithmName hashAlgorithm) =>
-                (byte[])_dsa.GetType().GetMethod(
+                (byte[])typeof(DSA).GetMethod(
                     nameof(HashData),
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
                     null,

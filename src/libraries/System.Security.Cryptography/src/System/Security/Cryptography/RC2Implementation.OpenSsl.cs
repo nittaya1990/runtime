@@ -13,7 +13,7 @@ namespace System.Security.Cryptography
             byte[] key,
             byte[]? iv,
             int blockSize,
-            int feedbackSize,
+            int _ /*feedbackSizeInBytes*/,
             int paddingSize,
             bool encrypting)
         {
@@ -26,13 +26,11 @@ namespace System.Security.Cryptography
             return UniversalCryptoTransform.Create(paddingMode, cipher, encrypting);
         }
 
-        private static ILiteSymmetricCipher CreateLiteCipher(
+        private static OpenSslCipherLite CreateLiteCipher(
             CipherMode cipherMode,
-            PaddingMode paddingMode,
             ReadOnlySpan<byte> key,
             ReadOnlySpan<byte> iv,
             int blockSize,
-            int feedbackSizeInBytes,
             int paddingSize,
             bool encrypting)
         {
@@ -40,14 +38,24 @@ namespace System.Security.Cryptography
             IntPtr algorithm = GetAlgorithm(cipherMode);
 
             Interop.Crypto.EnsureLegacyAlgorithmsRegistered();
-            return new OpenSslCipherLite(algorithm, cipherMode, blockSize, paddingSize, key, iv, encrypting);
+            return new OpenSslCipherLite(algorithm, blockSize, paddingSize, key, iv, encrypting);
         }
 
-        private static IntPtr GetAlgorithm(CipherMode cipherMode) => cipherMode switch
+        private static IntPtr GetAlgorithm(CipherMode cipherMode)
+        {
+            IntPtr algorithm = cipherMode switch
             {
                 CipherMode.CBC => Interop.Crypto.EvpRC2Cbc(),
                 CipherMode.ECB => Interop.Crypto.EvpRC2Ecb(),
                 _ => throw new NotSupportedException(),
             };
+
+            if (algorithm == IntPtr.Zero)
+            {
+                throw new PlatformNotSupportedException(SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(RC2)));
+            }
+
+            return algorithm;
+        }
     }
 }

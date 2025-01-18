@@ -23,8 +23,8 @@ namespace Internal
 
         private static unsafe void WriteCore(IntPtr handle, string s)
         {
-            int bufferSize = s.Length * 4;
-            Span<byte> bytes = bufferSize < 1024 ? stackalloc byte[bufferSize] : new byte[bufferSize];
+            int bufferSize = checked(s.Length * 4);
+            Span<byte> bytes = (uint)bufferSize < 1024 ? stackalloc byte[bufferSize] : new byte[bufferSize];
             int cbytes;
 
             fixed (char* pChars = s)
@@ -32,7 +32,7 @@ namespace Internal
             {
                 cbytes = Interop.Kernel32.WideCharToMultiByte(
                     Interop.Kernel32.GetConsoleOutputCP(),
-                    0, pChars, s.Length, pBytes, bytes.Length, IntPtr.Zero, IntPtr.Zero);
+                    0, pChars, s.Length, pBytes, bytes.Length, null, null);
             }
 
             fixed (byte* pBytes = bytes)

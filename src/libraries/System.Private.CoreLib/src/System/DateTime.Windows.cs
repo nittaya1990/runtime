@@ -10,21 +10,21 @@ namespace System
 {
     public readonly partial struct DateTime
     {
-        internal static readonly bool s_systemSupportsLeapSeconds = SystemSupportsLeapSeconds();
+        internal static bool SystemSupportsLeapSeconds => LeapSecondCache.s_systemSupportsLeapSeconds;
 
         public static unsafe DateTime UtcNow
         {
             get
             {
                 ulong fileTimeTmp; // mark only the temp local as address-taken
-                s_pfnGetSystemTimeAsFileTime(&fileTimeTmp);
+                LeapSecondCache.s_pfnGetSystemTimeAsFileTime(&fileTimeTmp);
                 ulong fileTime = fileTimeTmp;
 
-                if (s_systemSupportsLeapSeconds)
+                if (LeapSecondCache.s_systemSupportsLeapSeconds)
                 {
                     // Query the leap second cache first, which avoids expensive calls to GetFileTimeAsSystemTime.
 
-                    LeapSecondCache cacheValue = s_leapSecondCache;
+                    LeapSecondCache cacheValue = LeapSecondCache.s_leapSecondCache;
                     ulong ticksSinceStartOfCacheValidityWindow = fileTime - cacheValue.OSFileTimeTicksAtStartOfValidityWindow;
                     if (ticksSinceStartOfCacheValidityWindow < LeapSecondCache.ValidityPeriodInTicks)
                     {
@@ -41,26 +41,28 @@ namespace System
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static unsafe bool IsValidTimeWithLeapSeconds(int year, int month, int day, int hour, int minute, DateTimeKind kind)
+        private static unsafe bool IsValidTimeWithLeapSeconds(DateTime value)
         {
             Interop.Kernel32.SYSTEMTIME time;
+            value.GetDate(out int year, out int month, out int day);
             time.Year = (ushort)year;
             time.Month = (ushort)month;
             time.DayOfWeek = 0; // ignored by TzSpecificLocalTimeToSystemTime/SystemTimeToFileTime
             time.Day = (ushort)day;
+            value.GetTime(out int hour, out int minute, out _);
             time.Hour = (ushort)hour;
             time.Minute = (ushort)minute;
             time.Second = 60;
             time.Milliseconds = 0;
 
-            if (kind != DateTimeKind.Utc)
+            if (value.Kind != DateTimeKind.Utc)
             {
                 Interop.Kernel32.SYSTEMTIME st;
                 if (Interop.Kernel32.TzSpecificLocalTimeToSystemTime(IntPtr.Zero, &time, &st) != Interop.BOOL.FALSE)
                     return true;
             }
 
-            if (kind != DateTimeKind.Local)
+            if (value.Kind != DateTimeKind.Local)
             {
                 ulong ft;
                 if (Interop.Kernel32.SystemTimeToFileTime(&time, &ft) != Interop.BOOL.FALSE)
@@ -77,12 +79,12 @@ namespace System
             {
                 throw new ArgumentOutOfRangeException(nameof(fileTime), SR.ArgumentOutOfRange_DateTimeBadTicks);
             }
-            return CreateDateTimeFromSystemTime(in time, fileTime % TicksPerMillisecond);
+            return CreateDateTimeFromSystemTime(in time, fileTime % TimeSpan.TicksPerMillisecond);
         }
 
         private static unsafe ulong ToFileTimeLeapSecondsAware(long ticks)
         {
-            DateTime dt = new(ticks);
+            DateTime dt = new((ulong)ticks);
             Interop.Kernel32.SYSTEMTIME time;
 
             dt.GetDate(out int year, out int month, out int day);
@@ -109,27 +111,36 @@ namespace System
         private static DateTime CreateDateTimeFromSystemTime(in Interop.Kernel32.SYSTEMTIME time, ulong hundredNanoSecond)
         {
             uint year = time.Year;
-            uint[] days = IsLeapYear((int)year) ? s_daysToMonth366 : s_daysToMonth365;
+            ReadOnlySpan<uint> days = IsLeapYear((int)year) ? DaysToMonth366 : DaysToMonth365;
             int month = time.Month - 1;
             uint n = DaysToYear(year) + days[month] + time.Day - 1;
-            ulong ticks = n * (ulong)TicksPerDay;
+            ulong ticks = n * (ulong)TimeSpan.TicksPerDay;
 
-            ticks += time.Hour * (ulong)TicksPerHour;
-            ticks += time.Minute * (ulong)TicksPerMinute;
+            ticks += time.Hour * (ulong)TimeSpan.TicksPerHour;
+            ticks += time.Minute * (ulong)TimeSpan.TicksPerMinute;
             uint second = time.Second;
             if (second <= 59)
             {
-                ulong tmp = second * (uint)TicksPerSecond + time.Milliseconds * (uint)TicksPerMillisecond + hundredNanoSecond;
+                ulong tmp = second * (uint)TimeSpan.TicksPerSecond + time.Milliseconds * (uint)TimeSpan.TicksPerMillisecond + hundredNanoSecond;
                 return new DateTime(ticks + tmp | KindUtc);
             }
 
             // we have a leap second, force it to last second in the minute as DateTime doesn't account for leap seconds in its calculation.
             // we use the maxvalue from the milliseconds and the 100-nano seconds to avoid reporting two out of order 59 seconds
-            ticks += TicksPerMinute - 1 | KindUtc;
+            ticks += TimeSpan.TicksPerMinute - 1 | KindUtc;
             return new DateTime(ticks);
         }
 
-        private static unsafe readonly delegate* unmanaged[SuppressGCTransition]<ulong*, void> s_pfnGetSystemTimeAsFileTime = GetGetSystemTimeAsFileTimeFnPtr();
+        private static unsafe bool GetSystemSupportsLeapSeconds()
+        {
+            Interop.NtDll.SYSTEM_LEAP_SECOND_INFORMATION slsi;
+
+            return Interop.NtDll.NtQuerySystemInformation(
+                Interop.NtDll.SystemLeapSecondInformation,
+                &slsi,
+                (uint)sizeof(Interop.NtDll.SYSTEM_LEAP_SECOND_INFORMATION),
+                null) == 0 && slsi.Enabled != Interop.BOOLEAN.FALSE;
+        }
 
         private static unsafe delegate* unmanaged[SuppressGCTransition]<ulong*, void> GetGetSystemTimeAsFileTimeFnPtr()
         {
@@ -157,7 +168,7 @@ namespace System
                     ((delegate* unmanaged[SuppressGCTransition]<long*, void>)pfnGetSystemTime)(&systemTimeResult);
                     ((delegate* unmanaged[SuppressGCTransition]<long*, void>)pfnGetSystemTimePrecise)(&preciseSystemTimeResult);
 
-                    if (Math.Abs(preciseSystemTimeResult - systemTimeResult) <= 100 * TicksPerMillisecond)
+                    if (Math.Abs(preciseSystemTimeResult - systemTimeResult) <= 100 * TimeSpan.TicksPerMillisecond)
                     {
                         pfnGetSystemTime = pfnGetSystemTimePrecise; // use the precise version
                         break;
@@ -184,17 +195,17 @@ namespace System
             // OS update occurs and a past leap second is added, this limits the window in which our
             // cache will return incorrect values.
 
-            Debug.Assert(s_systemSupportsLeapSeconds);
-            Debug.Assert(LeapSecondCache.ValidityPeriodInTicks < TicksPerDay - TicksPerSecond, "Leap second cache validity window should be less than 23:59:59.");
+            Debug.Assert(SystemSupportsLeapSeconds);
+            Debug.Assert(LeapSecondCache.ValidityPeriodInTicks < TimeSpan.TicksPerDay - TimeSpan.TicksPerSecond, "Leap second cache validity window should be less than 23:59:59.");
 
             ulong fileTimeNow;
-            s_pfnGetSystemTimeAsFileTime(&fileTimeNow);
+            LeapSecondCache.s_pfnGetSystemTimeAsFileTime(&fileTimeNow);
 
             // If we reached this point, our leap second cache is stale, and we need to update it.
             // First, convert the FILETIME to a SYSTEMTIME.
 
             Interop.Kernel32.SYSTEMTIME systemTimeNow;
-            ulong hundredNanoSecondNow = fileTimeNow % TicksPerMillisecond;
+            ulong hundredNanoSecondNow = fileTimeNow % TimeSpan.TicksPerMillisecond;
 
             // We need the FILETIME and the SYSTEMTIME to reflect each other's values.
             // If FileTimeToSystemTime fails, call GetSystemTime and try again until it succeeds.
@@ -258,7 +269,7 @@ namespace System
                 }
 
                 // StartOfValidityWindow = MidnightUtc + 23:59:59 - ValidityPeriod
-                fileTimeAtStartOfValidityWindow = fileTimeAtBeginningOfDay + (TicksPerDay - TicksPerSecond) - LeapSecondCache.ValidityPeriodInTicks;
+                fileTimeAtStartOfValidityWindow = fileTimeAtBeginningOfDay + (TimeSpan.TicksPerDay - TimeSpan.TicksPerSecond) - LeapSecondCache.ValidityPeriodInTicks;
                 if (fileTimeNow - fileTimeAtStartOfValidityWindow >= LeapSecondCache.ValidityPeriodInTicks)
                 {
                     // If we're inside this block, then we slid the validity window back so far that the current time is no
@@ -286,13 +297,13 @@ namespace System
                     return CreateDateTimeFromSystemTime(systemTimeNow, hundredNanoSecondNow);
                 }
 
-                dotnetDateDataAtStartOfValidityWindow = CreateDateTimeFromSystemTime(systemTimeAtBeginningOfDay, 0)._dateData + (TicksPerDay - TicksPerSecond) - LeapSecondCache.ValidityPeriodInTicks;
+                dotnetDateDataAtStartOfValidityWindow = CreateDateTimeFromSystemTime(systemTimeAtBeginningOfDay, 0)._dateData + (TimeSpan.TicksPerDay - TimeSpan.TicksPerSecond) - LeapSecondCache.ValidityPeriodInTicks;
             }
 
             // Finally, update the cache and return UtcNow.
 
             Debug.Assert(fileTimeNow - fileTimeAtStartOfValidityWindow < LeapSecondCache.ValidityPeriodInTicks, "We should be within the validity window.");
-            Volatile.Write(ref s_leapSecondCache, new LeapSecondCache()
+            Volatile.Write(ref LeapSecondCache.s_leapSecondCache, new LeapSecondCache()
             {
                 OSFileTimeTicksAtStartOfValidityWindow = fileTimeAtStartOfValidityWindow,
                 DotnetDateDataAtStartOfValidityWindow = dotnetDateDataAtStartOfValidityWindow
@@ -318,21 +329,26 @@ namespace System
             }
         }
 
-        // The leap second cache. May be accessed by multiple threads simultaneously.
-        // Writers must not mutate the object's fields after the reference is published.
-        // Readers are not required to use volatile semantics.
-        private static LeapSecondCache s_leapSecondCache = new LeapSecondCache();
-
         private sealed class LeapSecondCache
         {
             // The length of the validity window. Must be less than 23:59:59.
-            internal const ulong ValidityPeriodInTicks = TicksPerMinute * 5;
+            internal const ulong ValidityPeriodInTicks = TimeSpan.TicksPerMinute * 5;
 
             // The FILETIME value at the beginning of the validity window.
             internal ulong OSFileTimeTicksAtStartOfValidityWindow;
 
             // The DateTime._dateData value at the beginning of the validity window.
             internal ulong DotnetDateDataAtStartOfValidityWindow;
+
+            // The leap second cache. May be accessed by multiple threads simultaneously.
+            // Writers must not mutate the object's fields after the reference is published.
+            // Readers are not required to use volatile semantics.
+            internal static LeapSecondCache s_leapSecondCache = new LeapSecondCache();
+
+            // The configuration of system leap seconds support is intentionally here to avoid blocking
+            // AOT pre-initialization of public readonly DateTime statics.
+            internal static readonly bool s_systemSupportsLeapSeconds = GetSystemSupportsLeapSeconds();
+            internal static readonly unsafe delegate* unmanaged[SuppressGCTransition]<ulong*, void> s_pfnGetSystemTimeAsFileTime = GetGetSystemTimeAsFileTimeFnPtr();
         }
     }
 }

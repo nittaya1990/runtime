@@ -1,11 +1,6 @@
 ; Licensed to the .NET Foundation under one or more agreements.
 ; The .NET Foundation licenses this file to you under the MIT license.
 
-; ==++==
-;;
-
-;;
-;; ==--==
 #include "ksarm64.h"
 
 #include "asmconstants.h"
@@ -192,8 +187,6 @@ RarePath
             b       JIT_PInvokeEndRarePath
 
         LEAF_END
-
-        INLINE_GETTHREAD_CONSTANT_POOL
 
 ; ------------------------------------------------------------------
 ; VarargPInvokeStub & VarargPInvokeGenILStub

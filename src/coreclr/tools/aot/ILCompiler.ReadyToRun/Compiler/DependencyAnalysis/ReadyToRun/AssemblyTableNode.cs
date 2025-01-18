@@ -20,8 +20,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
     {
         private readonly List<AssemblyHeaderNode> _assemblyHeaders;
 
-        public AssemblyTableNode(TargetDetails target)
-            : base(target)
+        public AssemblyTableNode()
         {
             _assemblyHeaders = new List<AssemblyHeaderNode>();
         }
@@ -34,7 +33,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         public override void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append(nameMangler.CompilationUnitPrefix);
-            sb.Append("__ReadyToRunAssemblyTable");
+            sb.Append("__ReadyToRunAssemblyTable"u8);
         }
 
         public override ObjectData GetData(NodeFactory factory, bool relocsOnly = false)

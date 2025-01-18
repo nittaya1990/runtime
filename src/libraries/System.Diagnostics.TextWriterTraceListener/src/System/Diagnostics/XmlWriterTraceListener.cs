@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.Versioning;
@@ -15,7 +16,7 @@ namespace System.Diagnostics
     {
         private const string FixedHeader = "<E2ETraceEvent xmlns=\"http://schemas.microsoft.com/2004/06/E2ETraceEvent\"><System xmlns=\"http://schemas.microsoft.com/2004/06/windows/eventlog/system\">";
 
-        private static volatile string? s_processName;
+        private static string? s_processName;
         private readonly string _machineName = Environment.MachineName;
         private StringBuilder? _strBldr;
         private XmlTextWriter? _xmlBlobWriter;
@@ -84,7 +85,7 @@ namespace System.Diagnostics
             }));
         }
 
-        public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, string? format, params object?[]? args)
+        public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string? format, params object?[]? args)
         {
             if (Filter != null && !Filter.ShouldTrace(eventCache, source, eventType, id, format, args, null, null))
                 return;
@@ -249,15 +250,17 @@ namespace System.Diagnostics
             string? processName = s_processName;
             if (processName is null)
             {
-                if (OperatingSystem.IsBrowser()) // Process isn't supported on Browser
+                if (OperatingSystem.IsBrowser() || OperatingSystem.IsWasi() ) // Process isn't supported on Browser
                 {
-                    s_processName = processName = string.Empty;
+                    processName = string.Empty;
                 }
                 else
                 {
                     using Process process = Process.GetCurrentProcess();
-                    s_processName = processName = process.ProcessName;
+                    processName = process.ProcessName;
                 }
+
+                s_processName = processName;
             }
 
             InternalWrite("\" />");

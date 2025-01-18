@@ -6,10 +6,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.DotNet.CoreSetup;
 using Microsoft.NET.HostModel.AppHost;
+using Microsoft.NET.HostModel.MachO;
 
 namespace Microsoft.NET.HostModel.Bundle
 {
@@ -91,7 +95,7 @@ namespace Microsoft.NET.HostModel.Bundle
         /// startOffset: offset of the start 'file' within 'bundle'
         /// compressedSize: size of the compressed data, if entry was compressed, otherwise 0
         /// </returns>
-        private (long startOffset, long compressedSize) AddToBundle(Stream bundle, Stream file, FileType type)
+        private (long startOffset, long compressedSize) AddToBundle(FileStream bundle, FileStream file, FileType type)
         {
             long startOffset = bundle.Position;
             if (ShouldCompress(type))
@@ -101,7 +105,8 @@ namespace Microsoft.NET.HostModel.Bundle
 
                 // We use DeflateStream here.
                 // It uses GZip algorithm, but with a trivial header that does not contain file info.
-                using (DeflateStream compressionStream = new DeflateStream(bundle, CompressionLevel.Optimal, leaveOpen: true))
+                CompressionLevel smallestSize = (CompressionLevel)3;
+                using (DeflateStream compressionStream = new DeflateStream(bundle, Enum.IsDefined(typeof(CompressionLevel), smallestSize) ? smallestSize : CompressionLevel.Optimal, leaveOpen: true))
                 {
                     file.CopyTo(compressionStream);
                 }
@@ -169,7 +174,7 @@ namespace Microsoft.NET.HostModel.Bundle
             }
         }
 
-        private bool IsAssembly(string path, out bool isPE)
+        private static bool IsAssembly(string path, out bool isPE)
         {
             isPE = false;
 
@@ -232,10 +237,10 @@ namespace Microsoft.NET.HostModel.Bundle
         ///
         /// Files in fileSpecs that are not bundled within the single file bundle,
         /// and should be published as separate files are marked as "IsExcluded" by this method.
-        /// This doesn't include unbundled files that should be dropped, and not publised as output.
+        /// This doesn't include unbundled files that should be dropped, and not published as output.
         /// </param>
         /// <returns>
-        /// The full path the the generated bundle file
+        /// The full path the generated bundle file
         /// </returns>
         /// <exceptions>
         /// ArgumentException if input is invalid
@@ -271,22 +276,20 @@ namespace Microsoft.NET.HostModel.Bundle
 
             BinaryUtils.CopyFile(hostSource, bundlePath);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && HostModelUtils.IsCodesignAvailable())
-            {
-                RemoveCodesignIfNecessary(bundlePath);
-            }
-
             // Note: We're comparing file paths both on the OS we're running on as well as on the target OS for the app
             // We can't really make assumptions about the file systems (even on Linux there can be case insensitive file systems
             // and vice versa for Windows). So it's safer to do case sensitive comparison everywhere.
             var relativePathToSpec = new Dictionary<string, FileSpec>(StringComparer.Ordinal);
 
             long headerOffset = 0;
-            using (BinaryWriter writer = new BinaryWriter(File.OpenWrite(bundlePath)))
+            using (FileStream bundle = File.Open(bundlePath, FileMode.Open, FileAccess.ReadWrite))
+            using (BinaryWriter writer = new BinaryWriter(bundle, Encoding.Default, leaveOpen: true))
             {
-                Stream bundle = writer.BaseStream;
+                if (_target.IsOSX)
+                {
+                    MachObjectFile.RemoveCodeSignatureIfPresent(bundle);
+                }
                 bundle.Position = bundle.Length;
-
                 foreach (var fileSpec in fileSpecs)
                 {
                     string relativePath = fileSpec.BundleRelativePath;
@@ -345,9 +348,10 @@ namespace Microsoft.NET.HostModel.Bundle
             HostWriter.SetAsBundle(bundlePath, headerOffset);
 
             // Sign the bundle if requested
-            if (_macosCodesign && RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && HostModelUtils.IsCodesignAvailable())
+            // TODO: use managed code signing
+            if (_macosCodesign && RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && Codesign.IsAvailable)
             {
-                var (exitCode, stdErr) = HostModelUtils.RunCodesign("-s -", bundlePath);
+                var (exitCode, stdErr) = Codesign.Run("-s -", bundlePath);
                 if (exitCode != 0)
                 {
                     throw new InvalidOperationException($"Failed to codesign '{bundlePath}': {stdErr}");
@@ -355,23 +359,6 @@ namespace Microsoft.NET.HostModel.Bundle
             }
 
             return bundlePath;
-
-            // Remove mac code signature if applied before bundling
-            static void RemoveCodesignIfNecessary(string bundlePath)
-            {
-                Debug.Assert(RuntimeInformation.IsOSPlatform(OSPlatform.OSX));
-                Debug.Assert(HostModelUtils.IsCodesignAvailable());
-
-                // `codesign -v` returns 0 if app is signed
-                if (HostModelUtils.RunCodesign("-v", bundlePath).ExitCode == 0)
-                {
-                    var (exitCode, stdErr) = HostModelUtils.RunCodesign("--remove-signature", bundlePath);
-                    if (exitCode != 0)
-                    {
-                        throw new InvalidOperationException($"Removing codesign from '{bundlePath}' failed: {stdErr}");
-                    }
-                }
-            }
         }
     }
 }

@@ -39,12 +39,13 @@ namespace System.Net.Http
         // However, these are not part of 'netstandard'. WinHttpHandler currently builds against
         // 'netstandard' so we need to add these definitions here.
         internal static readonly Version HttpVersion20 = new Version(2, 0);
+        internal static readonly Version HttpVersion30 = new Version(3, 0);
         internal static readonly Version HttpVersionUnknown = new Version(0, 0);
         private static readonly TimeSpan s_maxTimeout = TimeSpan.FromMilliseconds(int.MaxValue);
 
         private static readonly StringWithQualityHeaderValue s_gzipHeaderValue = new StringWithQualityHeaderValue("gzip");
         private static readonly StringWithQualityHeaderValue s_deflateHeaderValue = new StringWithQualityHeaderValue("deflate");
-        private static readonly Lazy<bool> s_supportsTls13 = new Lazy<bool>(() => CheckTls13Support());
+        private static readonly Lazy<bool> s_supportsTls13 = new Lazy<bool>(CheckTls13Support);
 
         [ThreadStatic]
         private static StringBuilder? t_requestHeadersBuilder;
@@ -80,13 +81,13 @@ namespace System.Net.Http
         private TimeSpan _receiveDataTimeout = TimeSpan.FromSeconds(30);
 
         // Using OS defaults for "Keep-alive timeout" and "keep-alive interval"
-        // as documented in https://docs.microsoft.com/en-us/windows/win32/winsock/sio-keepalive-vals#remarks
+        // as documented in https://learn.microsoft.com/windows/win32/winsock/sio-keepalive-vals#remarks
         private TimeSpan _tcpKeepAliveTime = TimeSpan.FromHours(2);
         private TimeSpan _tcpKeepAliveInterval = TimeSpan.FromSeconds(1);
         private bool _tcpKeepAliveEnabled;
 
         private int _maxResponseHeadersLength = HttpHandlerDefaults.DefaultMaxResponseHeadersLength;
-        private int _maxResponseDrainSize = 64 * 1024;
+        private int _maxResponseDrainSize = HttpHandlerDefaults.DefaultMaxResponseDrainSize;
         private IDictionary<string, object>? _properties; // Only create dictionary when required.
         private volatile bool _operationStarted;
         private volatile bool _disposed;
@@ -261,12 +262,7 @@ namespace System.Net.Http
                     throw new InvalidOperationException(SR.Format(SR.net_http_invalid_enable_first, "ClientCertificateOptions", "Manual"));
                 }
 
-                if (_clientCertificates == null)
-                {
-                    _clientCertificates = new X509Certificate2Collection();
-                }
-
-                return _clientCertificates;
+                return _clientCertificates ??= new X509Certificate2Collection();
             }
         }
 
@@ -538,18 +534,7 @@ namespace System.Net.Http
             }
         }
 
-        public IDictionary<string, object> Properties
-        {
-            get
-            {
-                if (_properties == null)
-                {
-                    _properties = new Dictionary<string, object>();
-                }
-
-                return _properties;
-            }
-        }
+        public IDictionary<string, object> Properties => _properties ??= new Dictionary<string, object>();
         #endregion
 
         protected override void Dispose(bool disposing)
@@ -568,9 +553,14 @@ namespace System.Net.Http
         }
 
         protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request!!,
+            HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request is null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
             Uri? requestUri = request.RequestUri;
             if (requestUri is null || !requestUri.IsAbsoluteUri)
             {
@@ -831,6 +821,7 @@ namespace System.Net.Http
                         {
                             int lastError = Marshal.GetLastWin32Error();
                             if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"error={lastError}");
+
                             if (lastError != Interop.WinHttp.ERROR_INVALID_PARAMETER)
                             {
                                 ThrowOnInvalidHandle(sessionHandle, nameof(Interop.WinHttp.WinHttpOpen));
@@ -884,6 +875,13 @@ namespace System.Net.Http
             {
                 state.Tcs.TrySetCanceled(state.CancellationToken);
                 state.ClearSendRequestState();
+                return;
+            }
+
+            if (state.RequestMessage.Version != HttpVersion.Version10 && state.RequestMessage.Version != HttpVersion.Version11
+                && state.RequestMessage.Version != HttpVersion20 && state.RequestMessage.Version != HttpVersion30)
+            {
+                state.Tcs.TrySetException(new NotSupportedException(SR.net_http_unsupported_version));
                 return;
             }
 
@@ -1146,7 +1144,7 @@ namespace System.Net.Http
             if (WinHttpTrailersHelper.OsSupportsTrailers)
             {
                 // Setting WINHTTP_OPTION_REQUIRE_STREAM_END to TRUE is needed for WinHttp to read trailing headers
-                // in case the response has Content-Lenght defined.
+                // in case the response has Content-Length defined.
                 // According to the WinHttp team, the feature-detection logic in WinHttpTrailersHelper.OsSupportsTrailers
                 // should also indicate the support of WINHTTP_OPTION_REQUIRE_STREAM_END.
                 // WINHTTP_OPTION_REQUIRE_STREAM_END doesn't have effect on HTTP 1.1 requests, therefore it's safe to set it on
@@ -1270,7 +1268,7 @@ namespace System.Net.Http
             SetRequestHandleRedirectionOptions(state.RequestHandle);
             SetRequestHandleCookieOptions(state.RequestHandle);
             SetRequestHandleTlsOptions(state.RequestHandle);
-            SetRequestHandleClientCertificateOptions(state.RequestHandle, state.RequestMessage.RequestUri, state.RequestMessage.Version);
+            SetRequestHandleClientCertificateOptions(state.RequestHandle, state.RequestMessage.RequestUri);
             SetRequestHandleCredentialsOptions(state);
             SetRequestHandleBufferingOptions(state.RequestHandle);
             SetRequestHandleHttp2Options(state.RequestHandle, state.RequestMessage.Version);
@@ -1432,7 +1430,7 @@ namespace System.Net.Http
             }
         }
 
-        private void SetRequestHandleClientCertificateOptions(SafeWinHttpHandle requestHandle, Uri requestUri, Version requestVersion)
+        private void SetRequestHandleClientCertificateOptions(SafeWinHttpHandle requestHandle, Uri requestUri)
         {
             if (requestUri.Scheme != UriScheme.Https)
             {
@@ -1584,7 +1582,7 @@ namespace System.Net.Http
             }
         }
 
-        private void HandleAsyncException(WinHttpRequestState state, Exception ex)
+        private static void HandleAsyncException(WinHttpRequestState state, Exception ex)
         {
             Debug.Assert(state.Tcs != null);
             if (state.CancellationToken.IsCancellationRequested)
@@ -1670,6 +1668,9 @@ namespace System.Net.Http
             {
                 int lastError = Marshal.GetLastWin32Error();
                 if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, $"error={lastError}");
+
+                handle.Dispose();
+
                 throw WinHttpException.CreateExceptionUsingError(lastError, nameOfCalledFunction);
             }
         }
@@ -1703,7 +1704,7 @@ namespace System.Net.Http
             return state.LifecycleAwaitable;
         }
 
-        private async Task InternalSendRequestBodyAsync(WinHttpRequestState state, WinHttpChunkMode chunkedModeForSend)
+        private static async Task InternalSendRequestBodyAsync(WinHttpRequestState state, WinHttpChunkMode chunkedModeForSend)
         {
             Debug.Assert(state.RequestMessage != null);
             Debug.Assert(state.RequestMessage.Content != null);

@@ -458,7 +458,7 @@ HRESULT CordbValue::InternalCreateHandle(CorDebugHandleType      handleType,
                           true,
                           m_appdomain->GetADToken());
 
-    CORDB_ADDRESS addr = GetValueHome() != NULL ? GetValueHome()->GetAddress() : NULL;
+    CORDB_ADDRESS addr = GetValueHome() != NULL ? GetValueHome()->GetAddress() : (CORDB_ADDRESS)NULL;
     event.CreateHandle.objectToken = CORDB_ADDRESS_TO_PTR(addr);
     event.CreateHandle.handleType = handleType;
 
@@ -546,7 +546,7 @@ CordbGenericValue::CordbGenericValue(CordbAppDomain *              pAppdomain,
 // Arguments:
 //     input: pType - the type of the value
 CordbGenericValue::CordbGenericValue(CordbType * pType)
-    : CordbValue(NULL, pType, NULL, true),
+    : CordbValue(NULL, pType, (CORDB_ADDRESS)NULL, true),
       m_pValueHome(NULL)
 {
     // The only purpose of a literal value is to hold a RS literal value.
@@ -776,7 +776,7 @@ CordbReferenceValue::CordbReferenceValue(CordbAppDomain *              pAppdomai
 // Arguments:
 //     input: pType - the type of the value
 CordbReferenceValue::CordbReferenceValue(CordbType * pType)
-    : CordbValue(NULL, pType, NULL, true, pType->GetAppDomain()->GetSweepableExitNeuterList())
+    : CordbValue(NULL, pType, (CORDB_ADDRESS)NULL, true, pType->GetAppDomain()->GetSweepableExitNeuterList())
 {
     memset(&m_info, 0, sizeof(m_info));
 
@@ -905,7 +905,7 @@ HRESULT CordbReferenceValue::GetAddress(CORDB_ADDRESS *pAddress)
     PUBLIC_REENTRANT_API_ENTRY(this);
     VALIDATE_POINTER_TO_OBJECT(pAddress, CORDB_ADDRESS *);
 
-    *pAddress = m_valueHome.m_pHome ? m_valueHome.m_pHome->GetAddress() : NULL;
+    *pAddress = m_valueHome.m_pHome ? m_valueHome.m_pHome->GetAddress() : (CORDB_ADDRESS)NULL;
     return (S_OK);
 }
 
@@ -940,7 +940,7 @@ HRESULT CordbReferenceValue::GetValue(CORDB_ADDRESS *pAddress)
 
     // Copy out the value, which is simply the value the object reference.
     if (m_isLiteral)
-        *pAddress = NULL;
+        *pAddress = (CORDB_ADDRESS)NULL;
     else
         *pAddress = PTR_TO_CORDB_ADDRESS(m_info.objRef);
 
@@ -1052,7 +1052,7 @@ HRESULT CordbReferenceValue::Dereference(ICorDebugValue **ppValue)
 //-----------------------------------------------------------------------------
 // Common helper to dereferefence.
 // Parameters:
-//     pAppDomain, pType, pInfo - necessary paramters to create the value
+//     pAppDomain, pType, pInfo - necessary parameters to create the value
 //     pRealTypeOfTypedByref - type for a potential TypedByRef. Can be NULL if we know
 //        that we're not a typed-byref (this is true if we're definitely an object handle)
 //     ppValue - outparameter for newly created value. This will get an Ext AddRef.
@@ -1840,6 +1840,10 @@ HRESULT CordbObjectValue::QueryInterface(REFIID id, void **pInterface)
     {
         *pInterface = static_cast<IUnknown*>(static_cast<ICorDebugExceptionObjectValue*>(this));
     }
+    else if (id == IID_ICorDebugExceptionObjectValue2 && m_fIsExceptionObject)
+    {
+        *pInterface = static_cast<IUnknown*>(static_cast<ICorDebugExceptionObjectValue2*>(this));
+    }
     else if (id == IID_ICorDebugComObjectValue && m_fIsRcw)
     {
         *pInterface = static_cast<ICorDebugComObjectValue*>(this);
@@ -2489,6 +2493,41 @@ HRESULT CordbObjectValue::EnumerateExceptionCallStack(ICorDebugExceptionObjectCa
     return hr;
 }
 
+HRESULT CordbObjectValue::ForceCatchHandlerFoundEvents(BOOL enableEvents)
+{
+    PUBLIC_API_ENTRY(this);
+    FAIL_IF_NEUTERED(this);
+    ATT_REQUIRE_STOPPED_MAY_FAIL(GetProcess());
+
+    HRESULT hr = S_OK;
+
+    EX_TRY
+    {
+        CordbProcess * pProcess = GetProcess();
+
+        CORDB_ADDRESS objAddr = m_valueHome.GetAddress();
+
+        IDacDbiInterface* pDAC = GetProcess()->GetDAC();
+        VMPTR_Object vmObj = pDAC->GetObject(objAddr);
+
+        DebuggerIPCEvent event;
+        CordbAppDomain * pAppDomain = GetAppDomain();
+        _ASSERTE (pAppDomain != NULL);
+
+        pProcess->InitIPCEvent(&event, DB_IPCE_FORCE_CATCH_HANDLER_FOUND, true, pAppDomain->GetADToken());
+        event.ForceCatchHandlerFoundData.enableEvents = enableEvents;
+        event.ForceCatchHandlerFoundData.vmObj = vmObj;
+
+        hr = pProcess->m_cordb->SendIPCEvent(pProcess, &event, sizeof(DebuggerIPCEvent));
+
+        _ASSERTE(event.type == DB_IPCE_CATCH_HANDLER_FOUND_RESULT);
+
+        hr = event.hr;
+    }
+    EX_CATCH_HRESULT(hr);
+    return hr;
+}
+
 HRESULT CordbObjectValue::IsExceptionObject()
 {
     HRESULT hr = S_OK;
@@ -2501,7 +2540,7 @@ HRESULT CordbObjectValue::IsExceptionObject()
     {
         CORDB_ADDRESS objAddr = m_valueHome.GetAddress();
 
-        if (objAddr == NULL)
+        if (objAddr == (CORDB_ADDRESS)NULL)
         {
             // object is a literal
             hr = S_FALSE;
@@ -2533,7 +2572,7 @@ HRESULT CordbObjectValue::IsRcw()
     {
         CORDB_ADDRESS objAddr = m_valueHome.GetAddress();
 
-        if (objAddr == NULL)
+        if (objAddr == (CORDB_ADDRESS)NULL)
         {
             // object is a literal
             hr = S_FALSE;
@@ -2565,7 +2604,7 @@ HRESULT CordbObjectValue::IsDelegate()
     {
         CORDB_ADDRESS objAddr = m_valueHome.GetAddress();
 
-        if (objAddr == NULL)
+        if (objAddr == (CORDB_ADDRESS)NULL)
         {
             // object is a literal
             hr = S_FALSE;
@@ -2652,22 +2691,22 @@ HRESULT CordbObjectValue::GetFunctionHelper(ICorDebugFunction **ppFunction)
     if (hr != S_OK)
         return hr;
 
-    mdMethodDef functionMethodDef = 0;
-    VMPTR_DomainAssembly functionDomainAssembly;
-    NativeCodeFunctionData nativeCodeForDelFunc;
-
-    hr = pDAC->GetDelegateFunctionData(delType, pDelegateObj, &functionDomainAssembly, &functionMethodDef);
-    if (hr != S_OK)
-        return hr;
-
-    // TODO: How to ensure results are sanitized?
-    // Also, this is expensive. Do we really care that much about this?
-    pDAC->GetNativeCodeInfo(functionDomainAssembly, functionMethodDef, &nativeCodeForDelFunc);
-
-    RSSmartPtr<CordbModule> funcModule(GetProcess()->LookupOrCreateModule(functionDomainAssembly));
     RSSmartPtr<CordbFunction> func;
     {
         RSLockHolder lockHolder(GetProcess()->GetProcessLock());
+
+        VMPTR_DomainAssembly functionDomainAssembly;
+        mdMethodDef functionMethodDef = 0;
+        hr = pDAC->GetDelegateFunctionData(delType, pDelegateObj, &functionDomainAssembly, &functionMethodDef);
+        if (hr != S_OK)
+            return hr;
+
+        // TODO: How to ensure results are sanitized?
+        // Also, this is expensive. Do we really care that much about this?
+        NativeCodeFunctionData nativeCodeForDelFunc;
+        pDAC->GetNativeCodeInfo(functionDomainAssembly, functionMethodDef, &nativeCodeForDelFunc);
+
+        RSSmartPtr<CordbModule> funcModule(GetProcess()->LookupOrCreateModule(functionDomainAssembly));
         func.Assign(funcModule->LookupOrCreateFunction(functionMethodDef, nativeCodeForDelFunc.encVersion));
     }
 
@@ -3529,7 +3568,7 @@ HRESULT CordbBoxValue::GetMonitorEventWaitList(ICorDebugThreadEnum **ppThreadEnu
     #define ARRAY_CACHE_SIZE (1000)
 #else
 // For release, guess 4 pages should be enough. Subtract some bytes to store
-// the header so that that doesn't push us onto another page. (We guess a reasonable
+// the header so that it doesn't push us onto another page. (We guess a reasonable
 // header size, but it's ok if it's larger).
     #define ARRAY_CACHE_SIZE (4 * 4096 - 24)
 #endif
@@ -3707,15 +3746,15 @@ HRESULT CordbArrayValue::GetDimensions(ULONG32 cdim, ULONG32 dims[])
 //
 // indicates whether the array has base indices
 // Arguments:
-//     output: pbHasBaseIndices - true iff the array has more than one dimension and pbHasBaseIndices is not null
-// Return Value: S_OK on success or E_INVALIDARG if pbHasBaseIndices is null
-HRESULT CordbArrayValue::HasBaseIndicies(BOOL *pbHasBaseIndices)
+//     output: pbHasBaseIndicies - true iff the array has more than one dimension and pbHasBaseIndicies is not null
+// Return Value: S_OK on success or E_INVALIDARG if pbHasBaseIndicies is null
+HRESULT CordbArrayValue::HasBaseIndicies(BOOL *pbHasBaseIndicies)
 {
     PUBLIC_REENTRANT_API_ENTRY(this);
     FAIL_IF_NEUTERED(this);
-    VALIDATE_POINTER_TO_OBJECT(pbHasBaseIndices, BOOL *);
+    VALIDATE_POINTER_TO_OBJECT(pbHasBaseIndicies, BOOL *);
 
-    *pbHasBaseIndices = m_info.arrayInfo.offsetToLowerBounds != 0;
+    *pbHasBaseIndicies = m_info.arrayInfo.offsetToLowerBounds != 0;
     return S_OK;
 } // CordbArrayValue::HasBaseIndicies
 
@@ -4104,7 +4143,7 @@ CordbHandleValue::CordbHandleValue(
     CordbAppDomain *   pAppdomain,
     CordbType *        pType,             // The type of object that we create handle on
     CorDebugHandleType handleType)         // strong or weak handle
-    : CordbValue(pAppdomain, pType, NULL, false,
+    : CordbValue(pAppdomain, pType, (CORDB_ADDRESS)NULL, false,
                     pAppdomain->GetSweepableExitNeuterList()
                 )
 {

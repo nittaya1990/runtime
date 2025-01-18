@@ -1,10 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- Needed for JitOptimizationSensitive -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
+
+    <!-- Not even printf is AOT compatible in F# -->
+    <NativeAotIncompatible>true</NativeAotIncompatible>
+
+    <!-- Test is slow enough to time out under GC stress -->
+    <GCStressIncompatible>true</GCStressIncompatible>
+
+    <!-- Work around test failure https://github.com/dotnet/runtime/issues/106601 -->
+    <RealSig>false</RealSig>
   </PropertyGroup>
   <PropertyGroup>
-    <NoStandardLib>True</NoStandardLib>
-    <Noconfig>True</Noconfig>
     <Optimize>True</Optimize>
     <JitOptimizationSensitive>True</JitOptimizationSensitive>
     <TargetFramework>$(NetCoreAppToolCurrent)</TargetFramework>

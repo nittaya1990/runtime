@@ -2,12 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-namespace GCTest
+namespace GCTest_selfref_cs
 {
-    internal class Test
+    public class Test
     {
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             object aref = null;
             object[] arr = new object[16];

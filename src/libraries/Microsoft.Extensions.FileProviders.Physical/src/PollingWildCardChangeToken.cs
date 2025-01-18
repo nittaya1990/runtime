@@ -93,15 +93,20 @@ namespace Microsoft.Extensions.FileProviders.Physical
                     return _changed;
                 }
 
-                if (Clock.UtcNow - _lastScanTimeUtc >= PollingInterval)
+                if (ShouldRefresh())
                 {
                     lock (_enumerationLock)
                     {
-                        _changed = CalculateChanges();
+                        if (!_changed && ShouldRefresh())
+                        {
+                            _changed = CalculateChanges();
+                        }
                     }
                 }
 
                 return _changed;
+
+                bool ShouldRefresh() => Clock.UtcNow - _lastScanTimeUtc >= PollingInterval;
             }
         }
 
@@ -158,15 +163,7 @@ namespace Microsoft.Extensions.FileProviders.Physical
             }
 
             Debug.Assert(previousHash.Length == currentHash.Length);
-            for (int i = 0; i < previousHash.Length; i++)
-            {
-                if (previousHash[i] != currentHash[i])
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            return previousHash.AsSpan().SequenceEqual(currentHash.AsSpan());
         }
 
         private void ComputeHash(IncrementalHash sha256, string path, DateTime lastChangedUtc)

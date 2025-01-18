@@ -1,4 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
+using Xunit;
+namespace Test_sizeof
+{
 // The .NET Foundation licenses this file to you under the MIT license.
 
 namespace JitTest
@@ -23,7 +26,7 @@ namespace JitTest
 		SimpleStruct ss1;
 		SimpleStruct ss2;
 	}
-	
+
 	struct ComplexStruct2
 	{
 		ComplexStruct x1;
@@ -46,9 +49,11 @@ namespace JitTest
 		ComplexStruct x18;
 	}
 
-	struct Test
+	public struct Test
 	{
-		static unsafe int Main()
+		[Fact]
+		[OuterLoop]
+		public static unsafe int TestEntryPoint()
 		{
 			if (sizeof(SimpleStruct) != 32)
 			{
@@ -69,4 +74,5 @@ namespace JitTest
 			return 100;
 		}
 	}
+}
 }

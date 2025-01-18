@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.CSharp;
-using Microsoft.VisualBasic;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.Serialization;
+using Microsoft.CSharp;
+using Microsoft.VisualBasic;
 
 namespace System.CodeDom.Compiler
 {
@@ -86,15 +86,25 @@ namespace System.CodeDom.Compiler
             return compilerInfo;
         }
 
-        private static CompilerInfo GetCompilerInfoForLanguageNoThrow(string language!!)
+        private static CompilerInfo GetCompilerInfoForLanguageNoThrow(string language)
         {
+            if (language is null)
+            {
+                throw new ArgumentNullException(nameof(language));
+            }
+
             CompilerInfo value;
             s_compilerLanguages.TryGetValue(language.Trim(), out value);
             return value;
         }
 
-        private static CompilerInfo GetCompilerInfoForExtensionNoThrow(string extension!!)
+        private static CompilerInfo GetCompilerInfoForExtensionNoThrow(string extension)
         {
+            if (extension is null)
+            {
+                throw new ArgumentNullException(nameof(extension));
+            }
+
             CompilerInfo value;
             s_compilerExtensions.TryGetValue(extension.Trim(), out value);
             return value;
@@ -205,10 +215,6 @@ namespace System.CodeDom.Compiler
         private sealed class ConfigurationErrorsException : SystemException
         {
             public ConfigurationErrorsException(string message) : base(message) { }
-            public ConfigurationErrorsException(SerializationInfo info, StreamingContext context) : base(info, context)
-            {
-                throw new PlatformNotSupportedException();
-            }
         }
     }
 }

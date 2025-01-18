@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-
 using CultureInfo = System.Globalization.CultureInfo;
-using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 using StringBuilder = System.Text.StringBuilder;
-using System.Diagnostics;
+using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 
 namespace System.Xml.Linq
 {
@@ -78,26 +77,12 @@ namespace System.Xml.Linq
         /// <summary>
         /// Gets a comparer that can compare the relative position of two nodes.
         /// </summary>
-        public static XNodeDocumentOrderComparer DocumentOrderComparer
-        {
-            get
-            {
-                if (s_documentOrderComparer == null) s_documentOrderComparer = new XNodeDocumentOrderComparer();
-                return s_documentOrderComparer;
-            }
-        }
+        public static XNodeDocumentOrderComparer DocumentOrderComparer => s_documentOrderComparer ??= new XNodeDocumentOrderComparer();
 
         /// <summary>
         /// Gets a comparer that can compare two nodes for value equality.
         /// </summary>
-        public static XNodeEqualityComparer EqualityComparer
-        {
-            get
-            {
-                if (s_equalityComparer == null) s_equalityComparer = new XNodeEqualityComparer();
-                return s_equalityComparer;
-            }
-        }
+        public static XNodeEqualityComparer EqualityComparer => s_equalityComparer ??= new XNodeEqualityComparer();
 
         /// <overloads>
         /// Adds the specified content immediately after this node. The
@@ -438,8 +423,10 @@ namespace System.Xml.Linq
         /// <exception cref="InvalidOperationException">
         /// Thrown if the <see cref="XmlReader"/> is not positioned on a recognized node type.
         /// </exception>
-        public static XNode ReadFrom(XmlReader reader!!)
+        public static XNode ReadFrom(XmlReader reader)
         {
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (reader.ReadState != ReadState.Interactive) throw new InvalidOperationException(SR.InvalidOperation_ExpectedInteractive);
             switch (reader.NodeType)
             {
@@ -474,8 +461,10 @@ namespace System.Xml.Linq
         /// <exception cref="InvalidOperationException">
         /// Thrown if the <see cref="XmlReader"/> is not positioned on a recognized node type.
         /// </exception>
-        public static Task<XNode> ReadFromAsync(XmlReader reader!!, CancellationToken cancellationToken)
+        public static Task<XNode> ReadFromAsync(XmlReader reader, CancellationToken cancellationToken)
         {
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled<XNode>(cancellationToken);
             return ReadFromAsyncInternal(reader, cancellationToken);

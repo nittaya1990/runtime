@@ -134,11 +134,18 @@ class ReduceExamples(threading.Thread):
 
                     if reduce_this:
                         print("Reducing {}".format(ex['Seed']))
-                        output_path = path.join(self.examples_dir, str(ex["Seed"]) + ".cs")
+                        file_name = str(ex["Seed"])
+                        dash_index = file_name.find('-')
+                        if dash_index != -1:
+                            file_name = file_name[:dash_index]
+                        output_path = path.join(self.examples_dir, file_name + ".cs")
+                        spmi_collections_path = path.join(self.examples_dir, file_name + "_spmi")
+                        os.mkdir(spmi_collections_path)
                         cmd = [self.fuzzlyn_path,
                             "--host", self.host_path,
                             "--reduce",
                             "--seed", str(ex['Seed']),
+                            "--collect-spmi-to", spmi_collections_path,
                             "--output", output_path]
                         run_command(cmd)
                         if path.exists(output_path):
@@ -177,6 +184,13 @@ def main(main_args):
 
     os.makedirs(output_directory, exist_ok=True)
 
+    if not is_windows:
+        # Disable core dumps. The fuzzers have their own graceful handling for
+        # runtime crashes. Especially on macOS we can quickly fill up the drive
+        # with dumps if we find lots of crashes since dumps there are very big.
+        import resource
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
     with TempDir() as temp_location:
         summary_file_name = "issues-summary-{}.txt".format(tag_name)
         summary_file_path = path.join(temp_location, summary_file_name)
@@ -195,7 +209,8 @@ def main(main_args):
                 "--seconds-to-run", str(run_duration),
                 "--output-events-to", summary_file_path,
                 "--host", path_to_corerun,
-                "--parallelism", "-1"],
+                "--parallelism", "-1",
+                "--known-errors", "dotnet/runtime"],
                 _exit_on_fail=True, _output_file=upload_fuzzer_output_path)
 
             exit_evt.set()

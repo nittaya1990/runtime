@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.Caching.Hosting;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.Caching.Resources;
 using System.Globalization;
+using System.Runtime.Caching.Hosting;
+using System.Runtime.Caching.Resources;
 using System.Security;
 using System.Text;
 using System.Threading;
@@ -95,10 +95,11 @@ namespace System.Runtime.Caching
                 {
                     fcn = host.GetService(typeof(IFileChangeNotificationSystem)) as IFileChangeNotificationSystem;
                 }
+#pragma warning disable IDE0074 // Use compound assignment
                 if (fcn == null)
                 {
-#if NETCOREAPP
-                    if (OperatingSystem.IsBrowser() || (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()) || OperatingSystem.IsTvOS())
+#if NET
+                    if (OperatingSystem.IsBrowser() || OperatingSystem.IsWasi() || (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()) || OperatingSystem.IsTvOS())
                     {
                         throw new PlatformNotSupportedException();
                     }
@@ -106,6 +107,7 @@ namespace System.Runtime.Caching
 
                     fcn = new FileChangeNotificationSystem();
                 }
+#pragma warning restore IDE0074
                 Interlocked.CompareExchange(ref s_fcn, fcn, null);
             }
         }
@@ -155,8 +157,13 @@ namespace System.Runtime.Caching
         public override string UniqueId { get { return _uniqueId; } }
         public override DateTimeOffset LastModified { get { return _lastModified; } }
 
-        public HostFileChangeMonitor(IList<string> filePaths!!)
+        public HostFileChangeMonitor(IList<string> filePaths)
         {
+            if (filePaths is null)
+            {
+                throw new ArgumentNullException(nameof(filePaths));
+            }
+
             if (filePaths.Count == 0)
             {
                 throw new ArgumentException(RH.Format(SR.Empty_collection, nameof(filePaths)));

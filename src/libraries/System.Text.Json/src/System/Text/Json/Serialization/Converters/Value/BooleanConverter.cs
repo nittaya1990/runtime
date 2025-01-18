@@ -3,10 +3,12 @@
 
 using System.Buffers.Text;
 using System.Diagnostics;
+using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
 
 namespace System.Text.Json.Serialization.Converters
 {
-    internal sealed class BooleanConverter : JsonConverter<bool>
+    internal sealed class BooleanConverter : JsonPrimitiveConverter<bool>
     {
         public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -20,7 +22,8 @@ namespace System.Text.Json.Serialization.Converters
 
         internal override bool ReadAsPropertyNameCore(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            ReadOnlySpan<byte> propertyName = reader.GetSpan();
+            Debug.Assert(reader.TokenType == JsonTokenType.PropertyName);
+            ReadOnlySpan<byte> propertyName = reader.GetUnescapedSpan();
             if (!(Utf8Parser.TryParse(propertyName, out bool value, out int bytesConsumed)
                   && propertyName.Length == bytesConsumed))
             {
@@ -34,5 +37,7 @@ namespace System.Text.Json.Serialization.Converters
         {
             writer.WritePropertyName(value);
         }
+
+        internal override JsonSchema? GetSchema(JsonNumberHandling _) => new() { Type = JsonSchemaType.Boolean };
     }
 }

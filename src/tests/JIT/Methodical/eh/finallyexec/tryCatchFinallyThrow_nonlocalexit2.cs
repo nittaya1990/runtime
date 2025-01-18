@@ -2,8 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-class Class1
+namespace Test_tryCatchFinallyThrow_nonlocalexit2_cs
+{
+public class Class1
 {
     private static TestUtil.TestLog testLog;
 
@@ -43,7 +46,7 @@ class Class1
             if (i == 0) throw new Exception();
         }
         Console.WriteLine("after middle1 finally");
-        L1:
+    L1:
         Console.WriteLine("middle1 L1");
     }
 
@@ -64,11 +67,13 @@ class Class1
             if (i == 0) throw new Exception();
         }
         Console.WriteLine("after middle2 finally");
-        L2:
+    L2:
         Console.WriteLine("middle2 L2");
     }
 
-    static public int Main()
+    [Fact]
+    [OuterLoop]
+    static public int TestEntryPoint()
     {
         // start recording
         testLog.StartRecording();
@@ -93,4 +98,5 @@ class Class1
 
         return testLog.VerifyOutput();
     }
+}
 }

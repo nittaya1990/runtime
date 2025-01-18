@@ -3,8 +3,6 @@
 
 /*++
 
-
-
 Module Name:
 
     context.c
@@ -13,8 +11,6 @@ Abstract:
 
     Implementation of GetThreadContext/SetThreadContext/DebugBreak.
     There are a lot of architecture specifics here.
-
-
 
 --*/
 
@@ -39,18 +35,8 @@ extern PGET_GCMARKER_EXCEPTION_CODE g_getGcMarkerExceptionCode;
 #define CONTEXT_AREA_MASK 0xffff
 #ifdef HOST_X86
 #define CONTEXT_ALL_FLOATING (CONTEXT_FLOATING_POINT | CONTEXT_EXTENDED_REGISTERS)
-#elif defined(HOST_AMD64)
-#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
-#elif defined(HOST_ARM)
-#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
-#elif defined(HOST_ARM64)
-#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
-#elif defined(HOST_LOONGARCH64)
-#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
-#elif defined(HOST_S390X)
-#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
 #else
-#error Unexpected architecture.
+#define CONTEXT_ALL_FLOATING CONTEXT_FLOATING_POINT
 #endif
 
 #if !HAVE_MACH_EXCEPTIONS
@@ -73,6 +59,14 @@ typedef int __ptrace_request;
 #endif // !HAVE_MACH_EXCEPTIONS
 
 #ifdef HOST_AMD64
+#ifdef __HAIKU__
+#define ASSIGN_CONTROL_REGS \
+        ASSIGN_REG(Rbp)     \
+        ASSIGN_REG(Rip)     \
+        ASSIGN_REG(EFlags)  \
+        ASSIGN_REG(Rsp)     \
+
+#else // __HAIKU__
 #define ASSIGN_CONTROL_REGS \
         ASSIGN_REG(Rbp)     \
         ASSIGN_REG(Rip)     \
@@ -80,161 +74,245 @@ typedef int __ptrace_request;
         ASSIGN_REG(EFlags)  \
         ASSIGN_REG(Rsp)     \
 
+#endif // __HAIKU__
 #define ASSIGN_INTEGER_REGS \
-        ASSIGN_REG(Rdi)     \
-        ASSIGN_REG(Rsi)     \
-        ASSIGN_REG(Rbx)     \
-        ASSIGN_REG(Rdx)     \
-        ASSIGN_REG(Rcx)     \
-        ASSIGN_REG(Rax)     \
-        ASSIGN_REG(R8)     \
-        ASSIGN_REG(R9)     \
-        ASSIGN_REG(R10)     \
-        ASSIGN_REG(R11)     \
-        ASSIGN_REG(R12)     \
-        ASSIGN_REG(R13)     \
-        ASSIGN_REG(R14)     \
-        ASSIGN_REG(R15)     \
+    ASSIGN_REG(Rdi)     \
+    ASSIGN_REG(Rsi)     \
+    ASSIGN_REG(Rbx)     \
+    ASSIGN_REG(Rdx)     \
+    ASSIGN_REG(Rcx)     \
+    ASSIGN_REG(Rax)     \
+    ASSIGN_REG(R8)     \
+    ASSIGN_REG(R9)     \
+    ASSIGN_REG(R10)     \
+    ASSIGN_REG(R11)     \
+    ASSIGN_REG(R12)     \
+    ASSIGN_REG(R13)     \
+    ASSIGN_REG(R14)     \
+    ASSIGN_REG(R15)     \
 
 #elif defined(HOST_X86)
 #define ASSIGN_CONTROL_REGS \
-        ASSIGN_REG(Ebp)     \
-        ASSIGN_REG(Eip)     \
-        ASSIGN_REG(SegCs)   \
-        ASSIGN_REG(EFlags)  \
-        ASSIGN_REG(Esp)     \
-        ASSIGN_REG(SegSs)   \
+    ASSIGN_REG(Ebp)     \
+    ASSIGN_REG(Eip)     \
+    ASSIGN_REG(SegCs)   \
+    ASSIGN_REG(EFlags)  \
+    ASSIGN_REG(Esp)     \
+    ASSIGN_REG(SegSs)   \
 
 #define ASSIGN_INTEGER_REGS \
-        ASSIGN_REG(Edi)     \
-        ASSIGN_REG(Esi)     \
-        ASSIGN_REG(Ebx)     \
-        ASSIGN_REG(Edx)     \
-        ASSIGN_REG(Ecx)     \
-        ASSIGN_REG(Eax)     \
+    ASSIGN_REG(Edi)     \
+    ASSIGN_REG(Esi)     \
+    ASSIGN_REG(Ebx)     \
+    ASSIGN_REG(Edx)     \
+    ASSIGN_REG(Ecx)     \
+    ASSIGN_REG(Eax)     \
 
 #elif defined(HOST_ARM)
 #define ASSIGN_CONTROL_REGS \
-        ASSIGN_REG(Sp)     \
-        ASSIGN_REG(Lr)     \
-        ASSIGN_REG(Pc)   \
-        ASSIGN_REG(Cpsr)  \
+    ASSIGN_REG(Sp)     \
+    ASSIGN_REG(Lr)     \
+    ASSIGN_REG(Pc)   \
+    ASSIGN_REG(Cpsr)  \
 
 #define ASSIGN_INTEGER_REGS \
-        ASSIGN_REG(R0)     \
-        ASSIGN_REG(R1)     \
-        ASSIGN_REG(R2)     \
-        ASSIGN_REG(R3)     \
-        ASSIGN_REG(R4)     \
-        ASSIGN_REG(R5)     \
-        ASSIGN_REG(R6)     \
-        ASSIGN_REG(R7)     \
-        ASSIGN_REG(R8)     \
-        ASSIGN_REG(R9)     \
-        ASSIGN_REG(R10)     \
-        ASSIGN_REG(R11)     \
-        ASSIGN_REG(R12)
+    ASSIGN_REG(R0)     \
+    ASSIGN_REG(R1)     \
+    ASSIGN_REG(R2)     \
+    ASSIGN_REG(R3)     \
+    ASSIGN_REG(R4)     \
+    ASSIGN_REG(R5)     \
+    ASSIGN_REG(R6)     \
+    ASSIGN_REG(R7)     \
+    ASSIGN_REG(R8)     \
+    ASSIGN_REG(R9)     \
+    ASSIGN_REG(R10)     \
+    ASSIGN_REG(R11)     \
+    ASSIGN_REG(R12)
 #elif defined(HOST_ARM64)
 #define ASSIGN_CONTROL_REGS \
-        ASSIGN_REG(Cpsr)    \
-        ASSIGN_REG(Fp)      \
-        ASSIGN_REG(Sp)      \
-        ASSIGN_REG(Lr)      \
-        ASSIGN_REG(Pc)
+    ASSIGN_REG(Cpsr)    \
+    ASSIGN_REG(Fp)      \
+    ASSIGN_REG(Sp)      \
+    ASSIGN_REG(Lr)      \
+    ASSIGN_REG(Pc)
 
 #define ASSIGN_INTEGER_REGS \
-	ASSIGN_REG(X0)      \
-	ASSIGN_REG(X1)      \
-	ASSIGN_REG(X2)      \
-	ASSIGN_REG(X3)      \
-	ASSIGN_REG(X4)      \
-	ASSIGN_REG(X5)      \
-	ASSIGN_REG(X6)      \
-	ASSIGN_REG(X7)      \
-	ASSIGN_REG(X8)      \
-	ASSIGN_REG(X9)      \
-	ASSIGN_REG(X10)     \
-	ASSIGN_REG(X11)     \
-	ASSIGN_REG(X12)     \
-	ASSIGN_REG(X13)     \
-	ASSIGN_REG(X14)     \
-	ASSIGN_REG(X15)     \
-	ASSIGN_REG(X16)     \
-	ASSIGN_REG(X17)     \
-	ASSIGN_REG(X18)     \
-	ASSIGN_REG(X19)     \
-	ASSIGN_REG(X20)     \
-	ASSIGN_REG(X21)     \
-	ASSIGN_REG(X22)     \
-	ASSIGN_REG(X23)     \
-	ASSIGN_REG(X24)     \
-	ASSIGN_REG(X25)     \
-	ASSIGN_REG(X26)     \
-	ASSIGN_REG(X27)     \
-	ASSIGN_REG(X28)
+    ASSIGN_REG(X0)      \
+    ASSIGN_REG(X1)      \
+    ASSIGN_REG(X2)      \
+    ASSIGN_REG(X3)      \
+    ASSIGN_REG(X4)      \
+    ASSIGN_REG(X5)      \
+    ASSIGN_REG(X6)      \
+    ASSIGN_REG(X7)      \
+    ASSIGN_REG(X8)      \
+    ASSIGN_REG(X9)      \
+    ASSIGN_REG(X10)     \
+    ASSIGN_REG(X11)     \
+    ASSIGN_REG(X12)     \
+    ASSIGN_REG(X13)     \
+    ASSIGN_REG(X14)     \
+    ASSIGN_REG(X15)     \
+    ASSIGN_REG(X16)     \
+    ASSIGN_REG(X17)     \
+    ASSIGN_REG(X18)     \
+    ASSIGN_REG(X19)     \
+    ASSIGN_REG(X20)     \
+    ASSIGN_REG(X21)     \
+    ASSIGN_REG(X22)     \
+    ASSIGN_REG(X23)     \
+    ASSIGN_REG(X24)     \
+    ASSIGN_REG(X25)     \
+    ASSIGN_REG(X26)     \
+    ASSIGN_REG(X27)     \
+    ASSIGN_REG(X28)
 
 #elif defined(HOST_LOONGARCH64)
 #define ASSIGN_CONTROL_REGS  \
-        ASSIGN_REG(Fp)      \
-        ASSIGN_REG(Sp)      \
-        ASSIGN_REG(Ra)      \
-        ASSIGN_REG(Pc)
-
+    ASSIGN_REG(Fp)      \
+    ASSIGN_REG(Sp)      \
+    ASSIGN_REG(Ra)      \
+    ASSIGN_REG(Pc)
 
 #define ASSIGN_INTEGER_REGS \
-	ASSIGN_REG(R0)     \
-	ASSIGN_REG(Tp)     \
-	ASSIGN_REG(A0)     \
-	ASSIGN_REG(A1)     \
-	ASSIGN_REG(A2)     \
-	ASSIGN_REG(A3)     \
-	ASSIGN_REG(A4)     \
-	ASSIGN_REG(A5)     \
-	ASSIGN_REG(A6)     \
-	ASSIGN_REG(A7)     \
-	ASSIGN_REG(T0)     \
-	ASSIGN_REG(T1)     \
-	ASSIGN_REG(T2)     \
-	ASSIGN_REG(T3)     \
-	ASSIGN_REG(T4)     \
-	ASSIGN_REG(T5)     \
-	ASSIGN_REG(T6)     \
-	ASSIGN_REG(T7)     \
-	ASSIGN_REG(T8)     \
-	ASSIGN_REG(S0)     \
-	ASSIGN_REG(S1)     \
-	ASSIGN_REG(S2)     \
-	ASSIGN_REG(S3)     \
-	ASSIGN_REG(S4)     \
-	ASSIGN_REG(S5)     \
-	ASSIGN_REG(S6)     \
-	ASSIGN_REG(S7)     \
-	ASSIGN_REG(S8)     \
-	ASSIGN_REG(X0)
+    ASSIGN_REG(R0)     \
+    ASSIGN_REG(Tp)     \
+    ASSIGN_REG(A0)     \
+    ASSIGN_REG(A1)     \
+    ASSIGN_REG(A2)     \
+    ASSIGN_REG(A3)     \
+    ASSIGN_REG(A4)     \
+    ASSIGN_REG(A5)     \
+    ASSIGN_REG(A6)     \
+    ASSIGN_REG(A7)     \
+    ASSIGN_REG(T0)     \
+    ASSIGN_REG(T1)     \
+    ASSIGN_REG(T2)     \
+    ASSIGN_REG(T3)     \
+    ASSIGN_REG(T4)     \
+    ASSIGN_REG(T5)     \
+    ASSIGN_REG(T6)     \
+    ASSIGN_REG(T7)     \
+    ASSIGN_REG(T8)     \
+    ASSIGN_REG(S0)     \
+    ASSIGN_REG(S1)     \
+    ASSIGN_REG(S2)     \
+    ASSIGN_REG(S3)     \
+    ASSIGN_REG(S4)     \
+    ASSIGN_REG(S5)     \
+    ASSIGN_REG(S6)     \
+    ASSIGN_REG(S7)     \
+    ASSIGN_REG(S8)     \
+    ASSIGN_REG(X0)
+
+#elif defined(HOST_RISCV64)
+
+// https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/2d865a2964fe06bfc569ab00c74e152b582ed764/riscv-cc.adoc
+
+#define ASSIGN_CONTROL_REGS  \
+    ASSIGN_REG(Ra)      \
+    ASSIGN_REG(Sp)      \
+    ASSIGN_REG(Fp)      \
+    ASSIGN_REG(Pc)
+
+#define ASSIGN_INTEGER_REGS \
+    ASSIGN_REG(Gp)     \
+    ASSIGN_REG(Tp)     \
+    ASSIGN_REG(T0)     \
+    ASSIGN_REG(T1)     \
+    ASSIGN_REG(T2)     \
+    ASSIGN_REG(S1)     \
+    ASSIGN_REG(A0)     \
+    ASSIGN_REG(A1)     \
+    ASSIGN_REG(A2)     \
+    ASSIGN_REG(A3)     \
+    ASSIGN_REG(A4)     \
+    ASSIGN_REG(A5)     \
+    ASSIGN_REG(A6)     \
+    ASSIGN_REG(A7)     \
+    ASSIGN_REG(S2)     \
+    ASSIGN_REG(S3)     \
+    ASSIGN_REG(S4)     \
+    ASSIGN_REG(S5)     \
+    ASSIGN_REG(S6)     \
+    ASSIGN_REG(S7)     \
+    ASSIGN_REG(S8)     \
+    ASSIGN_REG(S9)     \
+    ASSIGN_REG(S10)    \
+    ASSIGN_REG(S11)    \
+    ASSIGN_REG(T3)     \
+    ASSIGN_REG(T4)     \
+    ASSIGN_REG(T5)     \
+    ASSIGN_REG(T6)
 
 #elif defined(HOST_S390X)
 #define ASSIGN_CONTROL_REGS \
-        ASSIGN_REG(PSWMask) \
-        ASSIGN_REG(PSWAddr) \
-        ASSIGN_REG(R15)     \
+    ASSIGN_REG(PSWMask) \
+    ASSIGN_REG(PSWAddr) \
+    ASSIGN_REG(R15)     \
 
 #define ASSIGN_INTEGER_REGS \
-        ASSIGN_REG(R0)      \
-        ASSIGN_REG(R1)      \
-        ASSIGN_REG(R2)      \
-        ASSIGN_REG(R3)      \
-        ASSIGN_REG(R4)      \
-        ASSIGN_REG(R5)      \
-        ASSIGN_REG(R5)      \
-        ASSIGN_REG(R6)      \
-        ASSIGN_REG(R7)      \
-        ASSIGN_REG(R8)      \
-        ASSIGN_REG(R9)      \
-        ASSIGN_REG(R10)     \
-        ASSIGN_REG(R11)     \
-        ASSIGN_REG(R12)     \
-        ASSIGN_REG(R13)     \
-        ASSIGN_REG(R14)
+    ASSIGN_REG(R0)      \
+    ASSIGN_REG(R1)      \
+    ASSIGN_REG(R2)      \
+    ASSIGN_REG(R3)      \
+    ASSIGN_REG(R4)      \
+    ASSIGN_REG(R5)      \
+    ASSIGN_REG(R5)      \
+    ASSIGN_REG(R6)      \
+    ASSIGN_REG(R7)      \
+    ASSIGN_REG(R8)      \
+    ASSIGN_REG(R9)      \
+    ASSIGN_REG(R10)     \
+    ASSIGN_REG(R11)     \
+    ASSIGN_REG(R12)     \
+    ASSIGN_REG(R13)     \
+    ASSIGN_REG(R14)
+
+#elif defined(HOST_POWERPC64)
+#define ASSIGN_CONTROL_REGS \
+    ASSIGN_REG(Nip) \
+    ASSIGN_REG(Msr) \
+    ASSIGN_REG(Ctr) \
+    ASSIGN_REG(Link) \
+    ASSIGN_REG(Xer) \
+    ASSIGN_REG(Ccr) \
+    ASSIGN_REG(R31) \
+
+#define ASSIGN_INTEGER_REGS \
+    ASSIGN_REG(R0)      \
+    ASSIGN_REG(R1)      \
+    ASSIGN_REG(R2)      \
+    ASSIGN_REG(R3)      \
+    ASSIGN_REG(R4)      \
+    ASSIGN_REG(R5)      \
+    ASSIGN_REG(R5)      \
+    ASSIGN_REG(R6)      \
+    ASSIGN_REG(R7)      \
+    ASSIGN_REG(R8)      \
+    ASSIGN_REG(R9)      \
+    ASSIGN_REG(R10)     \
+    ASSIGN_REG(R11)     \
+    ASSIGN_REG(R12)     \
+    ASSIGN_REG(R13)     \
+    ASSIGN_REG(R14)     \
+    ASSIGN_REG(R15)     \
+    ASSIGN_REG(R16)     \
+    ASSIGN_REG(R17)     \
+    ASSIGN_REG(R18)     \
+    ASSIGN_REG(R19)     \
+    ASSIGN_REG(R20)     \
+    ASSIGN_REG(R21)     \
+    ASSIGN_REG(R22)     \
+    ASSIGN_REG(R23)     \
+    ASSIGN_REG(R24)     \
+    ASSIGN_REG(R25)     \
+    ASSIGN_REG(R26)     \
+    ASSIGN_REG(R27)     \
+    ASSIGN_REG(R28)     \
+    ASSIGN_REG(R29)     \
+    ASSIGN_REG(R30)
 
 #else
 #error "Don't know how to assign registers on this architecture"
@@ -244,7 +322,133 @@ typedef int __ptrace_request;
         ASSIGN_CONTROL_REGS \
         ASSIGN_INTEGER_REGS \
 
+#if defined(XSTATE_SUPPORTED) || defined(HOST_AMD64) && defined(HAVE_MACH_EXCEPTIONS)
+bool Xstate_IsAvx512Supported()
+{
+#if defined(HAVE_MACH_EXCEPTIONS)
+    // MacOS has specialized behavior where it reports AVX512 support but doesnt
+    // actually enable AVX512 until the first instruction is executed and does so
+    // on a per thread basis. It does this by catching the faulting instruction and
+    // checking for the EVEX encoding. The kmov instructions, despite being part
+    // of the AVX512 instruction set are VEX encoded and dont trigger the enablement
+    //
+    // See https://github.com/apple/darwin-xnu/blob/main/osfmk/i386/fpu.c#L174
+
+    // TODO-AVX512: Enabling this for OSX requires ensuring threads explicitly trigger
+    // the AVX-512 enablement so that arbitrary usage doesn't cause downstream problems
+
+    return false;
+#else
+    static int Xstate_Avx512Supported = -1;
+
+    if (Xstate_Avx512Supported == -1)
+    {
+        int cpuidInfo[4];
+
+        const int CPUID_EAX = 0;
+        const int CPUID_EBX = 1;
+        const int CPUID_ECX = 2;
+        const int CPUID_EDX = 3;
+
+#ifdef _DEBUG
+        // We should only be calling this function if we know the extended feature exists
+        __cpuid(cpuidInfo, 0x00000000);
+        _ASSERTE(static_cast<uint32_t>(cpuidInfo[CPUID_EAX]) >= 0x0D);
+#endif // _DEBUG
+
+        __cpuidex(cpuidInfo, 0x0000000D, 0x00000000);
+
+        if ((cpuidInfo[CPUID_EAX] & XSTATE_MASK_AVX512) == XSTATE_MASK_AVX512)
+        {
+            // Knight's Landing and Knight's Mill shipped without all 5 of the "baseline"
+            // AVX-512 ISAs that are required by x86-64-v4. Specifically they do not include
+            // BW, DQ, or VL. RyuJIT currently requires all 5 ISAs to be present so we will
+            // only enable Avx512 context save/restore when all exist. This requires us to
+            // query which ISAs are actually supported to ensure they're all present.
+
+            __cpuidex(cpuidInfo, 0x00000007, 0x00000000);
+
+            const int requiredAvx512Flags = (1 << 16) |   // AVX512F
+                                            (1 << 17) |   // AVX512DQ
+                                            (1 << 28) |   // AVX512CD
+                                            (1 << 30) |   // AVX512BW
+                                            (1 << 31);    // AVX512VL
+
+            if ((cpuidInfo[CPUID_EBX] & requiredAvx512Flags) == requiredAvx512Flags)
+            {
+                Xstate_Avx512Supported = 1;
+            }
+        }
+
+        if (Xstate_Avx512Supported == -1)
+        {
+            Xstate_Avx512Supported = 0;
+        }
+    }
+
+    return Xstate_Avx512Supported == 1;
+#endif
+}
+
+bool Xstate_IsApxSupported()
+{
+#if defined(HAVE_MACH_EXCEPTIONS)
+    // TODO-xarch-apx: I assume OSX will never support APX
+    return false;
+#else
+    static int Xstate_ApxSupported = -1;
+
+    if (Xstate_ApxSupported == -1)
+    {
+        int cpuidInfo[4];
+
+        const int CPUID_EAX = 0;
+        const int CPUID_EBX = 1;
+        const int CPUID_ECX = 2;
+        const int CPUID_EDX = 3;
+
+#ifdef _DEBUG
+        // We should only be calling this function if we know the extended feature exists
+        __cpuid(cpuidInfo, 0x00000000);
+        _ASSERTE(static_cast<uint32_t>(cpuidInfo[CPUID_EAX]) >= 0x0D);
+#endif // _DEBUG
+
+        __cpuidex(cpuidInfo, 0x0000000D, 0x00000000);
+
+        if ((cpuidInfo[CPUID_EAX] & XSTATE_MASK_APX) == XSTATE_MASK_APX)
+        {
+            // Knight's Landing and Knight's Mill shipped without all 5 of the "baseline"
+            // AVX-512 ISAs that are required by x86-64-v4. Specifically they do not include
+            // BW, DQ, or VL. RyuJIT currently requires all 5 ISAs to be present so we will
+            // only enable Avx512 context save/restore when all exist. This requires us to
+            // query which ISAs are actually supported to ensure they're all present.
+
+            __cpuidex(cpuidInfo, 0x00000007, 0x00000001);
+
+            const int requiredApxFlags = (1 << 21);
+
+            if ((cpuidInfo[CPUID_EDX] & requiredApxFlags) == requiredApxFlags)
+            {
+                Xstate_ApxSupported = 1;
+            }
+        }
+
+        if (Xstate_ApxSupported == -1)
+        {
+            Xstate_ApxSupported = 0;
+        }
+    }
+
+    return Xstate_ApxSupported == 1;
+#endif
+}
+#endif // XSTATE_SUPPORTED || defined(HOST_AMD64) && defined(HAVE_MACH_EXCEPTIONS)
+
 #if !HAVE_MACH_EXCEPTIONS
+
+#if defined(XSTATE_SUPPORTED) && defined(HOST_AMD64)
+Xstate_ExtendedFeature Xstate_ExtendedFeatures[Xstate_ExtendedFeatures_Count];
+#endif // XSTATE_SUPPORTED && HOST_AMD64
 
 /*++
 Function:
@@ -332,7 +536,7 @@ CONTEXT_GetThreadContext(
     }
 
     /* How to consider the case when self is different from the current
-       thread of its owner process. Machine registers values could be retreived
+       thread of its owner process. Machine registers values could be retrieved
        by a ptrace(pid, ...) call or from the "/proc/%pid/reg" file content.
        Unfortunately, these two methods only depend on process ID, not on
        thread ID. */
@@ -405,7 +609,7 @@ CONTEXT_SetThreadContext(
     }
 
     /* How to consider the case when self is different from the current
-       thread of its owner process. Machine registers values could be retreived
+       thread of its owner process. Machine registers values could be retrieved
        by a ptrace(pid, ...) call or from the "/proc/%pid/reg" file content.
        Unfortunately, these two methods only depend on process ID, not on
        thread ID. */
@@ -503,7 +707,7 @@ void CONTEXTToNativeContext(CONST CONTEXT *lpContext, native_context_t *native)
 #undef ASSIGN_REG
 
 #if !HAVE_FPREGS_WITH_CW
-#if (HAVE_GREGSET_T || HAVE___GREGSET_T) && !defined(HOST_S390X) && !defined(HOST_LOONGARCH64)
+#if (HAVE_GREGSET_T || HAVE___GREGSET_T) && !defined(HOST_S390X) && !defined(HOST_LOONGARCH64) && !defined(HOST_RISCV64) && !defined(HOST_POWERPC64)
 #if HAVE_GREGSET_T
     if (native->uc_mcontext.fpregs == nullptr)
 #elif HAVE___GREGSET_T
@@ -515,8 +719,18 @@ void CONTEXTToNativeContext(CONST CONTEXT *lpContext, native_context_t *native)
         // whether CONTEXT_FLOATING_POINT is set in the CONTEXT's flags.
         return;
     }
-#endif // (HAVE_GREGSET_T || HAVE___GREGSET_T) && !HOST_S390X && !HOST_LOONGARCH64
+#endif // (HAVE_GREGSET_T || HAVE___GREGSET_T) && !HOST_S390X && !HOST_LOONGARCH64 && !HOST_RISCV64 && !HOST_POWERPC64
 #endif // !HAVE_FPREGS_WITH_CW
+
+#if defined(HOST_ARM64) && !defined(TARGET_OSX) && !defined(TARGET_FREEBSD)
+    sve_context* sve = nullptr;
+    fpsimd_context* fp = nullptr;
+    if (((lpContext->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) ||
+        ((lpContext->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE))
+    {
+        GetNativeSigSimdContext(native, &fp, &sve);
+    }
+#endif // HOST_ARM64 && !TARGET_OSX && !TARGET_FREEBSD
 
     if ((lpContext->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT)
     {
@@ -554,8 +768,18 @@ void CONTEXTToNativeContext(CONST CONTEXT *lpContext, native_context_t *native)
         {
             *(NEON128*) &fp->__v[i] = lpContext->V[i];
         }
+#elif defined(TARGET_FREEBSD)
+        struct fpregs* fp = GetNativeSigSimdContext(native);
+        if (fp)
+        {
+            fp->fp_sr = lpContext->Fpsr;
+            fp->fp_cr = lpContext->Fpcr;
+            for (int i = 0; i < 32; i++)
+            {
+                *(NEON128*) &fp->fp_q[i] = lpContext->V[i];
+            }
+        }
 #else // TARGET_OSX
-        fpsimd_context* fp = GetNativeSigSimdContext(native);
         if (fp)
         {
             fp->fpsr = lpContext->Fpsr;
@@ -581,22 +805,209 @@ void CONTEXTToNativeContext(CONST CONTEXT *lpContext, native_context_t *native)
         static_assert_no_msg(sizeof(fp->fprs) == sizeof(lpContext->Fpr));
         memcpy(fp->fprs, lpContext->Fpr, sizeof(lpContext->Fpr));
 #elif defined(HOST_LOONGARCH64)
+        struct sctx_info* info = (struct sctx_info*) native->uc_mcontext.__extcontext;
+        if (FPU_CTX_MAGIC == info->magic)
+        {
+            struct fpu_context* fpr = (struct fpu_context*)(info + 1);
+            fpr->fcsr = lpContext->Fcsr;
+            fpr->fcc  = lpContext->Fcc;
+            memcpy(fpr->regs, lpContext->F, sizeof(fpr->regs));
+        }
+        else if (LSX_CTX_MAGIC == info->magic)
+        {
+            struct lsx_context* fpr = (struct lsx_context*)(info + 1);
+            fpr->fcsr = lpContext->Fcsr;
+            fpr->fcc  = lpContext->Fcc;
+            memcpy(fpr->regs, lpContext->F, sizeof(fpr->regs));
+        }
+        else if (LASX_CTX_MAGIC == info->magic)
+        {
+            struct lasx_context* fpr = (struct lasx_context*)(info + 1);
+            fpr->fcsr = lpContext->Fcsr;
+            fpr->fcc  = lpContext->Fcc;
+            memcpy(fpr->regs, lpContext->F, sizeof(fpr->regs));
+        }
+        else
+        {
+            _ASSERTE(LBT_CTX_MAGIC == info->magic);
+        }
+#elif defined(HOST_RISCV64)
+        native->uc_mcontext.__fpregs.__d.__fcsr = lpContext->Fcsr;
         for (int i = 0; i < 32; i++)
         {
-            native->uc_mcontext.__fpregs[i].__val64[0] = lpContext->F[i];
+            native->uc_mcontext.__fpregs.__d.__f[i] = lpContext->F[i];
         }
 #endif
     }
 
     // TODO: Enable for all Unix systems
-#if defined(HOST_AMD64) && defined(XSTATE_SUPPORTED)
+#if defined(XSTATE_SUPPORTED)
     if ((lpContext->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE)
     {
-        _ASSERTE(FPREG_HasYmmRegisters(native));
-        memcpy_s(FPREG_Xstate_Ymmh(native), sizeof(M128A) * 16, lpContext->VectorRegister, sizeof(M128A) * 16);
+#if defined(HOST_AMD64)
+        if (FPREG_HasYmmRegisters(native))
+        {
+            _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX) == XSTATE_MASK_AVX);
+
+            uint32_t size;
+            void *dest;
+
+            dest = FPREG_Xstate_Ymmh(native, &size);
+            _ASSERT(size == (sizeof(M128A) * 16));
+            memcpy_s(dest, sizeof(M128A) * 16, &lpContext->Ymm0H, sizeof(M128A) * 16);
+
+            if (FPREG_HasAvx512Registers(native))
+            {
+                _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX512) == XSTATE_MASK_AVX512);
+
+                dest = FPREG_Xstate_Opmask(native, &size);
+                _ASSERT(size == (sizeof(DWORD64) * 8));
+                memcpy_s(dest, sizeof(DWORD64) * 8, &lpContext->KMask0, sizeof(DWORD64) * 8);
+
+                dest = FPREG_Xstate_ZmmHi256(native, &size);
+                _ASSERT(size == (sizeof(M256) * 16));
+                memcpy_s(dest, sizeof(M256) * 16, &lpContext->Zmm0H, sizeof(M256) * 16);
+
+                dest = FPREG_Xstate_Hi16Zmm(native, &size);
+                _ASSERT(size == (sizeof(M512) * 16));
+                memcpy_s(dest, sizeof(M512) * 16, &lpContext->Zmm16, sizeof(M512) * 16);
+
+#ifndef TARGET_OSX
+                // TODO-xarch-apx: I suppose OSX will not support APX.
+                if (FPREG_HasApxRegisters(native))
+                {
+                    _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_APX) == XSTATE_MASK_APX);
+
+                    dest = FPREG_Xstate_Egpr(native, &size);
+                    _ASSERT(size == (sizeof(DWORD64) * 16));
+                    memcpy_s(dest, sizeof(DWORD64) * 16, &lpContext->Egpr16, sizeof(DWORD64) * 16);
+                }
+#endif //  !TARGET_OSX
+            }
+        }
+#elif defined(HOST_ARM64)
+        if (sve && sve->head.size >= SVE_SIG_CONTEXT_SIZE(sve_vq_from_vl(sve->vl)))
+        {
+            //TODO-SVE: This only handles vector lengths of 128bits.
+            if (CONTEXT_GetSveLengthFromOS() == 16)
+            {
+                _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_ARM64_SVE) == XSTATE_MASK_ARM64_SVE);
+
+                uint16_t vq = sve_vq_from_vl(lpContext->Vl);
+
+                // Vector length should not have changed.
+                _ASSERTE(lpContext->Vl == sve->vl);
+
+                //Note: Size of ffr register is SVE_SIG_FFR_SIZE(vq) bytes.
+                *(WORD*) (((uint8_t*)sve) + SVE_SIG_FFR_OFFSET(vq)) = lpContext->Ffr;
+
+                //TODO-SVE: Copy SVE registers once they are >128bits
+                //Note: Size of a Z register is SVE_SIG_ZREGS_SIZE(vq) bytes.
+
+                for (int i = 0; i < 16; i++)
+                {
+                    //Note: Size of a P register is SVE_SIG_PREGS_SIZE(vq) bytes.
+                    *(WORD*) (((uint8_t*)sve) + SVE_SIG_PREG_OFFSET(vq, i)) = lpContext->P[i];
+                }
+            }
+        }
+#endif //HOST_AMD64
     }
-#endif //HOST_AMD64 && XSTATE_SUPPORTED
+#endif //XSTATE_SUPPORTED
+
 }
+
+#if defined(HOST_64BIT) && defined(HOST_ARM64) && !defined(TARGET_FREEBSD) && !defined(TARGET_OSX)
+/*++
+Function :
+    _GetNativeSigSimdContext
+
+    Finds the FP and SVE context from the reserved data section of a native context.
+
+Parameters :
+    uint8_t *data : native context reserved data.
+    uint32_t size : size of the reserved data.
+    fpsimd_context **fp_ptr : returns a pointer to the FP context.
+    sve_context **sve_ptr : returns a pointer to the SVE context.
+
+Return value :
+    None.
+
+--*/
+void _GetNativeSigSimdContext(uint8_t *data, uint32_t size, fpsimd_context **fp_ptr, sve_context **sve_ptr)
+{
+    size_t position = 0;
+    fpsimd_context *fp = nullptr;
+    sve_context *sve = nullptr;
+    extra_context *extra = nullptr;
+    bool done = false;
+
+    while (!done)
+    {
+        _aarch64_ctx *ctx = reinterpret_cast<_aarch64_ctx *>(&data[position]);
+
+        _ASSERTE(position + ctx->size <= size);
+
+        switch (ctx->magic)
+        {
+            case FPSIMD_MAGIC:
+                _ASSERTE(fp == nullptr);
+                _ASSERTE(ctx->size >= sizeof(fpsimd_context));
+                fp = reinterpret_cast<fpsimd_context *>(&data[position]);
+                break;
+
+            case SVE_MAGIC:
+                _ASSERTE(sve == nullptr);
+                _ASSERTE(ctx->size >= sizeof(sve_context));
+                sve = reinterpret_cast<sve_context *>(&data[position]);
+                break;
+
+            case EXTRA_MAGIC:
+            {
+                // Points to an additional section of reserved data.
+                _ASSERTE(extra == nullptr);
+                _ASSERTE(ctx->size >= sizeof(extra_context));
+                fpsimd_context *fpOrig = fp;
+                sve_context *sveOrig = sve;
+
+                extra = reinterpret_cast<extra_context *>(&data[position]);
+                _GetNativeSigSimdContext((uint8_t*)extra->datap, extra->size, &fp, &sve);
+
+                // There should only be one block of each type.
+                _ASSERTE(fpOrig == nullptr || fp == fpOrig);
+                _ASSERTE(sveOrig == nullptr || sve == sveOrig);
+                break;
+            }
+
+            case 0:
+                _ASSERTE(ctx->size == 0);
+                done = true;
+                break;
+
+            default:
+                // Any other section.
+                _ASSERTE(ctx->size != 0);
+                break;
+        }
+
+        position += ctx->size;
+    }
+
+    if (fp)
+    {
+        *fp_ptr = fp;
+    }
+    if (sve)
+    {
+        // If this ever fires then we have an SVE context but no FP context. Given that V and Z
+        // registers overlap, then when propagating this data to other structures, the SVE
+        // context should be used to fill the FP data.
+        _ASSERTE(fp != nullptr);
+
+        *sve_ptr = sve;
+    }
+}
+#endif // HOST_64BIT && HOST_ARM64 && !TARGET_FREEBSD && !TARGET_OSX
 
 /*++
 Function :
@@ -625,7 +1036,7 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
         ASSIGN_CONTROL_REGS
 #if defined(HOST_ARM)
         // WinContext assumes that the least bit of Pc is always 1 (denoting thumb)
-        // although the pc value retrived from native context might not have set the least bit.
+        // although the pc value retrieved from native context might not have set the least bit.
         // This becomes especially problematic if the context is on the JIT_WRITEBARRIER.
         lpContext->Pc |= 0x1;
 #endif
@@ -638,7 +1049,7 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
 #undef ASSIGN_REG
 
 #if !HAVE_FPREGS_WITH_CW
-#if (HAVE_GREGSET_T || HAVE___GREGSET_T) && !defined(HOST_S390X) && !defined(HOST_LOONGARCH64)
+#if (HAVE_GREGSET_T || HAVE___GREGSET_T) && !defined(HOST_S390X) && !defined(HOST_LOONGARCH64) && !defined(HOST_RISCV64) && !defined(HOST_POWERPC64)
 #if HAVE_GREGSET_T
     if (native->uc_mcontext.fpregs == nullptr)
 #elif HAVE___GREGSET_T
@@ -660,8 +1071,18 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
         // Bail out regardless of whether the caller wanted CONTEXT_FLOATING_POINT or CONTEXT_XSTATE
         return;
     }
-#endif // (HAVE_GREGSET_T || HAVE___GREGSET_T) && !HOST_S390X
+#endif // (HAVE_GREGSET_T || HAVE___GREGSET_T) && !HOST_S390X && !HOST_LOONGARCH64 && !HOST_RISCV64 && !HOST_POWERPC64 && !HOST_POWERPC64
 #endif // !HAVE_FPREGS_WITH_CW
+
+#if defined(HOST_ARM64) && !defined(TARGET_OSX) && !defined(TARGET_FREEBSD)
+    const fpsimd_context* fp = nullptr;
+    const sve_context* sve = nullptr;
+    if (((lpContext->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) ||
+        ((lpContext->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE))
+    {
+        GetConstNativeSigSimdContext(native, &fp, &sve);
+    }
+#endif // HOST_ARM64 && !TARGET_OSX && !TARGET_FREEBSD
 
     if ((contextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT)
     {
@@ -698,8 +1119,18 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
         {
             lpContext->V[i] = *(NEON128*) &fp->__v[i];
         }
+#elif defined(TARGET_FREEBSD)
+        const struct fpregs* fp = GetConstNativeSigSimdContext(native);
+        if (fp)
+        {
+            lpContext->Fpsr = fp->fp_sr;
+            lpContext->Fpcr = fp->fp_cr;
+            for (int i = 0; i < 32; i++)
+            {
+                lpContext->V[i] = *(NEON128*) &fp->fp_q[i];
+            }
+        }
 #else // TARGET_OSX
-        const fpsimd_context* fp = GetConstNativeSigSimdContext(native);
         if (fp)
         {
             lpContext->Fpsr = fp->fpsr;
@@ -731,23 +1162,113 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
         static_assert_no_msg(sizeof(fp->fprs) == sizeof(lpContext->Fpr));
         memcpy(lpContext->Fpr, fp->fprs, sizeof(lpContext->Fpr));
 #elif defined(HOST_LOONGARCH64)
-        lpContext->Fcsr = native->uc_mcontext.__fcsr;
+        struct sctx_info* info = (struct sctx_info*) native->uc_mcontext.__extcontext;
+        if (FPU_CTX_MAGIC == info->magic)
+        {
+            struct fpu_context* fpr = (struct fpu_context*)(info + 1);
+            lpContext->Fcsr = fpr->fcsr;
+            lpContext->Fcc  = fpr->fcc;
+            memcpy(lpContext->F, fpr->regs, sizeof(fpr->regs));
+        }
+        else if (LSX_CTX_MAGIC == info->magic)
+        {
+            struct lsx_context* fpr = (struct lsx_context*)(info + 1);
+            lpContext->Fcsr = fpr->fcsr;
+            lpContext->Fcc  = fpr->fcc;
+            memcpy(lpContext->F, fpr->regs, sizeof(fpr->regs));
+        }
+        else if (LASX_CTX_MAGIC == info->magic)
+        {
+            struct lasx_context* fpr = (struct lasx_context*)(info + 1);
+            lpContext->Fcsr = fpr->fcsr;
+            lpContext->Fcc  = fpr->fcc;
+            memcpy(lpContext->F, fpr->regs, sizeof(fpr->regs));
+        }
+        else
+        {
+            _ASSERTE(LBT_CTX_MAGIC == info->magic);
+        }
+
+#elif defined(HOST_RISCV64)
+        lpContext->Fcsr = native->uc_mcontext.__fpregs.__d.__fcsr;
         for (int i = 0; i < 32; i++)
         {
-            lpContext->F[i] = native->uc_mcontext.__fpregs[i].__val64[0];
+            lpContext->F[i] = native->uc_mcontext.__fpregs.__d.__f[i];
         }
 #endif
     }
 
-#ifdef HOST_AMD64
+#if defined(HOST_AMD64) || defined(HOST_ARM64)
     if ((contextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE)
     {
     // TODO: Enable for all Unix systems
-#if XSTATE_SUPPORTED
+#if defined(XSTATE_SUPPORTED)
+#if defined(HOST_AMD64)
         if (FPREG_HasYmmRegisters(native))
         {
-            memcpy_s(lpContext->VectorRegister, sizeof(M128A) * 16, FPREG_Xstate_Ymmh(native), sizeof(M128A) * 16);
+            uint32_t size;
+            void *src;
+
+            src = FPREG_Xstate_Ymmh(native, &size);
+            _ASSERT(size == (sizeof(M128A) * 16));
+            memcpy_s(&lpContext->Ymm0H, sizeof(M128A) * 16, src, sizeof(M128A) * 16);
+
+            lpContext->XStateFeaturesMask |= XSTATE_MASK_AVX;
+
+            if (FPREG_HasAvx512Registers(native))
+            {
+                src = FPREG_Xstate_Opmask(native, &size);
+                _ASSERT(size == (sizeof(DWORD64) * 8));
+                memcpy_s(&lpContext->KMask0, sizeof(DWORD64) * 8, src, sizeof(DWORD64) * 8);
+
+                src = FPREG_Xstate_ZmmHi256(native, &size);
+                _ASSERT(size == (sizeof(M256) * 16));
+                memcpy_s(&lpContext->Zmm0H, sizeof(M256) * 16, src, sizeof(M256) * 16);
+
+                src = FPREG_Xstate_Hi16Zmm(native, &size);
+                _ASSERT(size == (sizeof(M512) * 16));
+                memcpy_s(&lpContext->Zmm16, sizeof(M512) * 16, src, sizeof(M512) * 16);
+
+                lpContext->XStateFeaturesMask |= XSTATE_MASK_AVX512;
+            }
+#if !defined(TARGET_OSX)
+            if (FPREG_HasApxRegisters(native))
+            {
+                src = FPREG_Xstate_Egpr(native, &size);
+                _ASSERT(size == (sizeof(DWORD64) * 16));
+                memcpy_s(&lpContext->Egpr16, sizeof(DWORD64) * 16, src, sizeof(DWORD64) * 16);
+
+                lpContext->XStateFeaturesMask |= XSTATE_MASK_APX;
+            }
+#endif // TARGET_OSX
         }
+#elif defined(HOST_ARM64)
+        if (sve && sve->head.size >= SVE_SIG_CONTEXT_SIZE(sve_vq_from_vl(sve->vl)))
+        {
+            //TODO-SVE: This only handles vector lengths of 128bits.
+            if (CONTEXT_GetSveLengthFromOS() == 16)
+            {
+                _ASSERTE((sve->vl > 0) && (sve->vl % 16 == 0));
+                lpContext->Vl  = sve->vl;
+
+                uint16_t vq = sve_vq_from_vl(sve->vl);
+
+                lpContext->XStateFeaturesMask |= XSTATE_MASK_ARM64_SVE;
+
+                //Note: Size of ffr register is SVE_SIG_FFR_SIZE(vq) bytes.
+                lpContext->Ffr = *(WORD*) (((uint8_t*)sve) + SVE_SIG_FFR_OFFSET(vq));
+
+                //TODO-SVE: Copy SVE registers once they are >128bits
+                //Note: Size of a Z register is SVE_SIG_ZREGS_SIZE(vq) bytes.
+
+                for (int i = 0; i < 16; i++)
+                {
+                    //Note: Size of a P register is SVE_SIG_PREGS_SIZE(vq) bytes.
+                    lpContext->P[i] = *(WORD*) (((uint8_t*)sve) + SVE_SIG_PREG_OFFSET(vq, i));
+                }
+            }
+        }
+#endif // HOST_AMD64
         else
 #endif // XSTATE_SUPPORTED
         {
@@ -757,7 +1278,7 @@ void CONTEXTFromNativeContext(const native_context_t *native, LPCONTEXT lpContex
             lpContext->ContextFlags &= ~xstateFlags;
         }
     }
-#endif // HOST_AMD64
+#endif // HOST_AMD64 || HOST_ARM64
 }
 
 #if !HAVE_MACH_EXCEPTIONS
@@ -781,16 +1302,12 @@ LPVOID GetNativeContextPC(const native_context_t *context)
     return (LPVOID)MCREG_Rip(context->uc_mcontext);
 #elif defined(HOST_X86)
     return (LPVOID) MCREG_Eip(context->uc_mcontext);
-#elif defined(HOST_ARM)
-    return (LPVOID) MCREG_Pc(context->uc_mcontext);
-#elif defined(HOST_ARM64)
-    return (LPVOID) MCREG_Pc(context->uc_mcontext);
-#elif defined(HOST_LOONGARCH64)
-    return (LPVOID) MCREG_Pc(context->uc_mcontext);
 #elif defined(HOST_S390X)
     return (LPVOID) MCREG_PSWAddr(context->uc_mcontext);
+#elif defined(HOST_POWERPC64)
+    return (LPVOID) MCREG_Nip(context->uc_mcontext);
 #else
-#   error implement me for this architecture
+    return (LPVOID) MCREG_Pc(context->uc_mcontext);
 #endif
 }
 
@@ -813,16 +1330,12 @@ LPVOID GetNativeContextSP(const native_context_t *context)
     return (LPVOID)MCREG_Rsp(context->uc_mcontext);
 #elif defined(HOST_X86)
     return (LPVOID) MCREG_Esp(context->uc_mcontext);
-#elif defined(HOST_ARM)
-    return (LPVOID) MCREG_Sp(context->uc_mcontext);
-#elif defined(HOST_ARM64)
-    return (LPVOID) MCREG_Sp(context->uc_mcontext);
-#elif defined(HOST_LOONGARCH64)
-    return (LPVOID) MCREG_Sp(context->uc_mcontext);
 #elif defined(HOST_S390X)
     return (LPVOID) MCREG_R15(context->uc_mcontext);
+#elif defined(HOST_POWERPC64)
+    return (LPVOID) MCREG_R31(context->uc_mcontext);
 #else
-#   error implement me for this architecture
+    return (LPVOID) MCREG_Sp(context->uc_mcontext);
 #endif
 }
 
@@ -1096,7 +1609,7 @@ CONTEXT_GetThreadContextFromPort(
         CONTEXT_GetThreadContextFromThreadState(StateFlavor, (thread_state_t)&State, lpContext);
     }
 
-    if (lpContext->ContextFlags & CONTEXT_ALL_FLOATING & CONTEXT_AREA_MASK) 
+    if (lpContext->ContextFlags & CONTEXT_ALL_FLOATING & CONTEXT_AREA_MASK)
     {
 #if defined(HOST_AMD64)
         // The thread_get_state for floating point state can fail for some flavors when the processor is not
@@ -1113,23 +1626,29 @@ CONTEXT_GetThreadContextFromPort(
 
         x86_avx512_state64_t State;
 
-        StateFlavor = x86_AVX_STATE64;
-        StateCount = sizeof(x86_avx_state64_t) / sizeof(natural_t);
+        StateFlavor = x86_AVX512_STATE64;
+        StateCount = sizeof(x86_avx512_state64_t) / sizeof(natural_t);
         MachRet = thread_get_state(Port, StateFlavor, (thread_state_t)&State, &StateCount);
+
         if (MachRet != KERN_SUCCESS)
         {
-            // The AVX state is not available, try to get the AVX512 state.
-            StateFlavor = x86_AVX512_STATE64;
-            StateCount = sizeof(x86_avx512_state64_t) / sizeof(natural_t);
+            // The AVX512 state is not available, try to get the AVX state.
+            lpContext->XStateFeaturesMask &= ~XSTATE_MASK_AVX512;
+
+            StateFlavor = x86_AVX_STATE64;
+            StateCount = sizeof(x86_avx_state64_t) / sizeof(natural_t);
             MachRet = thread_get_state(Port, StateFlavor, (thread_state_t)&State, &StateCount);
+
             if (MachRet != KERN_SUCCESS)
             {
-                // Neither the AVX nor the AVX512 state is not available, try to get at least the FLOAT state.
+                // Neither the AVX512 nor the AVX state is not available, try to get at least the FLOAT state.
+                lpContext->XStateFeaturesMask &= ~XSTATE_MASK_AVX;
                 lpContext->ContextFlags &= ~(CONTEXT_XSTATE & CONTEXT_AREA_MASK);
 
                 StateFlavor = x86_FLOAT_STATE64;
                 StateCount = sizeof(x86_float_state64_t) / sizeof(natural_t);
                 MachRet = thread_get_state(Port, StateFlavor, (thread_state_t)&State, &StateCount);
+
                 if (MachRet != KERN_SUCCESS)
                 {
                     // We were unable to get any floating point state. This case was observed on OSX with AVX512 capable processors.
@@ -1207,18 +1726,41 @@ CONTEXT_GetThreadContextFromThreadState(
             }
             break;
 
-        case x86_AVX_STATE64:
         case x86_AVX512_STATE64:
+        {
+            if (lpContext->ContextFlags & CONTEXT_XSTATE & CONTEXT_AREA_MASK)
+            {
+                if (Xstate_IsAvx512Supported())
+                {
+                    x86_avx512_state64_t *pState = (x86_avx512_state64_t *)threadState;
+
+                    memcpy(&lpContext->KMask0, &pState->__fpu_k0, sizeof(_STRUCT_OPMASK_REG) * 8);
+                    memcpy(&lpContext->Zmm0H, &pState->__fpu_zmmh0, sizeof(_STRUCT_YMM_REG) * 16);
+                    memcpy(&lpContext->Zmm16, &pState->__fpu_zmm16, sizeof(_STRUCT_ZMM_REG) * 16);
+
+                    lpContext->XStateFeaturesMask |= XSTATE_MASK_AVX512;
+                }
+            }
+
+            // Intentional fall-through, the AVX512 states are supersets of the AVX state
+            FALLTHROUGH;
+        }
+
+        case x86_AVX_STATE64:
+        {
             if (lpContext->ContextFlags & CONTEXT_XSTATE & CONTEXT_AREA_MASK)
             {
                 x86_avx_state64_t *pState = (x86_avx_state64_t *)threadState;
-                memcpy(&lpContext->VectorRegister, &pState->__fpu_ymmh0, 16 * 16);
+                memcpy(&lpContext->Ymm0H, &pState->__fpu_ymmh0, sizeof(_STRUCT_XMM_REG) * 16);
+                lpContext->XStateFeaturesMask |= XSTATE_MASK_AVX;
             }
 
             // Intentional fall-through, the AVX states are supersets of the FLOAT state
             FALLTHROUGH;
+        }
 
         case x86_FLOAT_STATE64:
+        {
             if (lpContext->ContextFlags & CONTEXT_FLOATING_POINT & CONTEXT_AREA_MASK)
             {
                 x86_float_state64_t *pState = (x86_float_state64_t *)threadState;
@@ -1242,8 +1784,16 @@ CONTEXT_GetThreadContextFromThreadState(
 
                 // AMD64's FLOATING_POINT includes the xmm registers.
                 memcpy(&lpContext->Xmm0, &pState->__fpu_xmm0, 16 * 16);
+
+                if (threadStateFlavor == x86_FLOAT_STATE64)
+                {
+                     // There was just a floating point state, so make sure the CONTEXT_XSTATE is not set
+                     lpContext->ContextFlags &= ~(CONTEXT_XSTATE & CONTEXT_AREA_MASK);
+                }
             }
             break;
+        }
+
         case x86_THREAD_STATE:
         {
             x86_thread_state_t *pState = (x86_thread_state_t *)threadState;
@@ -1255,6 +1805,18 @@ CONTEXT_GetThreadContextFromThreadState(
         {
             x86_float_state_t *pState = (x86_float_state_t *)threadState;
             CONTEXT_GetThreadContextFromThreadState((thread_state_flavor_t)pState->fsh.flavor, (thread_state_t)&pState->ufs, lpContext);
+        }
+        break;
+        case x86_AVX_STATE:
+        {
+            x86_avx_state_t *pState = (x86_avx_state_t *)threadState;
+            CONTEXT_GetThreadContextFromThreadState((thread_state_flavor_t)pState->ash.flavor, (thread_state_t)&pState->ufs, lpContext);
+        }
+        break;
+        case x86_AVX512_STATE:
+        {
+            x86_avx512_state_t *pState = (x86_avx512_state_t *)threadState;
+            CONTEXT_GetThreadContextFromThreadState((thread_state_flavor_t)pState->ash.flavor, (thread_state_t)&pState->ufs, lpContext);
         }
         break;
 #elif defined(HOST_ARM64)
@@ -1352,80 +1914,35 @@ CONTEXT_SetThreadContextOnPort(
     mach_msg_type_number_t StateCount;
     thread_state_flavor_t StateFlavor;
 
-    if (lpContext->ContextFlags & (CONTEXT_CONTROL|CONTEXT_INTEGER) & CONTEXT_AREA_MASK)
-    {
-#ifdef HOST_AMD64
-        x86_thread_state64_t State;
-        StateFlavor = x86_THREAD_STATE64;
-
-        State.__rax = lpContext->Rax;
-        State.__rbx = lpContext->Rbx;
-        State.__rcx = lpContext->Rcx;
-        State.__rdx = lpContext->Rdx;
-        State.__rdi = lpContext->Rdi;
-        State.__rsi = lpContext->Rsi;
-        State.__rbp = lpContext->Rbp;
-        State.__rsp = lpContext->Rsp;
-        State.__r8 = lpContext->R8;
-        State.__r9 = lpContext->R9;
-        State.__r10 = lpContext->R10;
-        State.__r11 = lpContext->R11;
-        State.__r12 = lpContext->R12;
-        State.__r13 = lpContext->R13;
-        State.__r14 = lpContext->R14;
-        State.__r15 = lpContext->R15;
-//        State.ss = lpContext->SegSs;
-        State.__rflags = lpContext->EFlags;
-        State.__rip = lpContext->Rip;
-        State.__cs = lpContext->SegCs;
-//        State.ds = lpContext->SegDs_PAL_Undefined;
-//        State.es = lpContext->SegEs_PAL_Undefined;
-        State.__fs = lpContext->SegFs;
-        State.__gs = lpContext->SegGs;
-#elif defined(HOST_ARM64)
-        arm_thread_state64_t State;
-        StateFlavor = ARM_THREAD_STATE64;
-
-        memcpy(&State.__x[0], &lpContext->X0, 29 * 8);
-        State.__cpsr = lpContext->Cpsr;
-        arm_thread_state64_set_fp(State, lpContext->Fp);
-        arm_thread_state64_set_sp(State, lpContext->Sp);
-        arm_thread_state64_set_lr_fptr(State, lpContext->Lr);
-        arm_thread_state64_set_pc_fptr(State, lpContext->Pc);
-#else
-#error Unexpected architecture.
-#endif
-
-        StateCount = sizeof(State) / sizeof(natural_t);
-
-        MachRet = thread_set_state(Port,
-                                   StateFlavor,
-                                   (thread_state_t)&State,
-                                   StateCount);
-        if (MachRet != KERN_SUCCESS)
-        {
-            ASSERT("thread_set_state(THREAD_STATE) failed: %d\n", MachRet);
-            goto EXIT;
-        }
-    }
-
     if (lpContext->ContextFlags & CONTEXT_ALL_FLOATING & CONTEXT_AREA_MASK)
     {
-
 #ifdef HOST_AMD64
 #ifdef XSTATE_SUPPORTED
         // We're relying on the fact that the initial portion of
-        // x86_avx_state64_t is identical to x86_float_state64_t.
+        // x86_avx_state64_t is identical to x86_float_state64_t
+        // and x86_avx512_state64_t to _x86_avx_state64_t.
         // Check a few fields to make sure the assumption is correct.
         static_assert_no_msg(sizeof(x86_avx_state64_t) > sizeof(x86_float_state64_t));
+        static_assert_no_msg(sizeof(x86_avx512_state64_t) > sizeof(x86_avx_state64_t));
         static_assert_no_msg(offsetof(x86_avx_state64_t, __fpu_fcw) == offsetof(x86_float_state64_t, __fpu_fcw));
         static_assert_no_msg(offsetof(x86_avx_state64_t, __fpu_xmm0) == offsetof(x86_float_state64_t, __fpu_xmm0));
+        static_assert_no_msg(offsetof(x86_avx512_state64_t, __fpu_fcw) == offsetof(x86_float_state64_t, __fpu_fcw));
+        static_assert_no_msg(offsetof(x86_avx512_state64_t, __fpu_xmm0) == offsetof(x86_float_state64_t, __fpu_xmm0));
 
-        x86_avx_state64_t State;
+        x86_avx512_state64_t State;
         if (lpContext->ContextFlags & CONTEXT_XSTATE & CONTEXT_AREA_MASK)
         {
-            StateFlavor = x86_AVX_STATE64;
-            StateCount = sizeof(State) / sizeof(natural_t);
+            if ((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX512) == XSTATE_MASK_AVX512)
+            {
+                StateFlavor = x86_AVX512_STATE64;
+                StateCount = sizeof(x86_avx512_state64_t) / sizeof(natural_t);
+            }
+            else
+            {
+                _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX) == XSTATE_MASK_AVX);
+                StateFlavor = x86_AVX_STATE64;
+                StateCount = sizeof(x86_avx_state64_t) / sizeof(natural_t);
+            }
         }
         else
         {
@@ -1444,26 +1961,6 @@ CONTEXT_SetThreadContextOnPort(
 #else
 #error Unexpected architecture.
 #endif
-
-        // If we're setting only one of the floating point or extended registers (of which Mach supports only
-        // the xmm values) then we don't have values for the other set. This is a problem since Mach only
-        // supports setting both groups as a single unit. So in this case we'll need to fetch the current
-        // values first.
-        if ((lpContext->ContextFlags & CONTEXT_ALL_FLOATING) !=
-            CONTEXT_ALL_FLOATING)
-        {
-            mach_msg_type_number_t StateCountGet = StateCount;
-            MachRet = thread_get_state(Port,
-                                       StateFlavor,
-                                       (thread_state_t)&State,
-                                       &StateCountGet);
-            if (MachRet != KERN_SUCCESS)
-            {
-                ASSERT("thread_get_state(FLOAT_STATE) failed: %d\n", MachRet);
-                goto EXIT;
-            }
-            _ASSERTE(StateCountGet == StateCount);
-        }
 
         if (lpContext->ContextFlags & CONTEXT_FLOATING_POINT & CONTEXT_AREA_MASK)
         {
@@ -1498,17 +1995,89 @@ CONTEXT_SetThreadContextOnPort(
 #if defined(HOST_AMD64) && defined(XSTATE_SUPPORTED)
         if (lpContext->ContextFlags & CONTEXT_XSTATE & CONTEXT_AREA_MASK)
         {
-            memcpy(&State.__fpu_ymmh0, lpContext->VectorRegister, 16 * 16);
+            if ((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX512) == XSTATE_MASK_AVX512)
+            {
+                memcpy(&State.__fpu_k0, &lpContext->KMask0, sizeof(_STRUCT_OPMASK_REG) * 8);
+                memcpy(&State.__fpu_zmmh0, &lpContext->Zmm0H, sizeof(_STRUCT_YMM_REG) * 16);
+                memcpy(&State.__fpu_zmm16, &lpContext->Zmm16, sizeof(_STRUCT_ZMM_REG) * 16);
+            }
+
+            _ASSERT((lpContext->XStateFeaturesMask & XSTATE_MASK_AVX) == XSTATE_MASK_AVX);
+            memcpy(&State.__fpu_ymmh0, &lpContext->Ymm0H, sizeof(_STRUCT_XMM_REG) * 16);
         }
 #endif
 
-        MachRet = thread_set_state(Port,
-                                   StateFlavor,
-                                   (thread_state_t)&State,
-                                   StateCount);
+        do
+        {
+            MachRet = thread_set_state(Port,
+                                       StateFlavor,
+                                       (thread_state_t)&State,
+                                       StateCount);
+        }
+        while (MachRet == KERN_ABORTED);
+
         if (MachRet != KERN_SUCCESS)
         {
             ASSERT("thread_set_state(FLOAT_STATE) failed: %d\n", MachRet);
+            goto EXIT;
+        }
+    }
+
+    if (lpContext->ContextFlags & (CONTEXT_CONTROL|CONTEXT_INTEGER) & CONTEXT_AREA_MASK)
+    {
+#ifdef HOST_AMD64
+        x86_thread_state64_t State;
+        StateFlavor = x86_THREAD_STATE64;
+
+        State.__rax = lpContext->Rax;
+        State.__rbx = lpContext->Rbx;
+        State.__rcx = lpContext->Rcx;
+        State.__rdx = lpContext->Rdx;
+        State.__rdi = lpContext->Rdi;
+        State.__rsi = lpContext->Rsi;
+        State.__rbp = lpContext->Rbp;
+        State.__rsp = lpContext->Rsp;
+        State.__r8 = lpContext->R8;
+        State.__r9 = lpContext->R9;
+        State.__r10 = lpContext->R10;
+        State.__r11 = lpContext->R11;
+        State.__r12 = lpContext->R12;
+        State.__r13 = lpContext->R13;
+        State.__r14 = lpContext->R14;
+        State.__r15 = lpContext->R15;
+        State.__rflags = lpContext->EFlags;
+        State.__rip = lpContext->Rip;
+        State.__cs = lpContext->SegCs;
+        State.__fs = lpContext->SegFs;
+        State.__gs = lpContext->SegGs;
+#elif defined(HOST_ARM64)
+        arm_thread_state64_t State;
+        StateFlavor = ARM_THREAD_STATE64;
+
+        memcpy(&State.__x[0], &lpContext->X0, 29 * 8);
+        State.__cpsr = lpContext->Cpsr;
+        arm_thread_state64_set_fp(State, lpContext->Fp);
+        arm_thread_state64_set_sp(State, lpContext->Sp);
+        arm_thread_state64_set_lr_fptr(State, lpContext->Lr);
+        arm_thread_state64_set_pc_fptr(State, lpContext->Pc);
+#else
+#error Unexpected architecture.
+#endif
+
+        StateCount = sizeof(State) / sizeof(natural_t);
+
+        do
+        {
+            MachRet = thread_set_state(Port,
+                                       StateFlavor,
+                                       (thread_state_t)&State,
+                                       StateCount);
+        }
+        while (MachRet == KERN_ABORTED);
+
+        if (MachRet != KERN_SUCCESS)
+        {
+            ASSERT("thread_set_state(THREAD_STATE) failed: %d\n", MachRet);
             goto EXIT;
         }
     }
@@ -1581,10 +2150,7 @@ DBG_FlushInstructionCache(
                           IN LPCVOID lpBaseAddress,
                           IN SIZE_T dwSize)
 {
-#ifndef HOST_ARM
-    // Intrinsic should do the right thing across all platforms (except Linux arm)
-    __builtin___clear_cache((char *)lpBaseAddress, (char *)((INT_PTR)lpBaseAddress + dwSize));
-#else // HOST_ARM
+#if defined(__linux__) && defined(HOST_ARM)
     // On Linux/arm (at least on 3.10) we found that there is a problem with __do_cache_op (arch/arm/kernel/traps.c)
     // implementing cacheflush syscall. cacheflush flushes only the first page in range [lpBaseAddress, lpBaseAddress + dwSize)
     // and leaves other pages in undefined state which causes random tests failures (often due to SIGSEGV) with no particular pattern.
@@ -1592,18 +2158,61 @@ DBG_FlushInstructionCache(
     // As a workaround, we call __builtin___clear_cache on each page separately.
 
     const SIZE_T pageSize = GetVirtualPageSize();
-    INT_PTR begin = (INT_PTR)lpBaseAddress;
-    const INT_PTR end = begin + dwSize;
+    UINT_PTR begin = (UINT_PTR)lpBaseAddress;
+    const UINT_PTR end = begin + dwSize;
 
     while (begin < end)
     {
-        INT_PTR endOrNextPageBegin = ALIGN_UP(begin + 1, pageSize);
+        UINT_PTR endOrNextPageBegin = ALIGN_UP(begin + 1, pageSize);
         if (endOrNextPageBegin > end)
             endOrNextPageBegin = end;
 
         __builtin___clear_cache((char *)begin, (char *)endOrNextPageBegin);
         begin = endOrNextPageBegin;
     }
-#endif // HOST_ARM
+#elif defined(HOST_RISCV64)
+    // __clear_cache() expanded from __builtin___clear_cache() is not implemented
+    // on Linux/RISCV64, at least in Clang 14, and we have to make syscall directly.
+    //
+    // TODO-RISCV64: use __builtin___clear_cache() in future. See https://github.com/llvm/llvm-project/issues/63551
+
+#ifndef __NR_riscv_flush_icache
+    #define __NR_riscv_flush_icache 259
+#endif
+
+    syscall(__NR_riscv_flush_icache, (char *)lpBaseAddress, (char *)((INT_PTR)lpBaseAddress + dwSize), 0 /* all harts */);
+#else
+    __builtin___clear_cache((char *)lpBaseAddress, (char *)((INT_PTR)lpBaseAddress + dwSize));
+#endif
     return TRUE;
 }
+
+#ifdef HOST_AMD64
+CONTEXT& CONTEXT::operator=(const CONTEXT& ctx)
+{
+    size_t copySize;
+    if (ctx.ContextFlags & CONTEXT_XSTATE & CONTEXT_AREA_MASK)
+    {
+        if ((ctx.XStateFeaturesMask & XSTATE_MASK_APX) == XSTATE_MASK_APX)
+        {
+            copySize = sizeof(CONTEXT);
+        }
+        else if ((ctx.XStateFeaturesMask & XSTATE_MASK_AVX512) == XSTATE_MASK_AVX512)
+        {
+            copySize = offsetof(CONTEXT, Egpr16);
+        }
+        else
+        {
+            copySize = offsetof(CONTEXT, KMask0);
+        }
+    }
+    else
+    {
+        copySize = offsetof(CONTEXT, XStateFeaturesMask);
+    }
+
+    memcpy(this, &ctx, copySize);
+
+    return *this;
+}
+#endif // HOST_AMD64

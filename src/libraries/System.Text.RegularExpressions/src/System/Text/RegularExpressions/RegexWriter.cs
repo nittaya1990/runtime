@@ -3,7 +3,6 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace System.Text.RegularExpressions
@@ -21,7 +20,6 @@ namespace System.Text.RegularExpressions
         private const int IntStackSize = 32;
 
         private readonly RegexTree _tree;
-        private readonly CultureInfo _culture;
         private readonly Dictionary<string, int> _stringTable;
         private ValueListBuilder<int> _emitted;
         private ValueListBuilder<int> _intStack;
@@ -30,15 +28,14 @@ namespace System.Text.RegularExpressions
 #if DEBUG
         static RegexWriter()
         {
-            Debug.Assert(!Enum.IsDefined(typeof(RegexNodeKind), BeforeChild));
-            Debug.Assert(!Enum.IsDefined(typeof(RegexNodeKind), AfterChild));
+            Debug.Assert(!Enum.IsDefined(BeforeChild));
+            Debug.Assert(!Enum.IsDefined(AfterChild));
         }
 #endif
 
-        private RegexWriter(RegexTree tree, CultureInfo culture, Span<int> emittedSpan, Span<int> intStackSpan)
+        private RegexWriter(RegexTree tree, Span<int> emittedSpan, Span<int> intStackSpan)
         {
             _tree = tree;
-            _culture = culture;
             _emitted = new ValueListBuilder<int>(emittedSpan);
             _intStack = new ValueListBuilder<int>(intStackSpan);
             _stringTable = new Dictionary<string, int>();
@@ -58,9 +55,9 @@ namespace System.Text.RegularExpressions
         /// This is the only function that should be called from outside.
         /// It takes a <see cref="RegexTree"/> and creates a corresponding <see cref="RegexInterpreterCode"/>.
         /// </summary>
-        public static RegexInterpreterCode Write(RegexTree tree, CultureInfo culture)
+        public static RegexInterpreterCode Write(RegexTree tree)
         {
-            using var writer = new RegexWriter(tree, culture, stackalloc int[EmittedSize], stackalloc int[IntStackSize]);
+            using var writer = new RegexWriter(tree, stackalloc int[EmittedSize], stackalloc int[IntStackSize]);
             return writer.EmitCode();
         }
 
@@ -180,17 +177,17 @@ namespace System.Text.RegularExpressions
         /// </summary>
         private int StringCode(string str)
         {
-#if REGEXGENERATOR
-            if (!_stringTable.TryGetValue(str, out int i))
-            {
-                i = _stringTable.Count;
-                _stringTable.Add(str, i);
-            }
-#else
+#if NET
             ref int i = ref CollectionsMarshal.GetValueRefOrAddDefault(_stringTable, str, out bool exists);
             if (!exists)
             {
                 i = _stringTable.Count - 1;
+            }
+#else
+            if (!_stringTable.TryGetValue(str, out int i))
+            {
+                i = _stringTable.Count;
+                _stringTable.Add(str, i);
             }
 #endif
             return i;
@@ -341,10 +338,6 @@ namespace System.Text.RegularExpressions
                         if (node.M == 0)
                             PatchJump(_intStack.Pop(), StartJumpPos);
                     }
-                    break;
-
-                case RegexNodeKind.Group | BeforeChild:
-                case RegexNodeKind.Group | AfterChild:
                     break;
 
                 case RegexNodeKind.Capture | BeforeChild:

@@ -2,35 +2,55 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Globalization;
 using System.Net.NetworkInformation;
-using System.Buffers.Binary;
+using System.Net.Sockets;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace System.Net
 {
     internal static class IPAddressParser
     {
-        private const int MaxIPv4StringLength = 15; // 4 numbers separated by 3 periods, with up to 3 digits per number
+        internal const int MaxIPv4StringLength = 15; // 4 numbers separated by 3 periods, with up to 3 digits per number
+        internal const int MaxIPv6StringLength = 65;
 
-        internal static IPAddress? Parse(ReadOnlySpan<char> ipSpan, bool tryParse)
+        public static unsafe bool IsValid<TChar>(ReadOnlySpan<TChar> ipSpan)
+            where TChar : unmanaged, IBinaryInteger<TChar>
         {
-            if (ipSpan.Contains(':'))
+            fixed (TChar* ipStringPtr = &MemoryMarshal.GetReference(ipSpan))
+            {
+                if (ipSpan.Contains(TChar.CreateTruncating(':')))
+                {
+                    return IPv6AddressHelper.IsValidStrict(ipStringPtr, 0, ipSpan.Length);
+                }
+                else
+                {
+                    int end = ipSpan.Length;
+                    long address = IPv4AddressHelper.ParseNonCanonical(ipStringPtr, 0, ref end, notImplicitFile: true);
+                    return address != IPv4AddressHelper.Invalid && end == ipSpan.Length;
+                }
+            }
+        }
+
+        internal static IPAddress? Parse<TChar>(ReadOnlySpan<TChar> ipSpan, bool tryParse)
+            where TChar : unmanaged, IBinaryInteger<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(byte) || typeof(TChar) == typeof(char));
+
+            if (ipSpan.Contains(TChar.CreateTruncating(':')))
             {
                 // The address is parsed as IPv6 if and only if it contains a colon. This is valid because
                 // we don't support/parse a port specification at the end of an IPv4 address.
                 Span<ushort> numbers = stackalloc ushort[IPAddressParserStatics.IPv6AddressShorts];
                 numbers.Clear();
-                if (Ipv6StringToAddress(ipSpan, numbers, IPAddressParserStatics.IPv6AddressShorts, out uint scope))
+                if (TryParseIPv6(ipSpan, numbers, IPAddressParserStatics.IPv6AddressShorts, out uint scope))
                 {
                     return new IPAddress(numbers, scope);
                 }
             }
-            else if (Ipv4StringToAddress(ipSpan, out long address))
+            else if (TryParseIpv4(ipSpan, out long address))
             {
                 return new IPAddress(address);
             }
@@ -43,137 +63,13 @@ namespace System.Net
             throw new FormatException(SR.dns_bad_ip_address, new SocketException(SocketError.InvalidArgument));
         }
 
-        internal static unsafe string IPv4AddressToString(uint address)
-        {
-            char* addressString = stackalloc char[MaxIPv4StringLength];
-            int charsWritten = IPv4AddressToStringHelper(address, addressString);
-            return new string(addressString, 0, charsWritten);
-        }
-
-        internal static unsafe void IPv4AddressToString(uint address, StringBuilder destination)
-        {
-            char* addressString = stackalloc char[MaxIPv4StringLength];
-            int charsWritten = IPv4AddressToStringHelper(address, addressString);
-            destination.Append(addressString, charsWritten);
-        }
-
-        internal static unsafe bool IPv4AddressToString(uint address, Span<char> formatted, out int charsWritten)
-        {
-            if (formatted.Length < MaxIPv4StringLength)
-            {
-                charsWritten = 0;
-                return false;
-            }
-
-            fixed (char* formattedPtr = &MemoryMarshal.GetReference(formatted))
-            {
-                charsWritten = IPv4AddressToStringHelper(address, formattedPtr);
-            }
-
-            return true;
-        }
-
-        private static unsafe int IPv4AddressToStringHelper(uint address, char* addressString)
-        {
-            int offset = 0;
-            address = (uint)IPAddress.NetworkToHostOrder(unchecked((int)address));
-
-            FormatIPv4AddressNumber((int)((address >> 24) & 0xFF), addressString, ref offset);
-            addressString[offset++] = '.';
-            FormatIPv4AddressNumber((int)((address >> 16) & 0xFF), addressString, ref offset);
-            addressString[offset++] = '.';
-            FormatIPv4AddressNumber((int)((address >> 8) & 0xFF), addressString, ref offset);
-            addressString[offset++] = '.';
-            FormatIPv4AddressNumber((int)(address & 0xFF), addressString, ref offset);
-
-            return offset;
-        }
-
-        internal static string IPv6AddressToString(ushort[] address, uint scopeId)
-        {
-            Debug.Assert(address != null);
-            Debug.Assert(address.Length == IPAddressParserStatics.IPv6AddressShorts);
-
-            StringBuilder buffer = IPv6AddressToStringHelper(address, scopeId);
-
-            return StringBuilderCache.GetStringAndRelease(buffer);
-        }
-
-        internal static bool IPv6AddressToString(ushort[] address, uint scopeId, Span<char> destination, out int charsWritten)
-        {
-            Debug.Assert(address != null);
-            Debug.Assert(address.Length == IPAddressParserStatics.IPv6AddressShorts);
-
-            StringBuilder buffer = IPv6AddressToStringHelper(address, scopeId);
-
-            if (destination.Length < buffer.Length)
-            {
-                StringBuilderCache.Release(buffer);
-                charsWritten = 0;
-                return false;
-            }
-
-            buffer.CopyTo(0, destination, buffer.Length);
-            charsWritten = buffer.Length;
-
-            StringBuilderCache.Release(buffer);
-
-            return true;
-        }
-
-        internal static StringBuilder IPv6AddressToStringHelper(ushort[] address, uint scopeId)
-        {
-            const int INET6_ADDRSTRLEN = 65;
-            StringBuilder buffer = StringBuilderCache.Acquire(INET6_ADDRSTRLEN);
-
-            if (IPv6AddressHelper.ShouldHaveIpv4Embedded(address))
-            {
-                // We need to treat the last 2 ushorts as a 4-byte IPv4 address,
-                // so output the first 6 ushorts normally, followed by the IPv4 address.
-                AppendSections(address, 0, 6, buffer);
-                if (buffer[buffer.Length - 1] != ':')
-                {
-                    buffer.Append(':');
-                }
-                IPv4AddressToString(ExtractIPv4Address(address), buffer);
-            }
-            else
-            {
-                // No IPv4 address.  Output all 8 sections as part of the IPv6 address
-                // with normal formatting rules.
-                AppendSections(address, 0, 8, buffer);
-            }
-
-            // If there's a scope ID, append it.
-            if (scopeId != 0)
-            {
-                buffer.Append('%').Append(scopeId);
-            }
-
-            return buffer;
-        }
-
-        private static unsafe void FormatIPv4AddressNumber(int number, char* addressString, ref int offset)
-        {
-            // Math.DivRem has no overload for byte, assert here for safety
-            Debug.Assert(number < 256);
-
-            offset += number > 99 ? 3 : number > 9 ? 2 : 1;
-
-            int i = offset;
-            do
-            {
-                number = Math.DivRem(number, 10, out int rem);
-                addressString[--i] = (char)('0' + rem);
-            } while (number != 0);
-        }
-
-        public static unsafe bool Ipv4StringToAddress(ReadOnlySpan<char> ipSpan, out long address)
+        private static unsafe bool TryParseIpv4<TChar>(ReadOnlySpan<TChar> ipSpan, out long address)
+            where TChar : unmanaged, IBinaryInteger<TChar>
         {
             int end = ipSpan.Length;
             long tmpAddr;
 
-            fixed (char* ipStringPtr = &MemoryMarshal.GetReference(ipSpan))
+            fixed (TChar* ipStringPtr = &MemoryMarshal.GetReference(ipSpan))
             {
                 tmpAddr = IPv4AddressHelper.ParseNonCanonical(ipStringPtr, 0, ref end, notImplicitFile: true);
             }
@@ -185,116 +81,228 @@ namespace System.Net
                 address = (uint)IPAddress.HostToNetworkOrder(unchecked((int)tmpAddr));
                 return true;
             }
-            else
-            {
-                // Failed to parse the address.
-                address = 0;
-                return false;
-            }
+
+            // Failed to parse the address.
+            address = 0;
+            return false;
         }
 
-        public static unsafe bool Ipv6StringToAddress(ReadOnlySpan<char> ipSpan, Span<ushort> numbers, int numbersLength, out uint scope)
+        private static unsafe bool TryParseIPv6<TChar>(ReadOnlySpan<TChar> ipSpan, Span<ushort> numbers, int numbersLength, out uint scope)
+            where TChar : unmanaged, IBinaryInteger<TChar>
         {
-            Debug.Assert(numbers != null);
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
             Debug.Assert(numbersLength >= IPAddressParserStatics.IPv6AddressShorts);
 
-            int end = ipSpan.Length;
-
-            bool isValid = false;
-            fixed (char* ipStringPtr = &MemoryMarshal.GetReference(ipSpan))
+            fixed (TChar* ipStringPtr = &MemoryMarshal.GetReference(ipSpan))
             {
-                isValid = IPv6AddressHelper.IsValidStrict(ipStringPtr, 0, ref end);
-            }
-            if (isValid || (end != ipSpan.Length))
-            {
-                string? scopeId = null;
-                IPv6AddressHelper.Parse(ipSpan, numbers, 0, ref scopeId);
-
-                if (scopeId?.Length > 1)
+                if (!IPv6AddressHelper.IsValidStrict(ipStringPtr, 0, ipSpan.Length))
                 {
-                    if (uint.TryParse(scopeId.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out scope))
-                    {
-                        return true; // scopeId is a numeric value
-                    }
-                    uint interfaceIndex = InterfaceInfoPal.InterfaceNameToIndex(scopeId);
+                    scope = 0;
+                    return false;
+                }
+            }
+
+            IPv6AddressHelper.Parse(ipSpan, numbers, out ReadOnlySpan<TChar> scopeIdSpan);
+
+            if (scopeIdSpan.Length > 1)
+            {
+                bool parsedNumericScope;
+                scopeIdSpan = scopeIdSpan.Slice(1);
+
+                // scopeId is a numeric value
+                if (typeof(TChar) == typeof(byte))
+                {
+                    ReadOnlySpan<byte> castScopeIdSpan = MemoryMarshal.Cast<TChar, byte>(scopeIdSpan);
+
+                    parsedNumericScope = uint.TryParse(castScopeIdSpan, NumberStyles.None, CultureInfo.InvariantCulture, out scope);
+                }
+                else
+                {
+                    ReadOnlySpan<char> castScopeIdSpan = MemoryMarshal.Cast<TChar, char>(scopeIdSpan);
+
+                    parsedNumericScope = uint.TryParse(castScopeIdSpan, NumberStyles.None, CultureInfo.InvariantCulture, out scope);
+                }
+
+                if (parsedNumericScope)
+                {
+                    return true;
+                }
+                else
+                {
+                    uint interfaceIndex = InterfaceInfoPal.InterfaceNameToIndex(scopeIdSpan);
+
                     if (interfaceIndex > 0)
                     {
                         scope = interfaceIndex;
                         return true; // scopeId is a known interface name
                     }
-                    // scopeId is an unknown interface name
                 }
-                // scopeId is not presented
-                scope = 0;
-                return true;
+
+                // scopeId is an unknown interface name
             }
 
+            // scopeId is not presented
             scope = 0;
-            return false;
+            return true;
         }
 
-        /// <summary>
-        /// Appends each of the numbers in address in indexed range [fromInclusive, toExclusive),
-        /// while also replacing the longest sequence of 0s found in that range with "::", as long
-        /// as the sequence is more than one 0.
-        /// </summary>
-        private static void AppendSections(ushort[] address, int fromInclusive, int toExclusive, StringBuilder buffer)
+        internal static int FormatIPv4Address<TChar>(uint address, Span<TChar> addressString)
+            where TChar : unmanaged, IBinaryInteger<TChar>
         {
-            // Find the longest sequence of zeros to be combined into a "::"
-            ReadOnlySpan<ushort> addressSpan = new ReadOnlySpan<ushort>(address, fromInclusive, toExclusive - fromInclusive);
-            (int zeroStart, int zeroEnd) = IPv6AddressHelper.FindCompressionRange(addressSpan);
-            bool needsColon = false;
+            address = (uint)IPAddress.NetworkToHostOrder(unchecked((int)address));
 
-            // Output all of the numbers before the zero sequence
-            for (int i = fromInclusive; i < zeroStart; i++)
+            int pos = FormatByte(address >> 24, addressString);
+            addressString[pos++] = TChar.CreateTruncating('.');
+            pos += FormatByte(address >> 16, addressString.Slice(pos));
+            addressString[pos++] = TChar.CreateTruncating('.');
+            pos += FormatByte(address >> 8, addressString.Slice(pos));
+            addressString[pos++] = TChar.CreateTruncating('.');
+            pos += FormatByte(address, addressString.Slice(pos));
+
+            return pos;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            static int FormatByte(uint number, Span<TChar> addressString)
             {
-                if (needsColon)
+                number &= 0xFF;
+
+                if (number >= 10)
                 {
-                    buffer.Append(':');
-                }
-                needsColon = true;
-                AppendHex(address[i], buffer);
-            }
+                    uint hundreds, tens;
+                    if (number >= 100)
+                    {
+                        (uint hundredsAndTens, number) = Math.DivRem(number, 10);
+                        (hundreds, tens) = Math.DivRem(hundredsAndTens, 10);
 
-            // Output the zero sequence if there is one
-            if (zeroStart >= 0)
-            {
-                buffer.Append("::");
-                needsColon = false;
-                fromInclusive = zeroEnd;
-            }
+                        addressString[2] = TChar.CreateTruncating('0' + number);
+                        addressString[1] = TChar.CreateTruncating('0' + tens);
+                        addressString[0] = TChar.CreateTruncating('0' + hundreds);
+                        return 3;
+                    }
 
-            // Output everything after the zero sequence
-            for (int i = fromInclusive; i < toExclusive; i++)
-            {
-                if (needsColon)
-                {
-                    buffer.Append(':');
+                    (tens, number) = Math.DivRem(number, 10);
+                    addressString[1] = TChar.CreateTruncating('0' + number);
+                    addressString[0] = TChar.CreateTruncating('0' + tens);
+                    return 2;
                 }
-                needsColon = true;
-                AppendHex(address[i], buffer);
+
+                addressString[0] = TChar.CreateTruncating('0' + number);
+                return 1;
             }
         }
 
-        /// <summary>Appends a number as hexadecimal (without the leading "0x") to the StringBuilder.</summary>
-        private static void AppendHex(ushort value, StringBuilder buffer)
+        internal static int FormatIPv6Address<TChar>(ushort[] address, uint scopeId, Span<TChar> destination)
+            where TChar : unmanaged, IBinaryInteger<TChar>
         {
-            if ((value & 0xF000) != 0)
-                buffer.Append(HexConverter.ToCharLower(value >> 12));
+            int pos = 0;
 
-            if ((value & 0xFF00) != 0)
-                buffer.Append(HexConverter.ToCharLower(value >> 8));
+            if (IPv6AddressHelper.ShouldHaveIpv4Embedded(address))
+            {
+                // We need to treat the last 2 ushorts as a 4-byte IPv4 address,
+                // so output the first 6 ushorts normally, followed by the IPv4 address.
+                AppendSections(address.AsSpan(0, 6), destination, ref pos);
+                if (destination[pos - 1] != TChar.CreateTruncating(':'))
+                {
+                    destination[pos++] = TChar.CreateTruncating(':');
+                }
 
-            if ((value & 0xFFF0) != 0)
-                buffer.Append(HexConverter.ToCharLower(value >> 4));
+                pos += FormatIPv4Address(ExtractIPv4Address(address), destination.Slice(pos));
+            }
+            else
+            {
+                // No IPv4 address.  Output all 8 sections as part of the IPv6 address
+                // with normal formatting rules.
+                AppendSections(address.AsSpan(0, 8), destination, ref pos);
+            }
 
-            buffer.Append(HexConverter.ToCharLower(value));
+            // If there's a scope ID, append it.
+            if (scopeId != 0)
+            {
+                destination[pos++] = TChar.CreateTruncating('%');
+
+                // TODO https://github.com/dotnet/runtime/issues/84527: Use UInt32 TryFormat for both char and byte once IUtf8SpanFormattable implementation exists
+                Span<TChar> chars = stackalloc TChar[10];
+                int bytesPos = 10;
+                do
+                {
+                    (scopeId, uint digit) = Math.DivRem(scopeId, 10);
+                    chars[--bytesPos] = TChar.CreateTruncating('0' + digit);
+                }
+                while (scopeId != 0);
+                Span<TChar> used = chars.Slice(bytesPos);
+                used.CopyTo(destination.Slice(pos));
+                pos += used.Length;
+            }
+
+            return pos;
+
+            // Appends each of the numbers in address in indexed range [fromInclusive, toExclusive),
+            // while also replacing the longest sequence of 0s found in that range with "::", as long
+            // as the sequence is more than one 0.
+            static void AppendSections(ReadOnlySpan<ushort> address, Span<TChar> destination, ref int offset)
+            {
+                // Find the longest sequence of zeros to be combined into a "::"
+                (int zeroStart, int zeroEnd) = IPv6AddressHelper.FindCompressionRange(address);
+                bool needsColon = false;
+
+                // Handle a zero sequence if there is one
+                if (zeroStart >= 0)
+                {
+                    // Output all of the numbers before the zero sequence
+                    for (int i = 0; i < zeroStart; i++)
+                    {
+                        if (needsColon)
+                        {
+                            destination[offset++] = TChar.CreateTruncating(':');
+                        }
+                        needsColon = true;
+                        AppendHex(address[i], destination, ref offset);
+                    }
+
+                    // Output the zero sequence if there is one
+                    destination[offset++] = TChar.CreateTruncating(':');
+                    destination[offset++] = TChar.CreateTruncating(':');
+                    needsColon = false;
+                }
+
+                // Output everything after the zero sequence
+                for (int i = zeroEnd; i < address.Length; i++)
+                {
+                    if (needsColon)
+                    {
+                        destination[offset++] = TChar.CreateTruncating(':');
+                    }
+                    needsColon = true;
+                    AppendHex(address[i], destination, ref offset);
+                }
+            }
+
+            // Appends a number as hexadecimal (without the leading "0x")
+            static void AppendHex(ushort value, Span<TChar> destination, ref int offset)
+            {
+                if ((value & 0xFFF0) != 0)
+                {
+                    if ((value & 0xFF00) != 0)
+                    {
+                        if ((value & 0xF000) != 0)
+                        {
+                            destination[offset++] = TChar.CreateTruncating(HexConverter.ToCharLower(value >> 12));
+                        }
+
+                        destination[offset++] = TChar.CreateTruncating(HexConverter.ToCharLower(value >> 8));
+                    }
+
+                    destination[offset++] = TChar.CreateTruncating(HexConverter.ToCharLower(value >> 4));
+                }
+
+                destination[offset++] = TChar.CreateTruncating(HexConverter.ToCharLower(value));
+            }
         }
 
         /// <summary>Extracts the IPv4 address from the end of the IPv6 address byte array.</summary>
         private static uint ExtractIPv4Address(ushort[] address)
         {
-            uint ipv4address = (uint)address[6] << 16 | (uint)address[7];
+            uint ipv4address = (uint)address[6] << 16 | address[7];
             return (uint)IPAddress.HostToNetworkOrder(unchecked((int)ipv4address));
         }
     }

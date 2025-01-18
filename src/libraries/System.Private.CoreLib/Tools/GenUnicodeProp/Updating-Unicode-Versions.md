@@ -1,6 +1,7 @@
 # Instructions for updating Unicode version in dotnet/runtime
 
 ## Table of Contents
+
 - [Instructions for updating Unicode version in dotnet/runtime](#instructions-for-updating-unicode-version-in-dotnetruntime)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
@@ -24,8 +25,7 @@ This repository has several places that need to be updated when we are ingesting
     - extracted/DerivedBidiClass.txt
     - extracted/DerivedName.txt
 
-2. Once you have downloaded all those files, create a fork of the repo https://github.com/dotnet/runtime-assets and send a PR which creates a folder at `src/System.Private.Runtime.UnicodeData/<YourUnicodeVersion>` and places all of the downloaded files from step 1 there. You can look at a sample PR that did this for Unicode 14.0.0 here: https://github.com/dotnet/runtime-assets/pull/179
-
+2. Once you have downloaded all those files, create a fork of the repo <https://github.com/dotnet/runtime-assets> and send a PR which creates a folder at `src/System.Private.Runtime.UnicodeData/<YourUnicodeVersion>` and places all of the downloaded files from step 1 there. You can look at a sample PR that did this for Unicode 14.0.0 here: <https://github.com/dotnet/runtime-assets/pull/179>
 
 ## Ingest the created package into dotnet/runtime repo
 
@@ -34,14 +34,22 @@ This should be done automatically by dependency-flow, so in theory there shouldn
 ## Update dotnet/runtime libraries to consume the new Unicode changes
 
 1. Follow the [instructions to run GenUnicodeProp](./Readme.md) which will generate a new `CharUnicodeInfoData.cs` file and will tell you where you need to copy the generated file. Make sure after compiling the GenUnicodeProp tool, that by inspecting the contents of the produced assembly, it contains all of the updated resources embedded into it, since those embedded resources are what is used to produce `CharUnicodeInfoData.cs`. You can inspect the embedded resources on the assembly using a tool like ILSpy.
-2. Follow the [instructions on how to update System.Text.Encondings.Web](../../../System.Text.Encodings.Web/tools/updating-encodings.md) projects. Those instructions will help you generate the files `UnicodeHelpers.generated.cs` and `UnicodeRangesTests.generated.cs`, which are consumed by both the test and the implementation projects for System.Text.Encodings.Web.
+2. Follow the [instructions on how to update System.Text.Encodings.Web](../../../System.Text.Encodings.Web/tools/updating-encodings.md) projects. Those instructions will help you generate the files `UnicodeHelpers.generated.cs` and `UnicodeRangesTests.generated.cs`, which are consumed by both the test and the implementation projects for System.Text.Encodings.Web.
 3. Search across the repo for all of the .csproj files which have the property `<UnicodeUcdVersion>` and update it to use the new version. If a project defines this property, then it is very likely it is consuming the runtime-assets package in some form, so it needs to be updated to consume the new version. At the time of the writing of this doc, the project files which need to be updated are:
    - GenUnicodeProp.csproj
    - TestUtilities.Unicode.csproj
    - System.Globalization.Tests.csproj
    - System.Globalization.Nls.Tests.csproj
    - System.Text.Encodings.Web.Tests.csproj
-4. If the new Unicode data contains casing changes/updates, then we will also need to update `src/coreclr/pal/src/locale/unicodedata.cpp` file. This file is used by most of the reflection stack whenever you specify the `BindingFlags.IgnoreCase`. In order to regenerate the contents of the `unicdedata.cpp` file, you need to run the Program located at `src/coreclr/pal/src/locale/unicodedata.cs` and give a full path to the new UnicodeData.txt as a parameter.
-5. If the new Unicode data made changes on what character class a specific character belongs to, or added new characters, you may need to update the serialized Unicode character classes data in `System.Text.RegularExpressions` for the `NonBacktracking` engine. The telling sign that will show you if you need to do this, is if any tests are failing in the `System.Text.RegularExpressions.Tests` test project. In case some tests do fail (which means you need to update the serialized mappings), you will need to edit the file `src/libraries/System.Text.RegularExpressions/tests/FunctionalTests/RegexExperiment.cs` and set the `Enabled` bool to `true`, and re-run the RegexTests. This will generate a couple of files in your `%temp%` directory: `IgnoreCaseRelation.cs` and `UnicodeCategoryRanges.cs`. These files will need to be copied (and overwrite the existing ones) to the folder `src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/Symbolic/Unicode/`
+4. If the new Unicode data contains casing changes/updates, then we will also need to update `src/native/minipal/unicodedata.c` file. This file is used by most of the reflection stack whenever you specify the `BindingFlags.IgnoreCase`. In order to regenerate the contents of the `unicdedata.c` file, you need to run the Program located at `src/native/minipal/UnicodeDataGenerator/unicodedata.cs` and give a full path to the new UnicodeData.txt as a parameter. e.g. in Unix shell:
+    ```sh
+    # download UnicodeData.txt
+    $ curl -sSLo /tmp/UnicodeData.txt https://www.unicode.org/Public/14.0.0/ucd/UnicodeData.txt
+
+    # update unicodedata.c
+    $ cd runtime
+    $ ./dotnet.sh run --project src/native/minipal/UnicodeDataGenerator /tmp/UnicodeData.txt > src/native/minipal/unicodedata.c
+    ```
+5. Update the Regex casing equivalence table using the UnicodeData.txt file from the new Unicode version. You can find the instructions on how to do this [here](../../../System.Text.RegularExpressions/tools/Readme.md).
 6. Finally, last step is to update the license for the Unicode data into our [Third party notices](../../../../../THIRD-PARTY-NOTICES.TXT) by copying the contents located in `https://www.unicode.org/license.html` to the section that has the Unicode license in our notices.
 7. That's it, now commit all of the changed files, and send a PR into dotnet/runtime with the updates. If there were any special things you had to do that are not noted on this document, PLEASE UPDATE THESE INSTRUCTIONS to facilitate future updates.

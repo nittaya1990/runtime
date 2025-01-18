@@ -9,10 +9,12 @@ success &= RunTest(Delegates.Run);
 success &= RunTest(Generics.Run);
 success &= RunTest(Interfaces.Run);
 success &= RunTest(Threading.Run);
+success &= RunTest(Devirtualization.Run);
+success &= RunTest(StackTraces.Run);
 
 return success ? 100 : 1;
 
-static bool RunTest(Func<int> t, [CallerArgumentExpression("t")] string name = null)
+static bool RunTest(Func<int> t, [CallerArgumentExpression(nameof(t))] string name = null)
 {
     Console.WriteLine($"===== Running test {name} =====");
     bool success = true;

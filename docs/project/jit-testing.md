@@ -112,7 +112,7 @@ Not yet clear what porting this entails.
 ### Leverage peer repo test suites.
 
 We should be able to directly leverage tests provided in peer repo suites, once
-they can run on top of CoreCLR. In particular CoreFx and Roslyn test cases
+they can run on top of CoreCLR. In particular libraries and Roslyn test cases
 could be good initial targets.
 
 Note LLILC is currently working through the remaining issues that prevent it
@@ -131,7 +131,7 @@ Suggestions for best practices or effective techniques are welcome.
 
 ### Bring up quantitative measurements.
 
-For Jit testing we'll need various quantitatve assessments of Jit behavior:
+For Jit testing we'll need various quantitative assessments of Jit behavior:
 
 1. Time spent jitting
 2. Speed of jitted code

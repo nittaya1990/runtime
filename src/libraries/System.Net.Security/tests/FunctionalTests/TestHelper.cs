@@ -43,18 +43,18 @@ namespace System.Net.Security.Tests
         private static readonly X509BasicConstraintsExtension s_eeConstraints =
             new X509BasicConstraintsExtension(false, false, 0, false);
 
-        public static readonly byte[] s_ping = Encoding.UTF8.GetBytes("PING");
-        public static readonly byte[] s_pong = Encoding.UTF8.GetBytes("PONG");
+        public static readonly byte[] s_ping = "PING"u8.ToArray();
+        public static readonly byte[] s_pong = "PONG"u8.ToArray();
 
         public static bool AllowAnyServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             return true;
         }
 
-        public static (SslStream ClientStream, SslStream ServerStream) GetConnectedSslStreams()
+        public static (SslStream ClientStream, SslStream ServerStream) GetConnectedSslStreams(bool leaveInnerStreamOpen = false)
         {
             (Stream clientStream, Stream serverStream) = GetConnectedStreams();
-            return (new SslStream(clientStream), new SslStream(serverStream));
+            return (new SslStream(clientStream, leaveInnerStreamOpen), new SslStream(serverStream, leaveInnerStreamOpen));
         }
 
         public static (Stream ClientStream, Stream ServerStream) GetConnectedStreams()
@@ -105,12 +105,12 @@ namespace System.Net.Security.Tests
             }
         }
 
-        internal static void CleanupCertificates([CallerMemberName] string? testName = null)
+        internal static void CleanupCertificates([CallerMemberName] string? testName = null, StoreName storeName = StoreName.CertificateAuthority)
         {
             string caName = $"O={testName}";
             try
             {
-                using (X509Store store = new X509Store(StoreName.CertificateAuthority, StoreLocation.LocalMachine))
+                using (X509Store store = new X509Store(storeName, StoreLocation.LocalMachine))
                 {
                     store.Open(OpenFlags.ReadWrite);
                     foreach (X509Certificate2 cert in store.Certificates)
@@ -119,6 +119,7 @@ namespace System.Net.Security.Tests
                         {
                             store.Remove(cert);
                         }
+                        cert.Dispose();
                     }
                 }
             }
@@ -126,7 +127,7 @@ namespace System.Net.Security.Tests
 
             try
             {
-                using (X509Store store = new X509Store(StoreName.CertificateAuthority, StoreLocation.CurrentUser))
+                using (X509Store store = new X509Store(storeName, StoreLocation.CurrentUser))
                 {
                     store.Open(OpenFlags.ReadWrite);
                     foreach (X509Certificate2 cert in store.Certificates)
@@ -135,68 +136,11 @@ namespace System.Net.Security.Tests
                         {
                             store.Remove(cert);
                         }
+                        cert.Dispose();
                     }
                 }
             }
             catch { };
-        }
-
-        internal static (X509Certificate2 certificate, X509Certificate2Collection) GenerateCertificates(string targetName, [CallerMemberName] string? testName = null, bool longChain = false, bool serverCertificate = true)
-        {
-            const int keySize = 2048;
-            if (PlatformDetection.IsWindows && testName != null)
-            {
-                CleanupCertificates(testName);
-            }
-
-            X509Certificate2Collection chain = new X509Certificate2Collection();
-            X509ExtensionCollection extensions = new X509ExtensionCollection();
-
-            SubjectAlternativeNameBuilder builder = new SubjectAlternativeNameBuilder();
-            builder.AddDnsName(targetName);
-            extensions.Add(builder.Build());
-            extensions.Add(s_eeConstraints);
-            extensions.Add(s_eeKeyUsage);
-            extensions.Add(serverCertificate ? s_tlsServerEku : s_tlsClientEku);
-
-            CertificateAuthority.BuildPrivatePki(
-                PkiOptions.IssuerRevocationViaCrl,
-                out RevocationResponder responder,
-                out CertificateAuthority root,
-                out CertificateAuthority[] intermediates,
-                out X509Certificate2 endEntity,
-                intermediateAuthorityCount: longChain ? 3 : 1,
-                subjectName: targetName,
-                testName: testName,
-                keySize: keySize,
-                extensions: extensions);
-
-            // Walk the intermediates backwards so we build the chain collection as
-            // Issuer3
-            // Issuer2
-            // Issuer1
-            // Root
-            for (int i = intermediates.Length - 1; i >= 0; i--)
-            {
-                CertificateAuthority authority = intermediates[i];
-
-                chain.Add(authority.CloneIssuerCert());
-                authority.Dispose();
-            }
-
-            chain.Add(root.CloneIssuerCert());
-
-            responder.Dispose();
-            root.Dispose();
-
-            if (PlatformDetection.IsWindows)
-            {
-                X509Certificate2 ephemeral = endEntity;
-                endEntity = new X509Certificate2(endEntity.Export(X509ContentType.Pfx));
-                ephemeral.Dispose();
-            }
-
-            return (endEntity, chain);
         }
 
         internal static async Task PingPong(SslStream client, SslStream server, CancellationToken cancellationToken = default)

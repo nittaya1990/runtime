@@ -9,9 +9,16 @@ using Xunit;
 
 namespace System.Security.Cryptography.Tests
 {
-    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
-    public class HmacSha1Tests : Rfc2202HmacTests
+    public class HmacSha1Tests : Rfc2202HmacTests<HmacSha1Tests.Traits>
     {
+        public sealed class Traits : IHmacTrait
+        {
+            public static bool IsSupported => true;
+            public static int HashSizeInBytes => HMACSHA1.HashSizeInBytes;
+        }
+
+        protected override HashAlgorithmName HashAlgorithm => HashAlgorithmName.SHA1;
+
         private static readonly byte[][] s_testKeys2202 =
         {
             null,
@@ -45,6 +52,7 @@ namespace System.Security.Cryptography.Tests
         protected override int MacSize => HMACSHA1.HashSizeInBytes;
 
         protected override HMAC Create() => new HMACSHA1();
+        protected override HMAC Create(byte[] key) => new HMACSHA1(key);
         protected override HashAlgorithm CreateHashAlgorithm() => SHA1.Create();
         protected override byte[] HashDataOneShot(byte[] key, byte[] source) =>
             HMACSHA1.HashData(key, source);
@@ -114,6 +122,16 @@ namespace System.Security.Cryptography.Tests
         }
 
         [Fact]
+        public void HmacSha1_EmptyKey()
+        {
+            VerifyRepeating(
+                input: "Crypto is fun!",
+                1,
+                hexKey: "",
+                output: "C979AD8DE8CC546CF82D948226FDD8024599F6CE");
+        }
+
+        [Fact]
         public void HmacSha1_Rfc2202_1()
         {
             VerifyHmac(1, s_testMacs2202[1]);
@@ -164,7 +182,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacSha1_Stream_MultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -176,7 +194,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacSha1_Stream_NotMultipleOf4096()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "0102030405060708",
@@ -188,7 +206,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public void HmacSha1_Stream_Empty()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             VerifyRepeating(
                 input: "",
@@ -200,7 +218,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha1_Stream_MultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1024}; do echo -n "0102030405060708"; done | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -212,7 +230,7 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha1_Stream_NotMultipleOf4096_Async()
         {
-            // Verfied with:
+            // Verified with:
             // for _ in {1..1025}; do echo -n "0102030405060708"; done | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "0102030405060708",
@@ -224,13 +242,20 @@ namespace System.Security.Cryptography.Tests
         [Fact]
         public async Task HmacSha1_Stream_Empty_Async()
         {
-            // Verfied with:
+            // Verified with:
             // echo -n "" | openssl sha1 -hex -mac HMAC -macopt hexkey:000102030405060708090A0B0C0D0E0F
             await VerifyRepeatingAsync(
                 input: "",
                 0,
                 hexKey: "000102030405060708090A0B0C0D0E0F",
                 output: "5433122F77BCF8A4D9B874B4149823EF5B7C207E");
+        }
+
+        [Fact]
+        public void HmacSha1_HashSizes()
+        {
+            Assert.Equal(160, HMACSHA1.HashSizeInBits);
+            Assert.Equal(20, HMACSHA1.HashSizeInBytes);
         }
     }
 }

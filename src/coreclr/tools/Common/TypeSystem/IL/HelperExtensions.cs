@@ -33,6 +33,12 @@ namespace Internal.IL
             return helperMethod;
         }
 
+        public static MethodDesc GetCoreLibEntryPoint(this TypeSystemContext context, string namespaceName, string typeName, string methodName, MethodSignature signature)
+        {
+            MetadataType owningType = context.SystemModule.GetKnownType(namespaceName, typeName);
+            return owningType.GetKnownMethod(methodName, signature);
+        }
+
         public static MethodDesc GetOptionalHelperEntryPoint(this TypeSystemContext context, string typeName, string methodName)
         {
             MetadataType helperType = context.GetOptionalHelperType(typeName);
@@ -69,7 +75,7 @@ namespace Internal.IL
             MethodDesc method = type.GetMethod(name, signature);
             if (method == null)
             {
-                throw new InvalidOperationException(String.Format("Expected method '{0}' not found on type '{1}'", name, type));
+                throw new InvalidOperationException(string.Format("Expected method '{0}' not found on type '{1}'", name, type));
             }
 
             return method;
@@ -84,7 +90,7 @@ namespace Internal.IL
             FieldDesc field = type.GetField(name);
             if (field == null)
             {
-                throw new InvalidOperationException(String.Format("Expected field '{0}' not found on type '{1}'", name, type));
+                throw new InvalidOperationException(string.Format("Expected field '{0}' not found on type '{1}'", name, type));
             }
 
             return field;
@@ -99,7 +105,7 @@ namespace Internal.IL
             MetadataType nestedType = type.GetNestedType(name);
             if (nestedType == null)
             {
-                throw new InvalidOperationException(String.Format("Expected type '{0}' not found on type '{1}'", name, type));
+                throw new InvalidOperationException(string.Format("Expected type '{0}' not found on type '{1}'", name, type));
             }
 
             return nestedType;
@@ -115,8 +121,8 @@ namespace Internal.IL
             if (type == null)
             {
                 throw new InvalidOperationException(
-                    String.Format("Expected type '{0}' not found in module '{1}'",
-                    @namespace.Length > 0 ? String.Concat(@namespace, ".", name) : name,
+                    string.Format("Expected type '{0}' not found in module '{1}'",
+                    @namespace.Length > 0 ? string.Concat(@namespace, ".", name) : name,
                     module));
             }
 

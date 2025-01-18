@@ -3,8 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Dynamic;
 using System.Diagnostics.CodeAnalysis;
+using System.Dynamic;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Runtime.InteropServices;
@@ -34,11 +34,6 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         }
 
         public override string ToString() => $"<type library {Name}>";
-
-        public string Documentation
-        {
-            get { return string.Empty; }
-        }
 
         #region IDynamicMetaObjectProvider Members
 

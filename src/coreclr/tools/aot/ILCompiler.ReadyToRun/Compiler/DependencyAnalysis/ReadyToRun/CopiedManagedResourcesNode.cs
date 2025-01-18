@@ -18,7 +18,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
             _module = module;
         }
 
-        public override ObjectNodeSection Section => ObjectNodeSection.TextSection;
+        public override ObjectNodeSection GetSection(NodeFactory factory) => ObjectNodeSection.TextSection;
 
         public override bool IsShareable => false;
 
@@ -31,7 +31,7 @@ namespace ILCompiler.DependencyAnalysis.ReadyToRun
         public void AppendMangledName(NameMangler nameMangler, Utf8StringBuilder sb)
         {
             sb.Append(nameMangler.CompilationUnitPrefix);
-            sb.Append("__ManagedResources");
+            sb.Append("__ManagedResources"u8);
         }
 
         protected override string GetName(NodeFactory factory) => this.GetMangledName(factory.NameMangler);

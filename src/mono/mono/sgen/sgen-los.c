@@ -275,7 +275,7 @@ static LOSObject*
 get_los_section_memory (size_t size)
 {
 	LOSSection *section;
-	LOSFreeChunks *free_chunks;
+	LOSFreeChunks *free_chunks = NULL;
 	size_t num_chunks;
 	size_t obj_size = size;
 
@@ -334,7 +334,12 @@ get_los_section_memory (size_t size)
 	section->next = los_sections;
 	los_sections = section;
 
+#ifdef HOST_WASM
+	// on WASM there is no mmap and alignment has large overhead
+	sgen_los_memory_usage_total += LOS_SECTION_SIZE + LOS_SECTION_SIZE;
+#else
 	sgen_los_memory_usage_total += LOS_SECTION_SIZE;
+#endif
 	++los_num_sections;
 
 	goto retry;
@@ -542,7 +547,12 @@ sgen_los_sweep (void)
 			sgen_memgov_release_space (LOS_SECTION_SIZE, SPACE_LOS);
 			section = next;
 			--los_num_sections;
+#ifdef HOST_WASM
+			// on WASM there is no mmap and alignment has large overhead
+			sgen_los_memory_usage_total -= LOS_SECTION_SIZE + LOS_SECTION_SIZE;
+#else
 			sgen_los_memory_usage_total -= LOS_SECTION_SIZE;
+#endif
 			continue;
 		}
 
@@ -782,7 +792,6 @@ sgen_los_count_cards (long long *num_total_cards, long long *num_marked_cards)
 	long long marked_cards = 0;
 
 	FOREACH_LOS_OBJECT_HAS_REFERENCES_NO_LOCK (obj, has_references) {
-		int i;
 		guint8 *cards = sgen_card_table_get_card_scan_address ((mword) obj->data);
 		guint8 *cards_end = sgen_card_table_get_card_scan_address ((mword) obj->data + sgen_los_object_size (obj) - 1);
 		mword num_cards = (cards_end - cards) + 1;
@@ -791,7 +800,7 @@ sgen_los_count_cards (long long *num_total_cards, long long *num_marked_cards)
 			continue;
 
 		total_cards += num_cards;
-		for (i = 0; i < num_cards; ++i) {
+		for (mword i = 0; i < num_cards; ++i) {
 			if (cards [i])
 				++marked_cards;
 		}
